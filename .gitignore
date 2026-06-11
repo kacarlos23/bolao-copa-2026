@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.expo/
+.expo-shared/
+web-build/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+backups/*.dump
+backups/*.sql
+backups/*.gz
+.postgres-data/
+logs/

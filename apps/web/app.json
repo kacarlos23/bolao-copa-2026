@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "Bolao Copa 2026",
+    "slug": "bolao-copa-2026",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "bolao-copa",
+    "userInterfaceStyle": "automatic",
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    }
+  }
+}

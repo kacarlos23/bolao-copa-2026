@@ -1,0 +1,219 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  BLOCKED
+}
+
+enum MatchStatus {
+  SCHEDULED
+  LIVE
+  FINISHED
+  POSTPONED
+  CANCELLED
+}
+
+enum MatchDayStatus {
+  OPEN
+  CLOSED
+  IN_PROGRESS
+  FINISHED
+}
+
+enum ScoreType {
+  EXACT_SCORE
+  RESULT
+  ONE_TEAM_GOALS
+  MISS
+}
+
+enum SyncStatus {
+  SUCCESS
+  FAILED
+}
+
+enum AuditAction {
+  USER_BLOCKED
+  USER_UNBLOCKED
+  USER_ROLE_CHANGED
+  PASSWORD_RESET
+  MANUAL_SYNC
+  MATCH_ADJUSTED
+  SETTING_UPDATED
+}
+
+model User {
+  id             String            @id @default(cuid())
+  username       String            @unique
+  usernameLower  String            @unique
+  nickname       String
+  passwordHash   String
+  role           UserRole          @default(USER)
+  status         UserStatus        @default(ACTIVE)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  predictions    Prediction[]
+  scores         PredictionScore[]
+  auditLogs      AdminAuditLog[]   @relation("AdminAuditActor")
+
+  @@index([role, status])
+  @@index([nickname])
+}
+
+model Team {
+  id         String   @id @default(cuid())
+  externalId String   @unique
+  name       String
+  code       String?
+  flagUrl    String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  homeMatches Match[] @relation("HomeTeam")
+  awayMatches Match[] @relation("AwayTeam")
+
+  @@index([name])
+  @@index([code])
+}
+
+model MatchDay {
+  id                 String         @id @default(cuid())
+  date               DateTime
+  firstMatchStartsAt DateTime
+  predictionsCloseAt DateTime
+  status             MatchDayStatus @default(OPEN)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  matches            Match[]
+
+  @@unique([date])
+  @@index([status, predictionsCloseAt])
+  @@index([firstMatchStartsAt])
+}
+
+model Match {
+  id             String       @id @default(cuid())
+  externalId     String       @unique
+  matchDayId     String
+  homeTeamId     String
+  awayTeamId     String
+  startsAt       DateTime
+  status         MatchStatus  @default(SCHEDULED)
+  homeScore      Int?
+  awayScore      Int?
+  finalHomeScore Int?
+  finalAwayScore Int?
+  rawPayload     Json?
+  lastSyncedAt   DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  matchDay       MatchDay     @relation(fields: [matchDayId], references: [id], onDelete: Cascade)
+  homeTeam       Team         @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam       Team         @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  predictions    Prediction[]
+  scores         PredictionScore[]
+
+  @@index([matchDayId, startsAt])
+  @@index([status, startsAt])
+  @@index([homeTeamId])
+  @@index([awayTeamId])
+}
+
+model Prediction {
+  id                 String            @id @default(cuid())
+  userId             String
+  matchId            String
+  predictedHomeScore Int
+  predictedAwayScore Int
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  match              Match             @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  score              PredictionScore?
+
+  @@unique([userId, matchId])
+  @@index([matchId])
+  @@index([userId])
+}
+
+model PredictionScore {
+  id           String    @id @default(cuid())
+  predictionId String    @unique
+  matchId      String
+  userId       String
+  points       Int
+  scoreType    ScoreType
+  isFinal      Boolean   @default(false)
+  calculatedAt DateTime  @default(now())
+  prediction   Prediction @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+  match        Match      @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isFinal])
+  @@index([matchId, isFinal])
+  @@index([points])
+}
+
+model RankingSnapshot {
+  id          String   @id @default(cuid())
+  userId      String
+  points      Int
+  finalPoints Int
+  exactScores Int
+  resultHits  Int
+  oneGoalHits Int
+  rank        Int
+  hasLiveData Boolean  @default(false)
+  calculatedAt DateTime @default(now())
+
+  @@index([rank])
+  @@index([points])
+  @@index([userId])
+  @@index([calculatedAt])
+}
+
+model ApiSyncLog {
+  id           String     @id @default(cuid())
+  status       SyncStatus
+  source       String
+  message      String?
+  details      Json?
+  startedAt    DateTime
+  finishedAt   DateTime?
+  createdAt    DateTime   @default(now())
+
+  @@index([status, createdAt])
+  @@index([source, createdAt])
+}
+
+model AdminAuditLog {
+  id        String      @id @default(cuid())
+  actorId   String?
+  action    AuditAction
+  targetId  String?
+  details   Json?
+  createdAt DateTime    @default(now())
+  actor     User?       @relation("AdminAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
+  @@index([targetId])
+}
+
+model AppSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
