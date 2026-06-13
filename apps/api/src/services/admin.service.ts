@@ -11,6 +11,7 @@ export async function listUsers() {
       id: true,
       username: true,
       nickname: true,
+      avatarUrl: true,
       role: true,
       status: true,
       createdAt: true,
@@ -31,6 +32,7 @@ export async function setUserStatus(actorId: string, userId: string, blocked: bo
       id: true,
       username: true,
       nickname: true,
+      avatarUrl: true,
       role: true,
       status: true,
       createdAt: true,
@@ -67,6 +69,16 @@ function localDateStart(date: Date) {
 
 function flagUrl(iso2?: string) {
   return iso2 ? `https://flagcdn.com/w80/${iso2}.png` : null;
+}
+
+function predictionCloseMinutes(firstMatchStartsAt: Date, metadata: Prisma.InputJsonValue) {
+  void firstMatchStartsAt;
+  void metadata;
+  return 5;
+}
+
+function predictionsCloseAt(firstMatchStartsAt: Date, metadata: Prisma.InputJsonValue) {
+  return new Date(firstMatchStartsAt.getTime() - predictionCloseMinutes(firstMatchStartsAt, metadata) * 60 * 1000);
 }
 
 export async function listTeams() {
@@ -154,25 +166,26 @@ export async function createOrUpdateMatch({
   }
 
   const date = localDateStart(startsAtDate);
-  const predictionsCloseAt = new Date(startsAtDate.getTime() - 30 * 60 * 1000);
+  const closeAt = predictionsCloseAt(startsAtDate, metadata);
   const existingDay = await prisma.matchDay.findUnique({ where: { date } });
   const firstMatchStartsAt =
     existingDay && existingDay.firstMatchStartsAt < startsAtDate
       ? existingDay.firstMatchStartsAt
       : startsAtDate;
+  const matchDayCloseAt = predictionsCloseAt(firstMatchStartsAt, metadata);
 
   const matchDay = await prisma.matchDay.upsert({
     where: { date },
     update: {
       firstMatchStartsAt,
-      predictionsCloseAt: new Date(firstMatchStartsAt.getTime() - 30 * 60 * 1000),
-      status: firstMatchStartsAt.getTime() - 30 * 60 * 1000 > Date.now() ? 'OPEN' : 'CLOSED',
+      predictionsCloseAt: matchDayCloseAt,
+      status: matchDayCloseAt.getTime() > Date.now() ? 'OPEN' : 'CLOSED',
     },
     create: {
       date,
       firstMatchStartsAt,
-      predictionsCloseAt,
-      status: predictionsCloseAt.getTime() > Date.now() ? 'OPEN' : 'CLOSED',
+      predictionsCloseAt: closeAt,
+      status: closeAt.getTime() > Date.now() ? 'OPEN' : 'CLOSED',
     },
   });
 

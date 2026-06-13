@@ -13,3 +13,5 @@ backups/*.sql
 backups/*.gz
 .postgres-data/
 logs/
+uploads/
+apps/api/uploads/

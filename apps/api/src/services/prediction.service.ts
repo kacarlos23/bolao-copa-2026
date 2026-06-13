@@ -3,6 +3,22 @@ import type { UpsertMatchDayPredictionsInput } from '@bolao/shared';
 import { prisma } from '../prisma.js';
 import { AppError } from '../http/errors.js';
 
+const MATCH_PREDICTION_CLOSE_MINUTES = 5;
+
+function matchPredictionsCloseAt(startsAt: Date) {
+  return new Date(startsAt.getTime() - MATCH_PREDICTION_CLOSE_MINUTES * 60 * 1000);
+}
+
+function matchPredictionState(startsAt: Date, now = new Date()) {
+  const predictionsCloseAt = matchPredictionsCloseAt(startsAt);
+  const predictionsArePublic = predictionsCloseAt <= now;
+  return {
+    predictionsCloseAt,
+    isOpenForPredictions: !predictionsArePublic,
+    predictionsArePublic,
+  };
+}
+
 export async function listMatchDays(userId?: string) {
   const now = new Date();
   const days = await prisma.matchDay.findMany({
@@ -19,11 +35,19 @@ export async function listMatchDays(userId?: string) {
     },
   });
 
-  return days.map((day) => ({
-    ...day,
-    isOpenForPredictions: day.predictionsCloseAt > now,
-    predictionsArePublic: day.predictionsCloseAt <= now,
-  }));
+  return days.map((day) => {
+    const matches = day.matches.map((match) => ({
+      ...match,
+      ...matchPredictionState(match.startsAt, now),
+    }));
+
+    return {
+      ...day,
+      matches,
+      isOpenForPredictions: matches.some((match) => match.isOpenForPredictions),
+      predictionsArePublic: matches.every((match) => match.predictionsArePublic),
+    };
+  });
 }
 
 export async function getMatchDay(matchDayId: string, viewerId: string) {
@@ -37,7 +61,7 @@ export async function getMatchDay(matchDayId: string, viewerId: string) {
           awayTeam: true,
           predictions: {
             where: { user: { role: 'USER', status: 'ACTIVE' } },
-            include: { user: { select: { id: true, nickname: true } } },
+            include: { user: { select: { id: true, nickname: true, avatarUrl: true } } },
             orderBy: { user: { nickname: 'asc' } },
           },
         },
@@ -47,17 +71,23 @@ export async function getMatchDay(matchDayId: string, viewerId: string) {
 
   if (!day) throw new AppError(404, 'Dia de jogos nao encontrado.', 'MATCH_DAY_NOT_FOUND');
 
-  const predictionsArePublic = day.predictionsCloseAt <= new Date();
+  const now = new Date();
+  const matches = day.matches.map((match) => {
+    const predictionState = matchPredictionState(match.startsAt, now);
+    return {
+      ...match,
+      ...predictionState,
+      predictions: predictionState.predictionsArePublic
+        ? match.predictions
+        : match.predictions.filter((prediction) => prediction.userId === viewerId),
+    };
+  });
 
   return {
     ...day,
-    predictionsArePublic,
-    matches: day.matches.map((match) => ({
-      ...match,
-      predictions: predictionsArePublic
-        ? match.predictions
-        : match.predictions.filter((prediction) => prediction.userId === viewerId),
-    })),
+    predictionsArePublic: matches.every((match) => match.predictionsArePublic),
+    isOpenForPredictions: matches.some((match) => match.isOpenForPredictions),
+    matches,
   };
 }
 
@@ -81,18 +111,20 @@ export async function upsertPredictions(
 
   const day = await prisma.matchDay.findUnique({
     where: { id: matchDayId },
-    include: { matches: { select: { id: true } } },
+    include: { matches: { select: { id: true, startsAt: true } } },
   });
 
   if (!day) throw new AppError(404, 'Dia de jogos nao encontrado.', 'MATCH_DAY_NOT_FOUND');
-  if (day.predictionsCloseAt <= new Date()) {
-    throw new AppError(409, 'Palpites deste dia ja foram fechados.', 'PREDICTIONS_CLOSED');
-  }
 
-  const allowedMatchIds = new Set(day.matches.map((match) => match.id));
+  const now = new Date();
+  const matchesById = new Map(day.matches.map((match) => [match.id, match]));
   for (const prediction of input.predictions) {
-    if (!allowedMatchIds.has(prediction.matchId)) {
+    const match = matchesById.get(prediction.matchId);
+    if (!match) {
       throw new AppError(400, 'Palpite contem jogo fora do dia selecionado.', 'MATCH_DAY_MISMATCH');
+    }
+    if (matchPredictionsCloseAt(match.startsAt) <= now) {
+      throw new AppError(409, 'Palpite deste jogo ja foi fechado.', 'PREDICTION_CLOSED_FOR_MATCH');
     }
   }
 

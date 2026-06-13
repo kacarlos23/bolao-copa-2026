@@ -20,5 +20,16 @@ module.exports = {
       max_restarts: 10,
       restart_delay: 5000,
     },
+    {
+      name: 'bolao-ge-scores',
+      cwd: './apps/api',
+      script: 'dist/src/scripts/scrape-ge-scores.js',
+      env: {
+        NODE_ENV: 'production',
+      },
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 5000,
+    },
   ],
 };

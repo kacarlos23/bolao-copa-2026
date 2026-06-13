@@ -52,8 +52,10 @@ export async function getRanking() {
     select: {
       id: true,
       nickname: true,
+      avatarUrl: true,
       scores: {
-        select: { points: true, isFinal: true, scoreType: true },
+        orderBy: { calculatedAt: 'desc' },
+        select: { points: true, isFinal: true, scoreType: true, calculatedAt: true },
       },
     },
   });
@@ -67,11 +69,18 @@ export async function getRanking() {
       return {
         userId: user.id,
         nickname: user.nickname,
+        avatarUrl: user.avatarUrl,
         points,
         finalPoints,
+        played: user.scores.length,
         exactScores: user.scores.filter((score) => score.scoreType === 'EXACT_SCORE').length,
         resultHits: user.scores.filter((score) => score.scoreType === 'RESULT').length,
         oneGoalHits: user.scores.filter((score) => score.scoreType === 'ONE_TEAM_GOALS').length,
+        misses: user.scores.filter((score) => score.scoreType === 'MISS').length,
+        lastFive: user.scores
+          .slice(0, 5)
+          .reverse()
+          .map((score) => score.points),
         hasLiveData: user.scores.some((score) => !score.isFinal),
       };
     })

@@ -2,8 +2,9 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { loginSchema, registerSchema } from '@bolao/shared';
 import { asyncHandler } from '../http/async-handler.js';
-import { loginUser, registerUser } from '../services/auth.service.js';
+import { getPublicUser, loginUser, registerUser } from '../services/auth.service.js';
 import { requireAuth } from '../middleware/auth.js';
+import { avatarUpload, resetUserAvatar, updateUserAvatar } from '../services/avatar.service.js';
 
 export const authRouter = Router();
 
@@ -46,6 +47,33 @@ authRouter.post('/logout', requireAuth, (req, res) => {
   });
 });
 
-authRouter.get('/me', requireAuth, (req, res) => {
-  res.json({ user: req.session.user });
-});
+authRouter.get(
+  '/me',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const user = await getPublicUser(req.session.user!.id);
+    req.session.user = user;
+    res.json({ user });
+  }),
+);
+
+authRouter.post(
+  '/me/avatar',
+  requireAuth,
+  avatarUpload.single('avatar'),
+  asyncHandler(async (req, res) => {
+    const user = await updateUserAvatar(req.session.user!.id, req.file);
+    req.session.user = user;
+    res.json({ user });
+  }),
+);
+
+authRouter.delete(
+  '/me/avatar',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const user = await resetUserAvatar(req.session.user!.id);
+    req.session.user = user;
+    res.json({ user });
+  }),
+);

@@ -16,6 +16,8 @@ import { matchDayRouter } from './routes/match-day.routes.js';
 import { rankingRouter } from './routes/ranking.routes.js';
 import { adminRouter } from './routes/admin.routes.js';
 import { sseRouter } from './routes/sse.routes.js';
+import { cupRouter } from './routes/cup.routes.js';
+import { avatarUploadDir } from './services/avatar.service.js';
 
 const PgSession = connectPgSimple(session);
 const pinoHttp = pinoHttpModule as unknown as (options: { logger: typeof logger }) => express.RequestHandler;
@@ -24,7 +26,15 @@ export function createApp() {
   const app = express();
 
   app.set('trust proxy', 1);
-  app.use(helmet());
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          imgSrc: ["'self'", 'data:', 'https:'],
+        },
+      },
+    }),
+  );
   app.use(compression());
   app.use(pinoHttp({ logger }));
   app.use(
@@ -65,8 +75,10 @@ export function createApp() {
   app.use('/api/auth', authRouter);
   app.use('/api/match-days', matchDayRouter);
   app.use('/api/ranking', rankingRouter);
+  app.use('/api/cup', cupRouter);
   app.use('/api/admin', adminRouter);
   app.use('/api', sseRouter);
+  app.use('/uploads/avatars', express.static(avatarUploadDir));
 
   if (config.SERVE_WEB_DIST) {
     const webDistPath = path.resolve(process.cwd(), config.WEB_DIST_PATH);

@@ -29,7 +29,7 @@ export async function registerUser(input: RegisterInput) {
       nickname,
       passwordHash,
     },
-    select: { id: true, username: true, nickname: true, role: true, status: true },
+    select: { id: true, username: true, nickname: true, avatarUrl: true, role: true, status: true },
   });
 }
 
@@ -52,6 +52,20 @@ export async function loginUser(input: LoginInput) {
     id: user.id,
     username: user.username,
     nickname: user.nickname,
+    avatarUrl: user.avatarUrl,
     role: user.role,
   };
+}
+
+export async function getPublicUser(userId: string) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, username: true, nickname: true, avatarUrl: true, role: true, status: true },
+  });
+
+  if (!user || user.status !== 'ACTIVE') {
+    throw new AppError(401, 'Usuario nao encontrado ou inativo.', 'USER_NOT_ACTIVE');
+  }
+
+  return user;
 }

@@ -1,13 +1,16 @@
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? '';
+export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? '';
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     credentials: 'include',
-    headers: {
-      'content-type': 'application/json',
-      ...(options.headers ?? {}),
-    },
+    headers: isFormData
+      ? options.headers
+      : {
+          'content-type': 'application/json',
+          ...(options.headers ?? {}),
+        },
   });
 
   if (!response.ok) {
@@ -29,6 +32,7 @@ export interface User {
   id: string;
   username: string;
   nickname: string;
+  avatarUrl?: string | null;
   role: 'USER' | 'ADMIN';
   status?: 'ACTIVE' | 'BLOCKED';
   createdAt?: string;
@@ -53,13 +57,16 @@ export interface Prediction {
   matchId: string;
   predictedHomeScore: number;
   predictedAwayScore: number;
-  user?: { id: string; nickname: string };
+  user?: { id: string; nickname: string; avatarUrl?: string | null };
 }
 
 export interface Match {
   id: string;
   startsAt: string;
   status: string;
+  predictionsCloseAt?: string;
+  isOpenForPredictions?: boolean;
+  predictionsArePublic?: boolean;
   homeScore?: number | null;
   awayScore?: number | null;
   finalHomeScore?: number | null;
@@ -88,12 +95,65 @@ export interface RankingRow {
   rank: number;
   userId: string;
   nickname: string;
+  avatarUrl?: string | null;
   points: number;
   finalPoints: number;
+  played: number;
   exactScores: number;
   resultHits: number;
   oneGoalHits: number;
+  misses: number;
+  lastFive: number[];
   hasLiveData: boolean;
+}
+
+export interface CupStandingRow {
+  rank: number;
+  group: string;
+  team: Team;
+  played: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  goalDifference: number;
+  points: number;
+  lastFive: Array<'W' | 'D' | 'L'>;
+}
+
+export interface CupStandingGroup {
+  group: string;
+  rows: CupStandingRow[];
+}
+
+export interface CupMatchResult {
+  id: string;
+  startsAt: string;
+  status: string;
+  homeTeam: Team;
+  awayTeam: Team;
+  homeScore?: number | null;
+  awayScore?: number | null;
+  round?: string | null;
+  group?: string | null;
+}
+
+export interface CupTopScorer {
+  rank: number;
+  playerName: string;
+  teamName: string;
+  position?: string | null;
+  imageUrl?: string | null;
+  teamFlagUrl?: string | null;
+  goals: number;
+}
+
+export interface CupOverview {
+  checkedAt: string;
+  standingsByGroup: CupStandingGroup[];
+  matches: CupMatchResult[];
+  topScorers: CupTopScorer[];
 }
 
 export const api = {
@@ -109,6 +169,15 @@ export const api = {
       body: JSON.stringify({ username, nickname, password }),
     }),
   logout: () => request<void>('/api/auth/logout', { method: 'POST' }),
+  uploadAvatar: (file: File) => {
+    const formData = new FormData();
+    formData.append('avatar', file);
+    return request<{ user: User }>('/api/auth/me/avatar', {
+      method: 'POST',
+      body: formData,
+    });
+  },
+  resetAvatar: () => request<{ user: User }>('/api/auth/me/avatar', { method: 'DELETE' }),
   matchDays: () => request<{ matchDays: MatchDay[] }>('/api/match-days'),
   matchDay: (id: string) => request<{ matchDay: MatchDay }>(`/api/match-days/${id}`),
   savePredictions: (
@@ -120,6 +189,7 @@ export const api = {
       body: JSON.stringify({ predictions }),
     }),
   ranking: () => request<{ ranking: RankingRow[] }>('/api/ranking'),
+  cupOverview: () => request<CupOverview>('/api/cup/overview'),
   adminUsers: () => request<{ users: User[] }>('/api/admin/users'),
   setAdminUserStatus: (id: string, blocked: boolean) =>
     request<{ user: User }>(`/api/admin/users/${id}/status`, {

@@ -11,7 +11,9 @@
     "test": "vitest run",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed.ts",
+    "scrape:ge-scores": "tsx src/scripts/scrape-ge-scores.ts",
+    "scrape:ge-scores:once": "tsx src/scripts/scrape-ge-scores.ts --once"
   },
   "dependencies": {
     "@bolao/shared": "0.1.0",
@@ -25,6 +27,7 @@
     "express-rate-limit": "^7.5.1",
     "express-session": "^1.18.2",
     "helmet": "^8.1.0",
+    "multer": "^2.1.1",
     "node-cron": "^4.2.1",
     "pg": "^8.16.3",
     "pino": "^9.14.0",
@@ -37,6 +40,7 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^4.17.25",
     "@types/express-session": "^1.18.2",
+    "@types/multer": "^2.1.0",
     "@types/node": "^22.19.0",
     "@types/pg": "^8.15.6",
     "@types/supertest": "^6.0.3",

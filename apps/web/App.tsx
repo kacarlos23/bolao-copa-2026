@@ -14,16 +14,21 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import {
+  API_URL,
   api,
   createRankingEvents,
+  CupMatchResult,
+  CupOverview,
+  CupStandingRow,
   MatchDay,
   RankingRow,
   Team,
   User,
 } from './src/api';
 import { flagSources } from './src/flagSources';
+import { teamCatalogByCode } from './src/teamCatalog';
 
-type Screen = 'days' | 'predictions' | 'ranking' | 'admin';
+type Screen = 'days' | 'predictions' | 'ranking' | 'cup' | 'teams' | 'admin';
 
 const colors = {
   bg: '#071311',
@@ -67,6 +72,150 @@ function matchMeta(match: MatchDay['matches'][number]) {
   return [raw?.round, raw?.group ? `Grupo ${raw.group}` : null].filter(Boolean).join(' - ');
 }
 
+type ScoreMatch = {
+  status: string;
+  homeScore?: number | null;
+  awayScore?: number | null;
+  finalHomeScore?: number | null;
+  finalAwayScore?: number | null;
+};
+
+function matchScore(match: ScoreMatch) {
+  const homeScore =
+    match.status === 'FINISHED' ? (match.finalHomeScore ?? match.homeScore) : match.homeScore;
+  const awayScore =
+    match.status === 'FINISHED' ? (match.finalAwayScore ?? match.awayScore) : match.awayScore;
+
+  if (homeScore == null || awayScore == null) return null;
+  return {
+    homeScore,
+    awayScore,
+    label:
+      match.status === 'FINISHED'
+        ? 'Resultado final'
+        : match.status === 'LIVE'
+          ? 'Placar atual'
+          : 'Placar',
+  };
+}
+
+function fallbackPredictionCloseAt(startsAt: string) {
+  return new Date(new Date(startsAt).getTime() - 5 * 60 * 1000).toISOString();
+}
+
+function matchPredictionCloseAt(match: MatchDay['matches'][number]) {
+  return match.predictionsCloseAt ?? fallbackPredictionCloseAt(match.startsAt);
+}
+
+function isMatchOpenForPredictions(match: MatchDay['matches'][number]) {
+  if (typeof match.isOpenForPredictions === 'boolean') return match.isOpenForPredictions;
+  return new Date(matchPredictionCloseAt(match)) > new Date();
+}
+
+function absoluteAvatarUrl(avatarUrl?: string | null) {
+  if (!avatarUrl) return null;
+  if (avatarUrl.startsWith('http')) return avatarUrl;
+  return `${API_URL}${avatarUrl}`;
+}
+
+function initials(value: string) {
+  const parts = value.trim().split(/\s+/).filter(Boolean);
+  const base = parts.length > 1 ? [parts[0], parts[parts.length - 1]] : [parts[0] ?? '?'];
+  return base
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function UserAvatar({
+  nickname,
+  avatarUrl,
+  size = 42,
+}: {
+  nickname: string;
+  avatarUrl?: string | null;
+  size?: number;
+}) {
+  const uri = absoluteAvatarUrl(avatarUrl);
+  const avatarStyle = { width: size, height: size, borderRadius: size / 2 };
+  const textStyle = { fontSize: Math.max(12, Math.round(size * 0.34)) };
+
+  if (uri) {
+    return (
+      <Image source={{ uri }} style={[styles.userAvatarImage, avatarStyle]} resizeMode="cover" />
+    );
+  }
+
+  return (
+    <View style={[styles.userAvatarFallback, avatarStyle]}>
+      <Text style={[styles.userAvatarText, textStyle]}>{initials(nickname)}</Text>
+    </View>
+  );
+}
+
+function RankingHighlight({
+  label,
+  row,
+  icon,
+  tone,
+}: {
+  label: string;
+  row?: RankingRow;
+  icon: keyof typeof Ionicons.glyphMap;
+  tone: 'leader' | 'last';
+}) {
+  if (!row) return null;
+
+  return (
+    <View
+      style={[styles.rankingHighlightCard, tone === 'leader' ? styles.leaderCard : styles.lastCard]}
+    >
+      <View style={styles.rankingHighlightAvatar}>
+        <UserAvatar nickname={row.nickname} avatarUrl={row.avatarUrl} size={70} />
+        <View
+          style={[
+            styles.rankingMarker,
+            tone === 'leader' ? styles.leaderMarker : styles.lastMarker,
+          ]}
+        >
+          <Ionicons name={icon} size={16} color={colors.bg} />
+        </View>
+      </View>
+      <View style={styles.rankingHighlightInfo}>
+        <Text style={styles.rankingHighlightLabel}>{label}</Text>
+        <Text style={styles.rankingHighlightName}>{row.nickname}</Text>
+        <Text style={styles.muted}>{row.points} pts</Text>
+      </View>
+    </View>
+  );
+}
+
+function LastFive({ values }: { values: number[] }) {
+  const padded = [...values.slice(-5)];
+  while (padded.length < 5) padded.unshift(-1);
+
+  return (
+    <View style={styles.lastFiveList}>
+      {padded.map((value, index) => (
+        <View
+          key={`${index}-${value}`}
+          style={[
+            styles.lastFiveBadge,
+            value === 7 && styles.lastFiveExact,
+            value === 3 && styles.lastFiveResult,
+            value === 1 && styles.lastFiveGoal,
+            value === 0 && styles.lastFiveMiss,
+            value < 0 && styles.lastFiveEmpty,
+          ]}
+        >
+          <Text style={styles.lastFiveText}>{value >= 0 ? value : '-'}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 function flagForTeam(team: Team) {
   return team.metadata?.iso2 ?? '';
 }
@@ -89,6 +238,18 @@ function TeamFlag({ team, size = 18 }: { team: Team; size?: number }) {
       source={source}
       style={[styles.countryFlag, { width: size * 1.6, height: size }]}
     />
+  );
+}
+
+function TeamNameButton({ team, onOpenTeam }: { team: Team; onOpenTeam?: (team: Team) => void }) {
+  if (!onOpenTeam) {
+    return <Text style={styles.matchTitle}>{team.name}</Text>;
+  }
+
+  return (
+    <Pressable onPress={() => onOpenTeam(team)} hitSlop={6}>
+      <Text style={[styles.matchTitle, styles.teamNameLink]}>{team.name}</Text>
+    </Pressable>
   );
 }
 
@@ -164,7 +325,13 @@ function Field({
   );
 }
 
-function Pill({ label, tone = 'neutral' }: { label: string; tone?: 'neutral' | 'ok' | 'warn' | 'live' }) {
+function Pill({
+  label,
+  tone = 'neutral',
+}: {
+  label: string;
+  tone?: 'neutral' | 'ok' | 'warn' | 'live';
+}) {
   return (
     <View
       style={[
@@ -231,6 +398,54 @@ function SuccessModal({
           <Text style={styles.modalTitle}>{title}</Text>
           <Text style={styles.modalMessage}>{message}</Text>
           <PrimaryButton label="OK" icon="checkmark-circle-outline" onPress={onClose} />
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function ConfirmModal({
+  visible,
+  title,
+  message,
+  confirmLabel,
+  loading = false,
+  onCancel,
+  onConfirm,
+}: {
+  visible: boolean;
+  title: string;
+  message: string;
+  confirmLabel: string;
+  loading?: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Modal transparent animationType="fade" visible={visible} onRequestClose={onCancel}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.confirmModal}>
+          <View style={styles.confirmIcon}>
+            <Ionicons name="trash-outline" size={34} color={colors.red} />
+          </View>
+          <Text style={styles.modalTitle}>{title}</Text>
+          <Text style={styles.modalMessage}>{message}</Text>
+          <View style={styles.confirmModalActions}>
+            <PrimaryButton
+              label="Cancelar"
+              icon="close-outline"
+              tone="secondary"
+              onPress={onCancel}
+              disabled={loading}
+            />
+            <PrimaryButton
+              label={loading ? 'Excluindo...' : confirmLabel}
+              icon="trash-outline"
+              tone="danger"
+              onPress={onConfirm}
+              disabled={loading}
+            />
+          </View>
         </View>
       </View>
     </Modal>
@@ -371,19 +586,97 @@ function Header({
   user,
   screen,
   setScreen,
+  onUserChange,
   onLogout,
 }: {
   user: User;
   screen: Screen;
   setScreen: (screen: Screen) => void;
+  onUserChange: (user: User) => void;
   onLogout: () => void;
 }) {
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [deleteAvatarVisible, setDeleteAvatarVisible] = useState(false);
+
+  function showAvatarError(message: string) {
+    if (typeof window !== 'undefined') window.alert(message);
+  }
+
+  function pickAvatar() {
+    if (typeof document === 'undefined') {
+      showAvatarError('Upload de avatar disponivel apenas no navegador.');
+      return;
+    }
+
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/jpeg,image/png,image/webp';
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+
+      setAvatarBusy(true);
+      api
+        .uploadAvatar(file)
+        .then((result) => onUserChange(result.user))
+        .catch((error) =>
+          showAvatarError(error instanceof Error ? error.message : 'Erro ao enviar avatar.'),
+        )
+        .finally(() => setAvatarBusy(false));
+    };
+    input.click();
+  }
+
+  function resetAvatar() {
+    setAvatarBusy(true);
+    api
+      .resetAvatar()
+      .then((result) => {
+        onUserChange(result.user);
+        setDeleteAvatarVisible(false);
+      })
+      .catch((error) =>
+        showAvatarError(error instanceof Error ? error.message : 'Erro ao remover avatar.'),
+      )
+      .finally(() => setAvatarBusy(false));
+  }
+
   return (
     <View style={styles.header}>
-      <View>
-        <Text style={styles.brandSmall}>Bolao Copa 2026</Text>
-        <Text style={styles.headerTitle}>{user.nickname}</Text>
+      <View style={styles.headerIdentity}>
+        <UserAvatar nickname={user.nickname} avatarUrl={user.avatarUrl} size={50} />
+        <View style={styles.headerUserText}>
+          <Text style={styles.brandSmall}>Bolao Copa 2026</Text>
+          <Text style={styles.headerTitle}>{user.nickname}</Text>
+        </View>
+        <View style={styles.avatarActions}>
+          <Pressable
+            disabled={avatarBusy}
+            onPress={pickAvatar}
+            style={[styles.avatarActionButton, avatarBusy && styles.buttonDisabled]}
+          >
+            <Ionicons name="camera-outline" size={18} color={colors.text} />
+          </Pressable>
+          {user.avatarUrl ? (
+            <Pressable
+              disabled={avatarBusy}
+              onPress={() => setDeleteAvatarVisible(true)}
+              style={[styles.avatarActionButton, avatarBusy && styles.buttonDisabled]}
+            >
+              <Ionicons name="trash-outline" size={18} color={colors.red} />
+            </Pressable>
+          ) : null}
+        </View>
       </View>
+      <ConfirmModal
+        visible={deleteAvatarVisible}
+        title="Excluir foto do perfil?"
+        message="Sua foto atual sera removida e o avatar padrao com suas iniciais voltara a ser exibido."
+        confirmLabel="Excluir foto"
+        loading={avatarBusy}
+        onCancel={() => setDeleteAvatarVisible(false)}
+        onConfirm={resetAvatar}
+      />
       <View style={styles.nav}>
         <PrimaryButton
           label="Dias"
@@ -403,6 +696,18 @@ function Header({
           tone={screen === 'ranking' ? 'primary' : 'secondary'}
           onPress={() => setScreen('ranking')}
         />
+        <PrimaryButton
+          label="Copa"
+          icon="football-outline"
+          tone={screen === 'cup' ? 'primary' : 'secondary'}
+          onPress={() => setScreen('cup')}
+        />
+        <PrimaryButton
+          label="Times"
+          icon="people-outline"
+          tone={screen === 'teams' ? 'primary' : 'secondary'}
+          onPress={() => setScreen('teams')}
+        />
         {user.role === 'ADMIN' ? (
           <PrimaryButton
             label="Admin"
@@ -417,7 +722,7 @@ function Header({
   );
 }
 
-function DaysScreen() {
+function DaysScreen({ onOpenTeam }: { onOpenTeam: (team: Team) => void }) {
   const [days, setDays] = useState<MatchDay[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [currentMonth, setCurrentMonth] = useState(() => new Date(2026, 5, 1));
@@ -520,11 +825,18 @@ function DaysScreen() {
                 >
                   {cell.date ? (
                     <>
-                      <Text style={[styles.calendarDayNumber, selected && styles.calendarDayNumberSelected]}>
+                      <Text
+                        style={[
+                          styles.calendarDayNumber,
+                          selected && styles.calendarDayNumberSelected,
+                        ]}
+                      >
                         {cell.date.getDate()}
                       </Text>
                       {cell.day ? (
-                        <Text style={styles.calendarDayMeta}>{cell.day.matches.length} jogo(s)</Text>
+                        <Text style={styles.calendarDayMeta}>
+                          {cell.day.matches.length} jogo(s)
+                        </Text>
                       ) : null}
                     </>
                   ) : null}
@@ -541,49 +853,93 @@ function DaysScreen() {
           <View style={styles.panelHeader}>
             <View>
               <Text style={styles.sectionTitle}>{dateTime(selectedDay.firstMatchStartsAt)}</Text>
-              <Text style={styles.muted}>Fecha palpites: {dateTime(selectedDay.predictionsCloseAt)}</Text>
+              <Text style={styles.muted}>Cada jogo fecha 5 minutos antes do inicio.</Text>
             </View>
             <Pill
               label={selectedDay.isOpenForPredictions ? 'Palpites abertos' : 'Palpites fechados'}
               tone={selectedDay.isOpenForPredictions ? 'ok' : 'warn'}
             />
           </View>
-          {selectedDay.matches.map((match) => (
-            <View key={match.id} style={styles.calendarMatchRow}>
-              <Text style={styles.matchTime}>
-                {new Intl.DateTimeFormat('pt-BR', { timeStyle: 'short' }).format(new Date(match.startsAt))}
-              </Text>
-              <View style={styles.calendarMatchInfo}>
-                <View style={styles.matchTeamsLine}>
-                  <TeamFlag team={match.homeTeam} />
-                  <Text style={styles.matchTitle}>{match.homeTeam.name}</Text>
-                  <Text style={styles.matchTitle}>x</Text>
-                  <TeamFlag team={match.awayTeam} />
-                  <Text style={styles.matchTitle}>{match.awayTeam.name}</Text>
+          {selectedDay.matches.map((match) => {
+            const score = matchScore(match);
+            return (
+              <View key={match.id} style={styles.calendarMatchRow}>
+                <Text style={styles.matchTime}>
+                  {new Intl.DateTimeFormat('pt-BR', { timeStyle: 'short' }).format(
+                    new Date(match.startsAt),
+                  )}
+                </Text>
+                <View style={styles.calendarMatchInfo}>
+                  <View style={styles.matchTeamsLine}>
+                    <TeamFlag team={match.homeTeam} />
+                    <TeamNameButton team={match.homeTeam} onOpenTeam={onOpenTeam} />
+                    {score ? (
+                      <Text style={styles.inlineScore}>
+                        {score.homeScore} x {score.awayScore}
+                      </Text>
+                    ) : (
+                      <Text style={styles.matchTitle}>x</Text>
+                    )}
+                    <TeamFlag team={match.awayTeam} />
+                    <TeamNameButton team={match.awayTeam} onOpenTeam={onOpenTeam} />
+                  </View>
+                  {score ? <Text style={styles.scoreStatusText}>{score.label}</Text> : null}
+                  {matchMeta(match) ? <Text style={styles.muted}>{matchMeta(match)}</Text> : null}
+                  <Text style={styles.muted}>
+                    {isMatchOpenForPredictions(match)
+                      ? `Palpites ate ${dateTime(matchPredictionCloseAt(match))}`
+                      : 'Palpites fechados'}
+                  </Text>
                 </View>
-                {matchMeta(match) ? <Text style={styles.muted}>{matchMeta(match)}</Text> : null}
+                <Pill label={match.status} tone={match.status === 'LIVE' ? 'live' : 'neutral'} />
               </View>
-              <Pill label={match.status} tone={match.status === 'LIVE' ? 'live' : 'neutral'} />
-            </View>
-          ))}
+            );
+          })}
         </View>
       ) : null}
     </View>
   );
 }
 
-function PredictionsScreen() {
+function PredictionsScreen({
+  currentUserId,
+  onOpenTeam,
+  onAdjustScroll,
+}: {
+  currentUserId: string;
+  onOpenTeam: (team: Team) => void;
+  onAdjustScroll: (delta: number) => void;
+}) {
   const [days, setDays] = useState<MatchDay[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const dayMeasurements = useRef<
+    Record<
+      string,
+      | ((callback: (x: number, y: number, width: number, height: number) => void) => void)
+      | undefined
+    >
+  >({});
+  const positionTimers = useRef<Array<ReturnType<typeof setTimeout>>>([]);
 
   async function load() {
     setLoading(true);
     try {
       const result = await api.matchDays();
       setDays(result.matchDays);
-      setSelectedId((current) => current ?? result.matchDays[0]?.id ?? null);
+      setSelectedId((current) => {
+        if (current) return current;
+
+        const today = dateOnly(new Date());
+        const currentDay = result.matchDays.find(
+          (day) => dateOnly(day.date) === today || dateOnly(day.firstMatchStartsAt) === today,
+        );
+        const nextOpenDay = result.matchDays.find((day) =>
+          day.matches.some((match) => isMatchOpenForPredictions(match)),
+        );
+        return currentDay?.id ?? nextOpenDay?.id ?? null;
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar campos de palpite.');
     } finally {
@@ -593,7 +949,39 @@ function PredictionsScreen() {
 
   useEffect(() => {
     void load();
+
+    return () => {
+      positionTimers.current.forEach(clearTimeout);
+    };
   }, []);
+
+  function selectDay(dayId: string) {
+    const nextId = selectedId === dayId ? null : dayId;
+    const measure = dayMeasurements.current[dayId];
+    positionTimers.current.forEach(clearTimeout);
+    positionTimers.current = [];
+
+    if (!measure) {
+      setSelectedId(nextId);
+      return;
+    }
+
+    measure((_x, beforeY) => {
+      setSelectedId(nextId);
+
+      const preservePosition = () => {
+        dayMeasurements.current[dayId]?.((_nextX, afterY) => {
+          const delta = afterY - beforeY;
+          if (Math.abs(delta) > 1) onAdjustScroll(delta);
+        });
+      };
+
+      positionTimers.current = [
+        setTimeout(preservePosition, 230),
+        setTimeout(preservePosition, 420),
+      ];
+    });
+  }
 
   if (loading) return <ActivityIndicator color={colors.green} style={styles.loader} />;
 
@@ -602,7 +990,15 @@ function PredictionsScreen() {
       <View style={styles.panel}>
         <View style={styles.panelHeader}>
           <Text style={styles.sectionTitle}>Regras de pontuacao</Text>
-          <Text style={styles.muted}>A pontuacao e calculada automaticamente ao atualizar os placares.</Text>
+          <Text style={styles.muted}>
+            A pontuacao e calculada automaticamente ao atualizar os placares.
+          </Text>
+        </View>
+        <View style={styles.predictionNotice}>
+          <Ionicons name="time-outline" size={20} color={colors.gold} />
+          <Text style={styles.predictionNoticeText}>
+            Os palpites fecham por jogo, sempre 5 minutos antes do inicio de cada partida.
+          </Text>
         </View>
         <View style={styles.rulesList}>
           <View style={styles.ruleRow}>
@@ -615,7 +1011,9 @@ function PredictionsScreen() {
           </View>
           <View style={styles.ruleRow}>
             <Text style={styles.rulePoints}>1 pt</Text>
-            <Text style={styles.ruleText}>Acertou os gols de uma das equipes, mas errou o resultado.</Text>
+            <Text style={styles.ruleText}>
+              Acertou os gols de uma das equipes, mas errou o resultado.
+            </Text>
           </View>
           <View style={styles.ruleRow}>
             <Text style={styles.rulePoints}>0 pt</Text>
@@ -636,27 +1034,49 @@ function PredictionsScreen() {
       {days.map((day) => {
         const open = Boolean(day.isOpenForPredictions);
         const selected = selectedId === day.id;
+        const nextCloseAt = day.matches
+          .filter((match) => isMatchOpenForPredictions(match))
+          .map((match) => matchPredictionCloseAt(match))
+          .sort()[0];
         return (
           <View key={day.id} style={styles.predictionDayBlock}>
-            <Pressable
-              onPress={() => setSelectedId((current) => (current === day.id ? null : day.id))}
-              style={[styles.dayCard, selected && styles.dayCardActive]}
+            <View
+              ref={(node) => {
+                dayMeasurements.current[day.id] = node
+                  ? node.measureInWindow.bind(node)
+                  : undefined;
+              }}
+              collapsable={false}
             >
-              <View style={styles.rowBetween}>
-                <Text style={styles.dayTitle}>{dateTime(day.firstMatchStartsAt)}</Text>
-                <View style={styles.dayStatusGroup}>
-                  <Pill label={open ? 'Aberto' : 'Fechado'} tone={open ? 'ok' : 'warn'} />
-                  <Ionicons
-                    name={selected ? 'chevron-up-outline' : 'chevron-down-outline'}
-                    size={20}
-                    color={selected ? colors.gold : colors.muted}
-                  />
+              <Pressable
+                onPress={() => selectDay(day.id)}
+                style={[styles.dayCard, selected && styles.dayCardActive]}
+              >
+                <View style={styles.rowBetween}>
+                  <Text style={styles.dayTitle}>{dateTime(day.firstMatchStartsAt)}</Text>
+                  <View style={styles.dayStatusGroup}>
+                    <Pill label={open ? 'Aberto' : 'Fechado'} tone={open ? 'ok' : 'warn'} />
+                    <Ionicons
+                      name={selected ? 'chevron-up-outline' : 'chevron-down-outline'}
+                      size={20}
+                      color={selected ? colors.gold : colors.muted}
+                    />
+                  </View>
                 </View>
-              </View>
-              <Text style={styles.muted}>Fecha: {dateTime(day.predictionsCloseAt)}</Text>
-              <Text style={styles.muted}>{day.matches.length} jogo(s)</Text>
-            </Pressable>
-            <AnimatedMatchDayDetail id={day.id} open={selected} />
+                <Text style={styles.muted}>
+                  {nextCloseAt
+                    ? `Proximo fechamento: ${dateTime(nextCloseAt)}`
+                    : 'Todos os jogos fechados'}
+                </Text>
+                <Text style={styles.muted}>{day.matches.length} jogo(s)</Text>
+              </Pressable>
+            </View>
+            <AnimatedMatchDayDetail
+              id={day.id}
+              open={selected}
+              currentUserId={currentUserId}
+              onOpenTeam={onOpenTeam}
+            />
           </View>
         );
       })}
@@ -665,7 +1085,17 @@ function PredictionsScreen() {
   );
 }
 
-function AnimatedMatchDayDetail({ id, open }: { id: string; open: boolean }) {
+function AnimatedMatchDayDetail({
+  id,
+  open,
+  currentUserId,
+  onOpenTeam,
+}: {
+  id: string;
+  open: boolean;
+  currentUserId: string;
+  onOpenTeam: (team: Team) => void;
+}) {
   const progress = useRef(new Animated.Value(open ? 1 : 0)).current;
   const [rendered, setRendered] = useState(open);
 
@@ -707,12 +1137,20 @@ function AnimatedMatchDayDetail({ id, open }: { id: string; open: boolean }) {
         },
       ]}
     >
-      <MatchDayDetail id={id} />
+      <MatchDayDetail id={id} currentUserId={currentUserId} onOpenTeam={onOpenTeam} />
     </Animated.View>
   );
 }
 
-function MatchDayDetail({ id }: { id: string }) {
+function MatchDayDetail({
+  id,
+  currentUserId,
+  onOpenTeam,
+}: {
+  id: string;
+  currentUserId: string;
+  onOpenTeam: (team: Team) => void;
+}) {
   const [day, setDay] = useState<MatchDay | null>(null);
   const [values, setValues] = useState<Record<string, { home: string; away: string }>>({});
   const [successVisible, setSuccessVisible] = useState(false);
@@ -726,7 +1164,7 @@ function MatchDayDetail({ id }: { id: string }) {
       setDay(matchDay);
       const next: Record<string, { home: string; away: string }> = {};
       for (const match of matchDay.matches) {
-        const mine = match.predictions[0];
+        const mine = match.predictions.find((prediction) => prediction.userId === currentUserId);
         next[match.id] = {
           home: mine ? String(mine.predictedHomeScore) : '',
           away: mine ? String(mine.predictedAwayScore) : '',
@@ -734,21 +1172,23 @@ function MatchDayDetail({ id }: { id: string }) {
       }
       setValues(next);
     });
-  }, [id]);
+  }, [currentUserId, id]);
 
-  async function save() {
+  async function saveMatch(matchId: string) {
     if (!day) return;
     setError('');
     setSuccessVisible(false);
 
-    const predictions = day.matches.map((match) => ({
-      matchId: match.id,
-      predictedHomeScore: Number(values[match.id]?.home ?? 0),
-      predictedAwayScore: Number(values[match.id]?.away ?? 0),
-    }));
+    const predictionValues = values[matchId] ?? { home: '0', away: '0' };
 
     try {
-      await api.savePredictions(day.id, predictions);
+      await api.savePredictions(day.id, [
+        {
+          matchId,
+          predictedHomeScore: Number(predictionValues.home || 0),
+          predictedAwayScore: Number(predictionValues.away || 0),
+        },
+      ]);
       setSuccessVisible(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Nao foi possivel salvar.');
@@ -757,79 +1197,161 @@ function MatchDayDetail({ id }: { id: string }) {
 
   if (!day) return <ActivityIndicator color={colors.green} style={styles.loader} />;
 
-  const closed = new Date(day.predictionsCloseAt) <= new Date();
+  const hasOpenMatches = day.matches.some((match) => isMatchOpenForPredictions(match));
 
   return (
     <View style={styles.panel}>
       <View style={styles.panelHeader}>
         <View>
           <Text style={styles.sectionTitle}>Campo de palpites</Text>
-          <Text style={styles.muted}>Fecha: {dateTime(day.predictionsCloseAt)}</Text>
+          <Text style={styles.muted}>Cada jogo fecha 5 minutos antes do inicio.</Text>
         </View>
-        <Pill label={closed ? 'Publico' : 'Em aberto'} tone={closed ? 'warn' : 'ok'} />
+        <Pill
+          label={hasOpenMatches ? 'Com jogos abertos' : 'Publico'}
+          tone={hasOpenMatches ? 'ok' : 'warn'}
+        />
       </View>
-      {!closed ? (
+      {hasOpenMatches ? (
         <Text style={styles.muted}>
-          Edite os placares abaixo e salve todos os palpites deste dia de uma vez.
+          Edite o placar de cada partida e salve o palpite individualmente.
         </Text>
       ) : null}
 
-      {day.matches.map((match) => (
-        <View key={match.id} style={styles.matchCard}>
-          <View style={styles.matchInfo}>
-            <View style={styles.matchTeamsLine}>
-              <TeamFlag team={match.homeTeam} />
-              <Text style={styles.matchTitle}>{match.homeTeam.name}</Text>
-              <Text style={styles.matchTitle}>x</Text>
-              <TeamFlag team={match.awayTeam} />
-              <Text style={styles.matchTitle}>{match.awayTeam.name}</Text>
+      {day.matches.map((match) => {
+        const score = matchScore(match);
+        const closed = !isMatchOpenForPredictions(match);
+        const publicPredictions = [...match.predictions].sort((predictionA, predictionB) => {
+          if (predictionA.userId === currentUserId) return -1;
+          if (predictionB.userId === currentUserId) return 1;
+          return (predictionA.user?.nickname ?? '').localeCompare(
+            predictionB.user?.nickname ?? '',
+            'pt-BR',
+          );
+        });
+        return (
+          <View key={match.id} style={styles.matchCard}>
+            <View style={styles.matchInfo}>
+              <View style={styles.matchTeamsLine}>
+                <TeamFlag team={match.homeTeam} />
+                <TeamNameButton team={match.homeTeam} onOpenTeam={onOpenTeam} />
+                <Text style={styles.matchTitle}>x</Text>
+                <TeamFlag team={match.awayTeam} />
+                <TeamNameButton team={match.awayTeam} onOpenTeam={onOpenTeam} />
+              </View>
+              <Text style={styles.muted}>{dateTime(match.startsAt)}</Text>
+              <Text style={styles.muted}>
+                {closed
+                  ? 'Palpites fechados para este jogo'
+                  : `Palpites ate ${dateTime(matchPredictionCloseAt(match))}`}
+              </Text>
+              {score ? (
+                <View style={styles.matchScoreBoard}>
+                  <Text style={styles.matchScoreLabel}>{score.label}</Text>
+                  <Text style={styles.matchScoreValue}>
+                    {score.homeScore} x {score.awayScore}
+                  </Text>
+                </View>
+              ) : null}
             </View>
-            <Text style={styles.muted}>{dateTime(match.startsAt)}</Text>
-            <Text style={styles.scoreText}>
-              Placar atual: {match.homeScore ?? '-'} x {match.awayScore ?? '-'}
-            </Text>
-          </View>
-          <View style={styles.predictionInputs}>
-            <TextInput
-              editable={!closed}
-              style={[styles.scoreInput, closed && styles.scoreInputDisabled]}
-              keyboardType="number-pad"
-              value={values[match.id]?.home ?? ''}
-              onChangeText={(home) =>
-                setValues((prev) => ({ ...prev, [match.id]: { ...prev[match.id], home } }))
-              }
-            />
-            <Text style={styles.vs}>x</Text>
-            <TextInput
-              editable={!closed}
-              style={[styles.scoreInput, closed && styles.scoreInputDisabled]}
-              keyboardType="number-pad"
-              value={values[match.id]?.away ?? ''}
-              onChangeText={(away) =>
-                setValues((prev) => ({ ...prev, [match.id]: { ...prev[match.id], away } }))
-              }
-            />
-          </View>
-
-          {closed && match.predictions.length > 0 ? (
-            <View style={styles.publicPredictions}>
-              {match.predictions.map((prediction) => (
-                <Text key={prediction.id} style={styles.predictionLine}>
-                  {prediction.user?.nickname ?? 'Participante'}: {prediction.predictedHomeScore} x{' '}
-                  {prediction.predictedAwayScore}
-                </Text>
-              ))}
+            <View style={styles.predictionInputs}>
+              <TextInput
+                editable={!closed}
+                style={[styles.scoreInput, closed && styles.scoreInputDisabled]}
+                keyboardType="number-pad"
+                value={values[match.id]?.home ?? ''}
+                onChangeText={(home) =>
+                  setValues((prev) => ({ ...prev, [match.id]: { ...prev[match.id], home } }))
+                }
+              />
+              <Text style={styles.vs}>x</Text>
+              <TextInput
+                editable={!closed}
+                style={[styles.scoreInput, closed && styles.scoreInputDisabled]}
+                keyboardType="number-pad"
+                value={values[match.id]?.away ?? ''}
+                onChangeText={(away) =>
+                  setValues((prev) => ({ ...prev, [match.id]: { ...prev[match.id], away } }))
+                }
+              />
             </View>
-          ) : null}
-        </View>
-      ))}
+            {!closed ? (
+              <PrimaryButton
+                label="Salvar palpite"
+                icon="save-outline"
+                onPress={() => saveMatch(match.id)}
+              />
+            ) : null}
 
-      {!closed ? <PrimaryButton label="Salvar palpites do dia" icon="save-outline" onPress={save} /> : null}
+            {closed ? (
+              <View style={styles.publicPredictions}>
+                <View style={styles.publicPredictionsHeader}>
+                  <View style={styles.publicPredictionsTitleGroup}>
+                    <Ionicons name="people-outline" size={18} color={colors.gold} />
+                    <Text style={styles.publicPredictionsTitle}>Palpites dos participantes</Text>
+                  </View>
+                  <Text style={styles.publicPredictionsCount}>
+                    {publicPredictions.length}{' '}
+                    {publicPredictions.length === 1 ? 'palpite' : 'palpites'}
+                  </Text>
+                </View>
+
+                {publicPredictions.length > 0 ? (
+                  <View style={styles.publicPredictionsList}>
+                    {publicPredictions.map((prediction) => {
+                      const isMine = prediction.userId === currentUserId;
+                      const nickname = prediction.user?.nickname ?? 'Participante';
+                      return (
+                        <View
+                          key={prediction.id}
+                          style={[styles.predictionRow, isMine && styles.predictionRowMine]}
+                        >
+                          <View style={styles.predictionParticipant}>
+                            <UserAvatar
+                              nickname={nickname}
+                              avatarUrl={prediction.user?.avatarUrl}
+                              size={34}
+                            />
+                            <View style={styles.predictionParticipantText}>
+                              <Text style={styles.predictionNickname} numberOfLines={1}>
+                                {nickname}
+                              </Text>
+                              {isMine ? (
+                                <Text style={styles.predictionMineLabel}>Seu palpite</Text>
+                              ) : null}
+                            </View>
+                          </View>
+                          <View style={styles.predictionScore}>
+                            <Text style={styles.predictionScoreNumber}>
+                              {prediction.predictedHomeScore}
+                            </Text>
+                            <Text style={styles.predictionScoreSeparator}>x</Text>
+                            <Text style={styles.predictionScoreNumber}>
+                              {prediction.predictedAwayScore}
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <View style={styles.publicPredictionsEmpty}>
+                    <Ionicons name="chatbox-ellipses-outline" size={22} color={colors.muted} />
+                    <Text style={styles.muted}>
+                      Nenhum participante enviou palpite para este jogo.
+                    </Text>
+                  </View>
+                )}
+              </View>
+            ) : null}
+          </View>
+        );
+      })}
+
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
       <SuccessModal
         visible={successVisible}
-        title="Palpites salvos"
-        message="Seus palpites foram salvos com sucesso."
+        title="Palpite salvo"
+        message="Seu palpite foi salvo com sucesso."
         onClose={() => setSuccessVisible(false)}
       />
     </View>
@@ -860,7 +1382,9 @@ function AdminScreen({ currentUserId }: { currentUserId: string }) {
       setHomeTeamCode((current) => current || teamsResult.teams[0]?.code || '');
       setAwayTeamCode((current) => current || teamsResult.teams[1]?.code || '');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Nao foi possivel carregar dados administrativos.');
+      setError(
+        err instanceof Error ? err.message : 'Nao foi possivel carregar dados administrativos.',
+      );
     } finally {
       setLoading(false);
     }
@@ -910,7 +1434,9 @@ function AdminScreen({ currentUserId }: { currentUserId: string }) {
     try {
       const blocked = targetUser.status !== 'BLOCKED';
       const result = await api.setAdminUserStatus(targetUser.id, blocked);
-      setUsers((current) => current.map((user) => (user.id === targetUser.id ? result.user : user)));
+      setUsers((current) =>
+        current.map((user) => (user.id === targetUser.id ? result.user : user)),
+      );
       setUserMessage(blocked ? 'Usuario bloqueado.' : 'Usuario desbloqueado.');
     } catch (err) {
       setUserError(err instanceof Error ? err.message : 'Nao foi possivel alterar o usuario.');
@@ -972,8 +1498,18 @@ function AdminScreen({ currentUserId }: { currentUserId: string }) {
           placeholder="2026-06-11T16:00"
           help="Formato: AAAA-MM-DDTHH:mm. Exemplo: 2026-06-13T19:00."
         />
-        <TeamSelector label="Mandante" teams={teams} selectedCode={homeTeamCode} onSelect={setHomeTeamCode} />
-        <TeamSelector label="Visitante" teams={teams} selectedCode={awayTeamCode} onSelect={setAwayTeamCode} />
+        <TeamSelector
+          label="Mandante"
+          teams={teams}
+          selectedCode={homeTeamCode}
+          onSelect={setHomeTeamCode}
+        />
+        <TeamSelector
+          label="Visitante"
+          teams={teams}
+          selectedCode={awayTeamCode}
+          onSelect={setAwayTeamCode}
+        />
         <PrimaryButton
           label={saving ? 'Salvando...' : 'Cadastrar jogo'}
           icon="add-circle-outline"
@@ -1003,7 +1539,9 @@ function AdminScreen({ currentUserId }: { currentUserId: string }) {
                   <View style={styles.rowBetween}>
                     <Text style={styles.matchTitle}>{managedUser.nickname}</Text>
                     <Pill
-                      label={managedUser.role === 'ADMIN' ? 'Admin' : isBlocked ? 'Bloqueado' : 'Usuario'}
+                      label={
+                        managedUser.role === 'ADMIN' ? 'Admin' : isBlocked ? 'Bloqueado' : 'Usuario'
+                      }
                       tone={managedUser.role === 'ADMIN' ? 'warn' : isBlocked ? 'live' : 'ok'}
                     />
                   </View>
@@ -1033,7 +1571,9 @@ function AdminScreen({ currentUserId }: { currentUserId: string }) {
                       disabled={busy || isSelf}
                     />
                   </View>
-                  {isSelf ? <Text style={styles.muted}>Sua propria conta nao pode ser bloqueada.</Text> : null}
+                  {isSelf ? (
+                    <Text style={styles.muted}>Sua propria conta nao pode ser bloqueada.</Text>
+                  ) : null}
                 </View>
               </View>
             );
@@ -1084,6 +1624,8 @@ function TeamSelector({
 
 function RankingScreen() {
   const [ranking, setRanking] = useState<RankingRow[]>([]);
+  const leader = ranking[0];
+  const last = ranking[ranking.length - 1];
 
   useEffect(() => {
     api.ranking().then((result) => setRanking(result.ranking));
@@ -1097,24 +1639,461 @@ function RankingScreen() {
         <Text style={styles.sectionTitle}>Ranking ao vivo</Text>
         <Pill label="Atualizacao ativa" tone="live" />
       </View>
-      {ranking.map((row) => (
-        <View key={row.userId} style={styles.rankingRow}>
-          <View style={styles.rankBadge}>
-            <Text style={styles.rankText}>#{row.rank}</Text>
+
+      {ranking.length > 0 ? (
+        <View style={styles.rankingHighlights}>
+          <RankingHighlight label="Lider" row={leader} icon="trophy-outline" tone="leader" />
+          <RankingHighlight label="Lanterna" row={last} icon="flashlight-outline" tone="last" />
+        </View>
+      ) : null}
+
+      {ranking.length > 0 ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={styles.rankingTable}>
+            <View style={[styles.rankingTableRow, styles.rankingTableHeader]}>
+              <Text style={[styles.rankingCell, styles.rankColumn]}>#</Text>
+              <Text style={[styles.rankingCell, styles.playerColumn]}>Jogador</Text>
+              <Text style={[styles.rankingCell, styles.numericColumn]}>P</Text>
+              <Text style={[styles.rankingCell, styles.numericColumn]}>EX</Text>
+              <Text style={[styles.rankingCell, styles.numericColumn]}>RES</Text>
+              <Text style={[styles.rankingCell, styles.numericColumn]}>GOL</Text>
+              <Text style={[styles.rankingCell, styles.numericColumn]}>ER</Text>
+              <Text style={[styles.rankingCell, styles.formColumn]}>Ultimos 5</Text>
+              <Text style={[styles.rankingCell, styles.pointsColumn]}>PTS</Text>
+            </View>
+            {ranking.map((row) => (
+              <View key={row.userId} style={styles.rankingTableRow}>
+                <Text style={[styles.rankingCell, styles.rankColumn, styles.rankingRankText]}>
+                  {row.rank}
+                </Text>
+                <View
+                  style={[styles.rankingCellBox, styles.playerColumn, styles.rankingPlayerCell]}
+                >
+                  <UserAvatar nickname={row.nickname} avatarUrl={row.avatarUrl} size={34} />
+                  <View style={styles.rankingPlayerInfo}>
+                    <Text style={styles.rankingPlayerName} numberOfLines={1}>
+                      {row.nickname}
+                    </Text>
+                    <Text style={styles.rankingPlayerStatus}>
+                      {row.hasLiveData ? 'Provisorio' : 'Definitivo'}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={[styles.rankingCell, styles.numericColumn]}>{row.played}</Text>
+                <Text style={[styles.rankingCell, styles.numericColumn]}>{row.exactScores}</Text>
+                <Text style={[styles.rankingCell, styles.numericColumn]}>{row.resultHits}</Text>
+                <Text style={[styles.rankingCell, styles.numericColumn]}>{row.oneGoalHits}</Text>
+                <Text style={[styles.rankingCell, styles.numericColumn]}>{row.misses}</Text>
+                <View style={[styles.rankingCellBox, styles.formColumn]}>
+                  <LastFive values={row.lastFive} />
+                </View>
+                <Text style={[styles.rankingCell, styles.pointsColumn, styles.rankingPointsText]}>
+                  {row.points}
+                </Text>
+              </View>
+            ))}
           </View>
-          <View style={styles.rankingInfo}>
-            <Text style={styles.matchTitle}>{row.nickname}</Text>
+        </ScrollView>
+      ) : null}
+      {ranking.length === 0 ? <Text style={styles.muted}>Ranking vazio por enquanto.</Text> : null}
+    </View>
+  );
+}
+
+function CupFormBadges({ values }: { values: Array<'W' | 'D' | 'L'> }) {
+  const padded: Array<'W' | 'D' | 'L' | '-'> = [...values.slice(-5)];
+  while (padded.length < 5) padded.unshift('-');
+
+  return (
+    <View style={styles.lastFiveList}>
+      {padded.map((value, index) => {
+        const label = value === 'W' ? 'V' : value === 'D' ? 'E' : value === 'L' ? 'D' : '-';
+        return (
+          <View
+            key={`${index}-${value}`}
+            style={[
+              styles.cupFormBadge,
+              value === 'W' && styles.cupFormWin,
+              value === 'D' && styles.cupFormDraw,
+              value === 'L' && styles.cupFormLoss,
+              value === '-' && styles.lastFiveEmpty,
+            ]}
+          >
+            <Text style={styles.lastFiveText}>{label}</Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function CupStandingTable({
+  title,
+  rows,
+  onOpenTeam,
+}: {
+  title: string;
+  rows: CupStandingRow[];
+  onOpenTeam: (team: Team) => void;
+}) {
+  return (
+    <View style={styles.cupGroupBlock}>
+      <Text style={styles.cupGroupTitle}>{title}</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <View style={styles.cupTable}>
+          <View style={[styles.cupTableRow, styles.cupTableHeader]}>
+            <Text style={[styles.cupCell, styles.cupRankColumn]}>#</Text>
+            <Text style={[styles.cupCell, styles.cupTeamColumn]}>Time</Text>
+            <Text style={[styles.cupCell, styles.cupStatColumn]}>P</Text>
+            <Text style={[styles.cupCell, styles.cupStatColumn]}>V</Text>
+            <Text style={[styles.cupCell, styles.cupStatColumn]}>E</Text>
+            <Text style={[styles.cupCell, styles.cupStatColumn]}>D</Text>
+            <Text style={[styles.cupCell, styles.cupStatColumn]}>SG</Text>
+            <Text style={[styles.cupCell, styles.cupStatColumn]}>GP</Text>
+            <Text style={[styles.cupCell, styles.cupFormColumn]}>Ultimos 5</Text>
+            <Text style={[styles.cupCell, styles.cupPointsColumn]}>PTS</Text>
+          </View>
+          {rows.map((row) => (
+            <View key={`${row.group}-${row.team.id}`} style={styles.cupTableRow}>
+              <Text style={[styles.cupCell, styles.cupRankColumn, styles.cupRankText]}>
+                {row.rank}
+              </Text>
+              <View style={[styles.cupCellBox, styles.cupTeamColumn, styles.cupTeamCell]}>
+                <TeamFlag team={row.team} />
+                <TeamNameButton team={row.team} onOpenTeam={onOpenTeam} />
+              </View>
+              <Text style={[styles.cupCell, styles.cupStatColumn]}>{row.played}</Text>
+              <Text style={[styles.cupCell, styles.cupStatColumn]}>{row.wins}</Text>
+              <Text style={[styles.cupCell, styles.cupStatColumn]}>{row.draws}</Text>
+              <Text style={[styles.cupCell, styles.cupStatColumn]}>{row.losses}</Text>
+              <Text style={[styles.cupCell, styles.cupStatColumn]}>{row.goalDifference}</Text>
+              <Text style={[styles.cupCell, styles.cupStatColumn]}>{row.goalsFor}</Text>
+              <View style={[styles.cupCellBox, styles.cupFormColumn]}>
+                <CupFormBadges values={row.lastFive} />
+              </View>
+              <Text style={[styles.cupCell, styles.cupPointsColumn, styles.cupPointsText]}>
+                {row.points}
+              </Text>
+            </View>
+          ))}
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+function CupMatchRow({
+  match,
+  onOpenTeam,
+}: {
+  match: CupMatchResult;
+  onOpenTeam: (team: Team) => void;
+}) {
+  const score = matchScore(match);
+  const meta = [match.round, match.group ? `Grupo ${match.group}` : null]
+    .filter(Boolean)
+    .join(' - ');
+
+  return (
+    <View style={styles.cupMatchRow}>
+      <View style={styles.cupMatchDate}>
+        <Text style={styles.matchTime}>
+          {new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short' }).format(
+            new Date(match.startsAt),
+          )}
+        </Text>
+        <Text style={styles.muted}>
+          {new Intl.DateTimeFormat('pt-BR', { timeStyle: 'short' }).format(
+            new Date(match.startsAt),
+          )}
+        </Text>
+      </View>
+      <View style={styles.cupMatchMain}>
+        <View style={styles.matchTeamsLine}>
+          <TeamFlag team={match.homeTeam} />
+          <TeamNameButton team={match.homeTeam} onOpenTeam={onOpenTeam} />
+          <Text style={score ? styles.inlineScore : styles.matchTitle}>
+            {score ? `${score.homeScore} x ${score.awayScore}` : 'x'}
+          </Text>
+          <TeamFlag team={match.awayTeam} />
+          <TeamNameButton team={match.awayTeam} onOpenTeam={onOpenTeam} />
+        </View>
+        {meta ? <Text style={styles.muted}>{meta}</Text> : null}
+        {score ? <Text style={styles.scoreStatusText}>{score.label}</Text> : null}
+      </View>
+      <Pill label={match.status} tone={match.status === 'LIVE' ? 'live' : 'neutral'} />
+    </View>
+  );
+}
+
+function CupOverviewScreen({ onOpenTeam }: { onOpenTeam: (team: Team) => void }) {
+  const [overview, setOverview] = useState<CupOverview | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  async function load() {
+    setLoading(true);
+    setError('');
+    try {
+      setOverview(await api.cupOverview());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nao foi possivel carregar a Copa.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  if (loading) return <ActivityIndicator color={colors.green} style={styles.loader} />;
+
+  const scoredMatches =
+    overview?.matches.filter((match) => match.homeScore != null && match.awayScore != null) ?? [];
+  const upcomingMatches =
+    overview?.matches
+      .filter((match) => match.homeScore == null || match.awayScore == null)
+      .slice(0, 24) ?? [];
+
+  return (
+    <View style={styles.contentGrid}>
+      <View style={styles.panel}>
+        <View style={styles.panelHeader}>
+          <Text style={styles.sectionTitle}>Copa do Mundo 2026</Text>
+          <Text style={styles.muted}>Classificacao por grupos, resultados e artilharia.</Text>
+        </View>
+        {overview ? (
+          <View style={styles.cupSummaryRow}>
+            <View style={styles.cupSummaryItem}>
+              <Text style={styles.nextMatchLabel}>Grupos</Text>
+              <Text style={styles.nextMatchTitle}>{overview.standingsByGroup.length}</Text>
+            </View>
+            <View style={styles.cupSummaryItem}>
+              <Text style={styles.nextMatchLabel}>Jogos com placar</Text>
+              <Text style={styles.nextMatchTitle}>{scoredMatches.length}</Text>
+            </View>
+            <View style={styles.cupSummaryItem}>
+              <Text style={styles.nextMatchLabel}>Atualizado</Text>
+              <Text style={styles.nextMatchTitle}>{dateTime(overview.checkedAt)}</Text>
+            </View>
+          </View>
+        ) : null}
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      </View>
+
+      <View style={styles.panel}>
+        <View style={styles.panelHeader}>
+          <Text style={styles.sectionTitle}>Classificacao</Text>
+          <Text style={styles.muted}>A tabela considera apenas partidas encerradas.</Text>
+        </View>
+        {overview?.standingsByGroup.length ? (
+          <View style={styles.cupGroupsList}>
+            {overview.standingsByGroup.map((group) => (
+              <CupStandingTable
+                key={group.group}
+                title={group.group === 'Sem grupo' ? group.group : `Grupo ${group.group}`}
+                rows={group.rows}
+                onOpenTeam={onOpenTeam}
+              />
+            ))}
+          </View>
+        ) : (
+          <Text style={styles.muted}>Nenhum grupo cadastrado ainda.</Text>
+        )}
+      </View>
+
+      <View style={styles.panel}>
+        <View style={styles.panelHeader}>
+          <Text style={styles.sectionTitle}>Resultados</Text>
+          <Text style={styles.muted}>
+            Jogos com placar aparecem primeiro. A agenda futura fica logo abaixo.
+          </Text>
+        </View>
+        <View style={styles.cupMatchesList}>
+          {scoredMatches.map((match) => (
+            <CupMatchRow key={match.id} match={match} onOpenTeam={onOpenTeam} />
+          ))}
+          {upcomingMatches.map((match) => (
+            <CupMatchRow key={match.id} match={match} onOpenTeam={onOpenTeam} />
+          ))}
+        </View>
+        {overview && scoredMatches.length === 0 && upcomingMatches.length === 0 ? (
+          <Text style={styles.muted}>Nenhum jogo cadastrado ainda.</Text>
+        ) : null}
+      </View>
+
+      <View style={styles.panel}>
+        <View style={styles.panelHeader}>
+          <Text style={styles.sectionTitle}>Artilharia</Text>
+          <Text style={styles.muted}>Lista de goleadores da competicao.</Text>
+        </View>
+        {overview?.topScorers.length ? (
+          <View style={styles.cupScorersTable}>
+            {overview.topScorers.map((scorer) => (
+              <View key={`${scorer.rank}-${scorer.playerName}`} style={styles.cupScorerRow}>
+                <Text style={[styles.cupCell, styles.cupRankColumn, styles.cupRankText]}>
+                  {scorer.rank}
+                </Text>
+                {scorer.imageUrl ? (
+                  <Image
+                    source={{ uri: scorer.imageUrl }}
+                    style={styles.cupScorerAvatar}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={styles.cupScorerAvatarFallback}>
+                    <Text style={styles.playerAvatarText}>{initials(scorer.playerName)}</Text>
+                  </View>
+                )}
+                <View style={styles.cupScorerInfo}>
+                  <Text style={styles.rankingPlayerName}>{scorer.playerName}</Text>
+                  <View style={styles.cupScorerTeamLine}>
+                    {scorer.teamFlagUrl ? (
+                      <Image
+                        source={{ uri: scorer.teamFlagUrl }}
+                        style={styles.cupScorerFlag}
+                        resizeMode="cover"
+                      />
+                    ) : null}
+                    <Text style={styles.muted}>
+                      {[scorer.teamName, scorer.position].filter(Boolean).join(' - ')}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={styles.cupPointsText}>{scorer.goals}</Text>
+              </View>
+            ))}
+          </View>
+        ) : (
+          <View style={styles.emptyCard}>
+            <Ionicons name="football-outline" size={28} color={colors.gold} />
+            <Text style={styles.emptyTitle}>Artilharia ainda sem dados</Text>
             <Text style={styles.muted}>
-              Exatos {row.exactScores} | Resultado {row.resultHits} | Gols {row.oneGoalHits}
+              A coleta usa a pagina da Copa no GE e sera preenchida assim que o scraper encontrar
+              goleadores.
             </Text>
           </View>
-          <View style={styles.rankingPoints}>
-            <Pill label={row.hasLiveData ? 'Provisorio' : 'Definitivo'} tone={row.hasLiveData ? 'warn' : 'ok'} />
-            <Text style={styles.pointsText}>{row.points} pts</Text>
-          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
+function TeamCatalogScreen({
+  selectedCode,
+  onSelectTeamCode,
+}: {
+  selectedCode: string | null;
+  onSelectTeamCode: (code: string) => void;
+}) {
+  const teams = useMemo(() => Object.values(teamCatalogByCode), []);
+  const selected = selectedCode ? teamCatalogByCode[selectedCode] : null;
+
+  return (
+    <View style={styles.contentGridSingle}>
+      <View style={styles.panel}>
+        <View style={styles.panelHeader}>
+          <Text style={styles.sectionTitle}>Times participantes</Text>
+          <Text style={styles.muted}>
+            Selecione um pais para abrir ou fechar o elenco cadastrado.
+          </Text>
         </View>
-      ))}
-      {ranking.length === 0 ? <Text style={styles.muted}>Ranking vazio por enquanto.</Text> : null}
+
+        <View style={styles.teamCatalogHero}>
+          <View>
+            <Text style={styles.teamCatalogEyebrow}>Elenco</Text>
+            <Text style={styles.teamCatalogTitle}>{selected?.countryName ?? 'Selecoes'}</Text>
+          </View>
+          <Pill label={`${teams.length} selecoes`} tone="ok" />
+        </View>
+
+        <View style={styles.catalogAccordion}>
+          {teams.map((team) => (
+            <View key={team.code} style={styles.catalogTeamPanel}>
+              <Pressable
+                onPress={() => onSelectTeamCode(selected?.code === team.code ? '' : team.code)}
+                style={[
+                  styles.catalogTeamButton,
+                  selected?.code === team.code && styles.catalogTeamButtonActive,
+                ]}
+              >
+                <View style={styles.catalogTeamIdentity}>
+                  {flagSources[team.iso2] ? (
+                    <Image
+                      source={flagSources[team.iso2]}
+                      style={styles.catalogFlag}
+                      resizeMode="cover"
+                    />
+                  ) : null}
+                  <View>
+                    <Text style={styles.catalogTeamButtonText}>{team.countryName}</Text>
+                    <Text style={styles.teamCode}>{team.code}</Text>
+                  </View>
+                </View>
+                <View style={styles.catalogTeamMeta}>
+                  <Pill
+                    label={`${team.players.length} jogadores`}
+                    tone={team.players.length > 0 ? 'ok' : 'warn'}
+                  />
+                  <Ionicons
+                    name={
+                      selected?.code === team.code ? 'chevron-up-outline' : 'chevron-down-outline'
+                    }
+                    size={20}
+                    color={colors.gold}
+                  />
+                </View>
+              </Pressable>
+
+              {selected?.code === team.code ? (
+                <View style={styles.catalogRoster}>
+                  <Text style={styles.muted}>{team.sourceLabel}</Text>
+                  <View style={styles.playerGrid}>
+                    {team.players.map((player) => (
+                      <View
+                        key={`${team.code}-${player.number}-${player.name}`}
+                        style={styles.playerCard}
+                      >
+                        {player.imageUrl ? (
+                          <Image
+                            source={{ uri: player.imageUrl }}
+                            style={styles.playerAvatarImage}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <View style={styles.playerAvatar}>
+                            <Text style={styles.playerAvatarText}>
+                              {player.name
+                                .split(' ')
+                                .filter(Boolean)
+                                .slice(0, 2)
+                                .map((part) => part[0])
+                                .join('')}
+                            </Text>
+                          </View>
+                        )}
+                        <View style={styles.playerInfo}>
+                          <Text style={styles.playerName}>{player.name}</Text>
+                          <Text style={styles.playerPosition}>{player.position}</Text>
+                          <Text style={styles.muted}>
+                            #{player.number}
+                            {player.age ? ` | ${player.age} anos` : ''}
+                            {player.club ? ` | ${player.club}` : ''}
+                          </Text>
+                        </View>
+                      </View>
+                    ))}
+                    {team.players.length === 0 ? (
+                      <Text style={styles.muted}>Elenco ainda nao cadastrado.</Text>
+                    ) : null}
+                  </View>
+                </View>
+              ) : null}
+            </View>
+          ))}
+        </View>
+      </View>
     </View>
   );
 }
@@ -1122,7 +2101,16 @@ function RankingScreen() {
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [screen, setScreen] = useState<Screen>('days');
+  const [selectedTeamCode, setSelectedTeamCode] = useState<string | null>('KOR');
   const [booting, setBooting] = useState(true);
+  const appScrollRef = useRef<ScrollView>(null);
+  const appScrollY = useRef(0);
+
+  function adjustAppScroll(delta: number) {
+    const nextY = Math.max(0, appScrollY.current + delta);
+    appScrollY.current = nextY;
+    appScrollRef.current?.scrollTo({ y: nextY, animated: false });
+  }
 
   useEffect(() => {
     api
@@ -1134,10 +2122,44 @@ export default function App() {
 
   const content = useMemo(() => {
     if (screen === 'ranking') return <RankingScreen />;
-    if (screen === 'predictions') return <PredictionsScreen />;
-    if (screen === 'admin' && user?.role === 'ADMIN') return <AdminScreen currentUserId={user.id} />;
-    return <DaysScreen />;
-  }, [screen, user?.id, user?.role]);
+    if (screen === 'cup') {
+      return (
+        <CupOverviewScreen
+          onOpenTeam={(team) => {
+            setSelectedTeamCode(team.code ?? null);
+            setScreen('teams');
+          }}
+        />
+      );
+    }
+    if (screen === 'teams') {
+      return (
+        <TeamCatalogScreen selectedCode={selectedTeamCode} onSelectTeamCode={setSelectedTeamCode} />
+      );
+    }
+    if (screen === 'predictions') {
+      return (
+        <PredictionsScreen
+          currentUserId={user?.id ?? ''}
+          onAdjustScroll={adjustAppScroll}
+          onOpenTeam={(team) => {
+            setSelectedTeamCode(team.code ?? null);
+            setScreen('teams');
+          }}
+        />
+      );
+    }
+    if (screen === 'admin' && user?.role === 'ADMIN')
+      return <AdminScreen currentUserId={user.id} />;
+    return (
+      <DaysScreen
+        onOpenTeam={(team) => {
+          setSelectedTeamCode(team.code ?? null);
+          setScreen('teams');
+        }}
+      />
+    );
+  }, [screen, selectedTeamCode, user?.id, user?.role]);
 
   async function logout() {
     await api.logout().catch(() => undefined);
@@ -1156,8 +2178,22 @@ export default function App() {
 
   return (
     <AppShell>
-      <Header user={user} screen={screen} setScreen={setScreen} onLogout={logout} />
-      <ScrollView style={styles.appScrollView} contentContainerStyle={styles.appScroll}>
+      <Header
+        user={user}
+        screen={screen}
+        setScreen={setScreen}
+        onUserChange={setUser}
+        onLogout={logout}
+      />
+      <ScrollView
+        ref={appScrollRef}
+        style={styles.appScrollView}
+        contentContainerStyle={styles.appScroll}
+        onScroll={(event) => {
+          appScrollY.current = event.nativeEvent.contentOffset.y;
+        }}
+        scrollEventThrottle={16}
+      >
         {content}
       </ScrollView>
     </AppShell>
@@ -1353,6 +2389,34 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 14,
   },
+  confirmModal: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: colors.panel,
+    borderColor: colors.goldBorder,
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 22,
+    alignItems: 'center',
+    gap: 14,
+  },
+  confirmIcon: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: 'rgba(239, 107, 90, 0.12)',
+    borderColor: colors.red,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmModalActions: {
+    width: '100%',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 10,
+  },
   successIcon: {
     width: 88,
     height: 88,
@@ -1408,9 +2472,48 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg2,
     gap: 14,
   },
+  headerIdentity: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  headerUserText: {
+    flex: 1,
+    gap: 2,
+  },
   headerTitle: {
     color: colors.text,
     fontSize: 24,
+    fontWeight: '900',
+  },
+  avatarActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  avatarActionButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    borderColor: colors.border,
+    borderWidth: 1,
+    backgroundColor: colors.panel,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  userAvatarFallback: {
+    borderColor: colors.goldBorder,
+    borderWidth: 1,
+    backgroundColor: colors.panel2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  userAvatarImage: {
+    borderColor: colors.goldBorder,
+    borderWidth: 1,
+    backgroundColor: colors.panel2,
+  },
+  userAvatarText: {
+    color: colors.gold,
     fontWeight: '900',
   },
   nav: {
@@ -1428,6 +2531,12 @@ const styles = StyleSheet.create({
   },
   contentGrid: {
     gap: 18,
+  },
+  contentGridSingle: {
+    gap: 18,
+    maxWidth: 980,
+    width: '100%',
+    alignSelf: 'center',
   },
   userList: {
     gap: 12,
@@ -1453,6 +2562,24 @@ const styles = StyleSheet.create({
   },
   rulesList: {
     gap: 8,
+  },
+  predictionNotice: {
+    backgroundColor: 'rgba(229, 186, 82, 0.14)',
+    borderColor: colors.goldBorder,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  predictionNoticeText: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
   },
   ruleRow: {
     backgroundColor: colors.bg2,
@@ -1697,6 +2824,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '900',
   },
+  teamNameLink: {
+    color: colors.gold,
+    textDecorationLine: 'underline',
+  },
   matchTeamsLine: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1707,6 +2838,39 @@ const styles = StyleSheet.create({
     color: colors.soft,
     fontSize: 14,
     fontWeight: '700',
+  },
+  inlineScore: {
+    color: colors.gold,
+    fontSize: 18,
+    fontWeight: '900',
+    paddingHorizontal: 2,
+  },
+  scoreStatusText: {
+    color: colors.gold,
+    fontSize: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  matchScoreBoard: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(229, 186, 82, 0.13)',
+    borderColor: colors.goldBorder,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 2,
+  },
+  matchScoreLabel: {
+    color: colors.gold,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  matchScoreValue: {
+    color: colors.text,
+    fontSize: 22,
+    fontWeight: '900',
   },
   predictionInputs: {
     flexDirection: 'row',
@@ -1737,47 +2901,573 @@ const styles = StyleSheet.create({
   publicPredictions: {
     borderTopColor: colors.border,
     borderTopWidth: 1,
-    paddingTop: 10,
-    gap: 6,
+    paddingTop: 12,
+    gap: 10,
   },
-  predictionLine: {
-    color: colors.soft,
+  publicPredictionsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  publicPredictionsTitleGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  publicPredictionsTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  publicPredictionsCount: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  publicPredictionsList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  predictionRow: {
+    height: 60,
+    minWidth: 250,
+    flexBasis: '30%',
+    flexGrow: 0,
+    flexShrink: 1,
+    backgroundColor: colors.input,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  predictionRowMine: {
+    backgroundColor: 'rgba(47, 191, 122, 0.13)',
+    borderLeftColor: colors.green,
+    borderLeftWidth: 3,
+  },
+  predictionParticipant: {
+    minWidth: 0,
+    width: 220,
+    maxWidth: '62%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  predictionParticipantText: {
+    minWidth: 0,
+    flex: 1,
+    gap: 1,
+  },
+  predictionNickname: {
+    color: colors.text,
     fontSize: 14,
+    fontWeight: '900',
   },
-  rankingRow: {
+  predictionMineLabel: {
+    color: colors.green,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  predictionScore: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  predictionScoreNumber: {
+    width: 36,
+    height: 34,
+    borderRadius: 7,
+    backgroundColor: colors.panel2,
+    borderColor: colors.goldBorder,
+    borderWidth: 1,
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '900',
+    lineHeight: 32,
+    textAlign: 'center',
+  },
+  predictionScoreSeparator: {
+    color: colors.gold,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  publicPredictionsEmpty: {
+    minHeight: 58,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: 10,
+    backgroundColor: colors.input,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  rankingHighlights: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  rankingHighlightCard: {
+    minWidth: 220,
+    flex: 1,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  leaderCard: {
+    borderColor: colors.goldBorder,
+    backgroundColor: 'rgba(229, 186, 82, 0.13)',
+  },
+  lastCard: {
+    borderColor: colors.red,
+    backgroundColor: 'rgba(239, 107, 90, 0.12)',
+  },
+  rankingHighlightAvatar: {
+    position: 'relative',
+    paddingBottom: 10,
+  },
+  rankingMarker: {
+    position: 'absolute',
+    bottom: 0,
+    alignSelf: 'center',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderColor: colors.bg,
+    borderWidth: 2,
+  },
+  leaderMarker: {
+    backgroundColor: colors.gold,
+  },
+  lastMarker: {
+    backgroundColor: colors.red,
+  },
+  rankingHighlightInfo: {
+    flex: 1,
+    gap: 3,
+  },
+  rankingHighlightLabel: {
+    color: colors.gold,
+    fontSize: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  rankingHighlightName: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  rankingTable: {
+    minWidth: 760,
+    borderRadius: 10,
+    overflow: 'hidden',
+    borderColor: colors.border,
+    borderWidth: 1,
+  },
+  rankingTableRow: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.bg2,
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+  },
+  rankingTableHeader: {
+    minHeight: 38,
+    backgroundColor: colors.input,
+  },
+  rankingCell: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '900',
+    paddingHorizontal: 8,
+    textAlign: 'center',
+  },
+  rankingCellBox: {
+    paddingHorizontal: 8,
+  },
+  rankColumn: {
+    width: 44,
+  },
+  playerColumn: {
+    width: 230,
+  },
+  numericColumn: {
+    width: 54,
+  },
+  formColumn: {
+    width: 145,
+  },
+  pointsColumn: {
+    width: 56,
+  },
+  rankingRankText: {
+    color: colors.gold,
+    fontSize: 16,
+  },
+  rankingPlayerCell: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  rankingPlayerInfo: {
+    flex: 1,
+  },
+  rankingPlayerName: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  rankingPlayerStatus: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  rankingPointsText: {
+    color: colors.gold,
+    fontSize: 16,
+  },
+  lastFiveList: {
+    flexDirection: 'row',
+    gap: 5,
+  },
+  lastFiveBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lastFiveExact: {
+    backgroundColor: colors.green,
+  },
+  lastFiveResult: {
+    backgroundColor: colors.gold,
+  },
+  lastFiveGoal: {
+    backgroundColor: '#52a9ff',
+  },
+  lastFiveMiss: {
+    backgroundColor: colors.red,
+  },
+  lastFiveEmpty: {
+    backgroundColor: colors.border,
+  },
+  lastFiveText: {
+    color: colors.bg,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  cupSummaryRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  cupSummaryItem: {
+    flex: 1,
+    minWidth: 180,
     backgroundColor: colors.bg2,
     borderColor: colors.border,
     borderWidth: 1,
     borderRadius: 12,
-    padding: 14,
+    padding: 12,
+    gap: 4,
+  },
+  cupGroupsList: {
     gap: 12,
   },
-  rankBadge: {
-    width: 52,
-    height: 42,
+  cupGroupBlock: {
+    backgroundColor: colors.bg2,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    gap: 10,
+  },
+  cupGroupTitle: {
+    color: colors.gold,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  cupTable: {
+    minWidth: 780,
+    overflow: 'hidden',
+    borderColor: colors.border,
+    borderWidth: 1,
     borderRadius: 10,
-    backgroundColor: 'rgba(229, 186, 82, 0.18)',
+  },
+  cupTableRow: {
+    minHeight: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.input,
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+  },
+  cupTableHeader: {
+    minHeight: 34,
+    backgroundColor: colors.bg,
+  },
+  cupCell: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '900',
+    paddingHorizontal: 7,
+    textAlign: 'center',
+  },
+  cupCellBox: {
+    paddingHorizontal: 7,
+  },
+  cupRankColumn: {
+    width: 42,
+  },
+  cupTeamColumn: {
+    width: 250,
+  },
+  cupStatColumn: {
+    width: 48,
+  },
+  cupFormColumn: {
+    width: 130,
+  },
+  cupPointsColumn: {
+    width: 58,
+  },
+  cupTeamCell: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  cupRankText: {
+    color: colors.gold,
+    fontSize: 15,
+  },
+  cupPointsText: {
+    color: colors.gold,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  cupFormBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 5,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  rankText: {
-    color: colors.gold,
-    fontWeight: '900',
-    fontSize: 18,
+  cupFormWin: {
+    backgroundColor: colors.green,
   },
-  rankingInfo: {
+  cupFormDraw: {
+    backgroundColor: colors.gold,
+  },
+  cupFormLoss: {
+    backgroundColor: colors.red,
+  },
+  cupMatchesList: {
+    gap: 10,
+  },
+  cupMatchRow: {
+    backgroundColor: colors.bg2,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  cupMatchDate: {
+    width: 94,
+    gap: 2,
+  },
+  cupMatchMain: {
+    flex: 1,
     gap: 4,
   },
-  rankingPoints: {
-    gap: 8,
+  cupScorersTable: {
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: 12,
+    overflow: 'hidden',
   },
-  pointsText: {
+  cupScorerRow: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.bg2,
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    paddingHorizontal: 10,
+    gap: 10,
+  },
+  cupScorerAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderColor: colors.goldBorder,
+    borderWidth: 1,
+    backgroundColor: colors.panel2,
+  },
+  cupScorerAvatarFallback: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderColor: colors.goldBorder,
+    borderWidth: 1,
+    backgroundColor: colors.panel2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cupScorerInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  cupScorerTeamLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  cupScorerFlag: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderColor: colors.border,
+    borderWidth: 1,
+  },
+  catalogAccordion: {
+    gap: 10,
+  },
+  catalogTeamPanel: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderColor: colors.border,
+    borderWidth: 1,
+    backgroundColor: colors.bg2,
+  },
+  catalogTeamButton: {
+    minHeight: 58,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  catalogTeamButtonActive: {
+    backgroundColor: '#17372c',
+  },
+  catalogTeamIdentity: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  catalogFlag: {
+    width: 34,
+    height: 24,
+    borderRadius: 4,
+    borderColor: colors.border,
+    borderWidth: 1,
+  },
+  catalogTeamButtonText: {
     color: colors.text,
-    fontSize: 22,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  catalogTeamMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  catalogRoster: {
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    padding: 12,
+    gap: 12,
+  },
+  teamCatalogHero: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  teamCatalogEyebrow: {
+    color: colors.gold,
+    fontSize: 13,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  teamCatalogTitle: {
+    color: colors.text,
+    fontSize: 30,
+    fontWeight: '900',
+  },
+  playerGrid: {
+    gap: 10,
+  },
+  playerCard: {
+    backgroundColor: colors.bg2,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  playerAvatar: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    borderColor: colors.goldBorder,
+    borderWidth: 1,
+    backgroundColor: colors.panel2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  playerAvatarImage: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    borderColor: colors.goldBorder,
+    borderWidth: 1,
+    backgroundColor: colors.panel2,
+  },
+  playerAvatarText: {
+    color: colors.gold,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  playerInfo: {
+    flex: 1,
+    gap: 3,
+  },
+  playerName: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  playerPosition: {
+    color: colors.gold,
+    fontSize: 13,
     fontWeight: '900',
   },
   loader: {
     marginTop: 40,
   },
 });
-

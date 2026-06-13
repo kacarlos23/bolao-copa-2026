@@ -6,6 +6,7 @@ declare module 'express-session' {
       id: string;
       username: string;
       nickname: string;
+      avatarUrl?: string | null;
       role: UserRole;
     };
   }

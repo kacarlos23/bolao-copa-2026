@@ -1,6 +1,7 @@
 import { ZodError } from 'zod';
 import type { ErrorRequestHandler } from 'express';
 import { Prisma } from '@prisma/client';
+import multer from 'multer';
 import { isAppError } from '../http/errors.js';
 import { logger } from '../logger.js';
 
@@ -19,6 +20,12 @@ export const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
         issues: error.flatten(),
       },
     });
+    return;
+  }
+
+  if (error instanceof multer.MulterError) {
+    const message = error.code === 'LIMIT_FILE_SIZE' ? 'Envie uma imagem de ate 2 MB.' : 'Upload de avatar invalido.';
+    res.status(400).json({ error: { code: error.code, message } });
     return;
   }
 
