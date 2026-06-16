@@ -34,6 +34,7 @@ import { CupOverviewV2 } from './src/competitionV2';
 import { DrawerReveal, SoftReveal } from './src/motion';
 
 type Screen = 'days' | 'predictions' | 'ranking' | 'cup' | 'teams' | 'admin';
+type RankingStatusFilter = 'all' | 'live' | 'final';
 
 const competitionUiV2 = process.env.EXPO_PUBLIC_COMPETITION_UI_V2 === '1';
 
@@ -42,6 +43,7 @@ const colors = {
   bg2: '#0d1c19',
   panel: '#13251f',
   panel2: '#193128',
+  panel3: '#0a241e',
   border: '#2c4a40',
   text: '#f3f8f5',
   muted: '#a8bbb3',
@@ -50,6 +52,8 @@ const colors = {
   greenDark: '#168457',
   gold: '#e5ba52',
   goldBorder: '#d8b64c',
+  blue: '#4ca9ff',
+  amber: '#f2c14e',
   red: '#ef6b5a',
   input: '#0b1815',
 };
@@ -297,6 +301,8 @@ function PrimaryButton({
   tone?: 'primary' | 'secondary' | 'danger';
   icon?: keyof typeof Ionicons.glyphMap;
 }) {
+  const contentColor = tone === 'primary' ? '#062017' : colors.text;
+
   return (
     <Pressable
       disabled={disabled}
@@ -308,8 +314,8 @@ function PrimaryButton({
         disabled && styles.buttonDisabled,
       ]}
     >
-      {icon ? <Ionicons name={icon} size={18} color={colors.text} /> : null}
-      <Text style={styles.buttonText}>{label}</Text>
+      {icon ? <Ionicons name={icon} size={18} color={contentColor} /> : null}
+      <Text style={[styles.buttonText, { color: contentColor }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -604,6 +610,164 @@ function AuthScreen({ onAuth }: { onAuth: (user: User) => void }) {
         </View>
       </ScrollView>
     </AppShell>
+  );
+}
+
+function HeaderLayout({
+  user,
+  screen,
+  setScreen,
+  onRefresh,
+  onUserChange,
+  onLogout,
+}: {
+  user: User;
+  screen: Screen;
+  setScreen: (screen: Screen) => void;
+  onRefresh: () => void;
+  onUserChange: (user: User) => void;
+  onLogout: () => void;
+}) {
+  const { width } = useWindowDimensions();
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [deleteAvatarVisible, setDeleteAvatarVisible] = useState(false);
+  const wideHeader = width >= 1100;
+
+  function showAvatarError(message: string) {
+    if (typeof window !== 'undefined') window.alert(message);
+  }
+
+  function pickAvatar() {
+    if (typeof document === 'undefined') {
+      showAvatarError('Upload de avatar disponivel apenas no navegador.');
+      return;
+    }
+
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/jpeg,image/png,image/webp';
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+
+      setAvatarBusy(true);
+      api
+        .uploadAvatar(file)
+        .then((result) => onUserChange(result.user))
+        .catch((error) =>
+          showAvatarError(error instanceof Error ? error.message : 'Erro ao enviar avatar.'),
+        )
+        .finally(() => setAvatarBusy(false));
+    };
+    input.click();
+  }
+
+  function resetAvatar() {
+    setAvatarBusy(true);
+    api
+      .resetAvatar()
+      .then((result) => {
+        onUserChange(result.user);
+        setDeleteAvatarVisible(false);
+      })
+      .catch((error) =>
+        showAvatarError(error instanceof Error ? error.message : 'Erro ao remover avatar.'),
+      )
+      .finally(() => setAvatarBusy(false));
+  }
+
+  return (
+    <View style={[styles.header, wideHeader && styles.headerWide]}>
+      <View style={[styles.headerIdentity, wideHeader && styles.headerIdentityWide]}>
+        <View style={styles.headerAvatarShell}>
+          <UserAvatar nickname={user.nickname} avatarUrl={user.avatarUrl} size={50} />
+        </View>
+        <View style={styles.headerUserText}>
+          <Text style={styles.brandSmall}>Bolao Copa 2026</Text>
+          <Text style={styles.headerTitle}>{user.nickname}</Text>
+        </View>
+        <View style={[styles.avatarActions, wideHeader && styles.avatarActionsWide]}>
+          <Pressable
+            onPress={onRefresh}
+            style={styles.avatarActionButton}
+            accessibilityLabel="Atualizar dados"
+          >
+            <Ionicons name="refresh-outline" size={18} color={colors.soft} />
+          </Pressable>
+          <Pressable
+            disabled={avatarBusy}
+            onPress={pickAvatar}
+            style={[styles.avatarActionButton, avatarBusy && styles.buttonDisabled]}
+          >
+            <Ionicons name="camera-outline" size={18} color={colors.soft} />
+          </Pressable>
+          {user.avatarUrl ? (
+            <Pressable
+              disabled={avatarBusy}
+              onPress={() => setDeleteAvatarVisible(true)}
+              style={[styles.avatarActionButton, avatarBusy && styles.buttonDisabled]}
+            >
+              <Ionicons name="trash-outline" size={18} color={colors.red} />
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+      <ConfirmModal
+        visible={deleteAvatarVisible}
+        title="Excluir foto do perfil?"
+        message="Sua foto atual sera removida e o avatar padrao com suas iniciais voltara a ser exibido."
+        confirmLabel="Excluir foto"
+        loading={avatarBusy}
+        onCancel={() => setDeleteAvatarVisible(false)}
+        onConfirm={resetAvatar}
+      />
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={[styles.navScroll, wideHeader && styles.navScrollWide]}
+        contentContainerStyle={styles.nav}
+      >
+        <PrimaryButton
+          label="Dias"
+          icon="calendar-outline"
+          tone={screen === 'days' ? 'primary' : 'secondary'}
+          onPress={() => setScreen('days')}
+        />
+        <PrimaryButton
+          label="Palpites"
+          icon="create-outline"
+          tone={screen === 'predictions' ? 'primary' : 'secondary'}
+          onPress={() => setScreen('predictions')}
+        />
+        <PrimaryButton
+          label="Ranking"
+          icon="podium-outline"
+          tone={screen === 'ranking' ? 'primary' : 'secondary'}
+          onPress={() => setScreen('ranking')}
+        />
+        <PrimaryButton
+          label="Copa"
+          icon="football-outline"
+          tone={screen === 'cup' ? 'primary' : 'secondary'}
+          onPress={() => setScreen('cup')}
+        />
+        <PrimaryButton
+          label="Times"
+          icon="people-outline"
+          tone={screen === 'teams' ? 'primary' : 'secondary'}
+          onPress={() => setScreen('teams')}
+        />
+        {user.role === 'ADMIN' ? (
+          <PrimaryButton
+            label="Admin"
+            icon="settings-outline"
+            tone={screen === 'admin' ? 'primary' : 'secondary'}
+            onPress={() => setScreen('admin')}
+          />
+        ) : null}
+        <PrimaryButton label="Sair" tone="secondary" icon="log-out-outline" onPress={onLogout} />
+      </ScrollView>
+    </View>
   );
 }
 
@@ -1787,6 +1951,458 @@ function TeamSelector({
   );
 }
 
+const rankingStatusOptions: Array<{ key: RankingStatusFilter; label: string }> = [
+  { key: 'all', label: 'Todos' },
+  { key: 'live', label: 'Ao vivo' },
+  { key: 'final', label: 'Definitivos' },
+];
+
+function RankingStatCard({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+}) {
+  return (
+    <View style={styles.rankingStatCard}>
+      <Text style={styles.rankingStatLabel}>{label}</Text>
+      <Text style={styles.rankingStatValue}>{value}</Text>
+      <Text style={styles.rankingStatDetail}>{detail}</Text>
+    </View>
+  );
+}
+
+function RankingPodiumCard({
+  row,
+  place,
+}: {
+  row: RankingRow;
+  place: 1 | 2 | 3;
+}) {
+  const labels = {
+    1: '1o lugar',
+    2: '2o lugar',
+    3: '3o lugar',
+  } as const;
+
+  return (
+    <View
+      style={[
+        styles.rankingPodiumCard,
+        place === 1 && styles.rankingPodiumCardFirst,
+        place === 2 && styles.rankingPodiumCardSecond,
+        place === 3 && styles.rankingPodiumCardThird,
+      ]}
+    >
+      <Text style={styles.rankingPodiumGhostRank}>{place}</Text>
+      <Text style={styles.rankingPodiumLabel}>{labels[place]}</Text>
+      <View style={styles.rankingPodiumIdentity}>
+        <UserAvatar nickname={row.nickname} avatarUrl={row.avatarUrl} size={48} />
+        <View style={styles.rankingPodiumInfo}>
+          <Text style={styles.rankingPodiumName} numberOfLines={1}>
+            {row.nickname}
+          </Text>
+          <Text style={styles.rankingPodiumMeta}>
+            {row.hasLiveData ? 'Provisorio' : 'Definitivo'} · {row.exactScores} exato(s)
+          </Text>
+        </View>
+      </View>
+      <Text style={styles.rankingPodiumPoints}>{row.points} pts</Text>
+      <LastFive values={row.lastFive} />
+    </View>
+  );
+}
+
+function RankingScreenLayout({
+  refreshVersion,
+  currentUserId,
+}: {
+  refreshVersion: number;
+  currentUserId: string;
+}) {
+  const { width } = useWindowDimensions();
+  const [ranking, setRanking] = useState<RankingRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<RankingStatusFilter>('all');
+  const pulse = useRef(new Animated.Value(1)).current;
+
+  const isCompact = width < 1100;
+  const stackTools = width < 880;
+
+  const loadRanking = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const result = await api.ranking();
+      setRanking(result.ranking);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nao foi possivel carregar o ranking.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadRanking();
+    const source = createRankingEvents((nextRanking) => {
+      setRanking(nextRanking);
+      setLoading(false);
+    });
+    return () => source.close();
+  }, [loadRanking, refreshVersion]);
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1.05,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [pulse]);
+
+  const leader = ranking[0];
+  const last = ranking[ranking.length - 1];
+  const currentUserRow = ranking.find((row) => row.userId === currentUserId);
+  const liveCount = ranking.filter((row) => row.hasLiveData).length;
+  const filteredRanking = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return ranking.filter((row) => {
+      if (statusFilter === 'live' && !row.hasLiveData) return false;
+      if (statusFilter === 'final' && row.hasLiveData) return false;
+      if (query && !row.nickname.toLowerCase().includes(query)) return false;
+      return true;
+    });
+  }, [ranking, search, statusFilter]);
+  const podiumSeed = filteredRanking.length >= 3 ? filteredRanking : ranking;
+  const podiumRows = podiumSeed.slice(0, 3);
+  const podiumLayout =
+    podiumRows.length === 3 && !isCompact
+      ? [
+          { row: podiumRows[1], place: 2 as const },
+          { row: podiumRows[0], place: 1 as const },
+          { row: podiumRows[2], place: 3 as const },
+        ]
+      : podiumRows.map((row, index) => ({ row, place: (index + 1) as 1 | 2 | 3 }));
+  const exactLeader = ranking.reduce<RankingRow | undefined>(
+    (best, row) => (!best || row.exactScores > best.exactScores ? row : best),
+    undefined,
+  );
+  const averagePoints = ranking.length
+    ? new Intl.NumberFormat('pt-BR', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 1,
+      }).format(ranking.reduce((sum, row) => sum + row.points, 0) / ranking.length)
+    : '--';
+  const topFive = ranking.slice(0, 5);
+  const leaderPoints = Math.max(leader?.points ?? 0, 1);
+  const noResultsMessage =
+    ranking.length === 0
+      ? 'Ranking vazio por enquanto.'
+      : 'Nenhum participante encontrado para o filtro aplicado.';
+
+  return (
+    <View style={styles.rankingPage}>
+      <View style={[styles.rankingHead, isCompact && styles.rankingHeadCompact]}>
+        <View style={styles.rankingHeadCopy}>
+          <Text style={styles.sectionTitle}>Ranking ao vivo</Text>
+          <Text style={styles.rankingHeadText}>
+            Acompanhe lideranca, provisoes em tempo real e o desempenho recente de cada
+            participante.
+          </Text>
+          <View style={styles.rankingBadgeRow}>
+            <Animated.View
+              style={[styles.rankingLiveBadge, { transform: [{ scale: pulse }] }]}
+            >
+              <Text style={styles.rankingLiveBadgeText}>Atualizacao ativa</Text>
+            </Animated.View>
+            <View
+              style={[
+                styles.rankingContextBadge,
+                liveCount > 0
+                  ? styles.rankingContextBadgePositive
+                  : styles.rankingContextBadgeNeutral,
+              ]}
+            >
+              <Text style={styles.rankingContextBadgeText}>
+                {liveCount > 0 ? `${liveCount} com jogos em andamento` : 'Sem jogos ao vivo'}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={[styles.rankingTools, stackTools && styles.rankingToolsCompact]}>
+          <View style={styles.rankingSegmentedControl}>
+            {rankingStatusOptions.map((option) => {
+              const active = statusFilter === option.key;
+              return (
+                <Pressable
+                  key={option.key}
+                  onPress={() => setStatusFilter(option.key)}
+                  style={[
+                    styles.rankingSegmentedButton,
+                    active && styles.rankingSegmentedButtonActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.rankingSegmentedText,
+                      active && styles.rankingSegmentedTextActive,
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <View style={styles.rankingSearchField}>
+            <Ionicons name="search-outline" size={16} color={colors.muted} />
+            <TextInput
+              style={styles.rankingSearchInput}
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Buscar jogador"
+              placeholderTextColor={colors.muted}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+
+          <PrimaryButton
+            label={loading ? 'Atualizando' : 'Atualizar'}
+            onPress={() => void loadRanking()}
+            tone="secondary"
+            icon="refresh-outline"
+            disabled={loading}
+          />
+        </View>
+      </View>
+
+      <View style={styles.rankingStatsGrid}>
+        <RankingStatCard
+          label="Participantes"
+          value={`${ranking.length}`}
+          detail={`${filteredRanking.length} visiveis no recorte atual`}
+        />
+        <RankingStatCard
+          label="Sua posicao"
+          value={currentUserRow ? `#${currentUserRow.rank}` : '--'}
+          detail={
+            currentUserRow
+              ? `${currentUserRow.points} pts acumulados`
+              : 'Sem pontuacao no ranking'
+          }
+        />
+        <RankingStatCard
+          label="Pontos do lider"
+          value={leader ? `${leader.points}` : '--'}
+          detail={leader ? leader.nickname : 'Aguardando resultados'}
+        />
+        <RankingStatCard
+          label="Media geral"
+          value={`${averagePoints}`}
+          detail={
+            liveCount > 0
+              ? `${liveCount} posicoes provisoria(s)`
+              : 'Tudo definitivo no momento'
+          }
+        />
+        <RankingStatCard
+          label="Mais exatos"
+          value={exactLeader ? `${exactLeader.exactScores}` : '--'}
+          detail={exactLeader ? exactLeader.nickname : 'Sem dados ainda'}
+        />
+      </View>
+
+      <View style={[styles.rankingMainGrid, isCompact && styles.rankingMainGridCompact]}>
+        <View style={styles.rankingPrimaryColumn}>
+          {podiumRows.length > 0 ? (
+            <View style={[styles.rankingPodiumGrid, isCompact && styles.rankingPodiumGridCompact]}>
+              {podiumLayout.map(({ row, place }) => (
+                <RankingPodiumCard key={row.userId} row={row} place={place} />
+              ))}
+            </View>
+          ) : null}
+
+          <View style={styles.rankingTablePanel}>
+            <View style={styles.rankingTableHeaderRow}>
+              <View>
+                <Text style={styles.rankingTableTitle}>Classificacao completa</Text>
+                <Text style={styles.rankingTableSubtitle}>
+                  {filteredRanking.length} participante(s) exibido(s) na tabela.
+                </Text>
+              </View>
+              {error ? <Text style={styles.errorText}>{error}</Text> : null}
+            </View>
+
+            {loading ? <ActivityIndicator color={colors.green} style={styles.loaderInline} /> : null}
+
+            {filteredRanking.length > 0 ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={styles.rankingTable}>
+                  <View style={[styles.rankingTableRow, styles.rankingTableHeader]}>
+                    <Text style={[styles.rankingCell, styles.rankColumn]}>#</Text>
+                    <Text style={[styles.rankingCell, styles.playerColumn]}>Jogador</Text>
+                    <Text style={[styles.rankingCell, styles.numericColumn]}>P</Text>
+                    <Text style={[styles.rankingCell, styles.numericColumn]}>EX</Text>
+                    <Text style={[styles.rankingCell, styles.numericColumn]}>RES</Text>
+                    <Text style={[styles.rankingCell, styles.numericColumn]}>GOL</Text>
+                    <Text style={[styles.rankingCell, styles.numericColumn]}>ER</Text>
+                    <Text style={[styles.rankingCell, styles.formColumn]}>Ultimos 5</Text>
+                    <Text style={[styles.rankingCell, styles.pointsColumn]}>PTS</Text>
+                  </View>
+                  {filteredRanking.map((row, index) => (
+                    <View
+                      key={row.userId}
+                      style={[
+                        styles.rankingTableRow,
+                        index % 2 === 1 && styles.rankingTableRowAlt,
+                        row.userId === currentUserId && styles.rankingTableRowCurrentUser,
+                      ]}
+                    >
+                      <Text style={[styles.rankingCell, styles.rankColumn, styles.rankingRankText]}>
+                        {row.rank}
+                      </Text>
+                      <View
+                        style={[
+                          styles.rankingCellBox,
+                          styles.playerColumn,
+                          styles.rankingPlayerCell,
+                        ]}
+                      >
+                        <UserAvatar nickname={row.nickname} avatarUrl={row.avatarUrl} size={31} />
+                        <View style={styles.rankingPlayerInfo}>
+                          <Text style={styles.rankingPlayerName} numberOfLines={1}>
+                            {row.nickname}
+                          </Text>
+                          <Text style={styles.rankingPlayerStatus}>
+                            {row.hasLiveData ? 'Provisorio' : 'Definitivo'}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={[styles.rankingCell, styles.numericColumn]}>{row.played}</Text>
+                      <Text style={[styles.rankingCell, styles.numericColumn]}>{row.exactScores}</Text>
+                      <Text style={[styles.rankingCell, styles.numericColumn]}>{row.resultHits}</Text>
+                      <Text style={[styles.rankingCell, styles.numericColumn]}>{row.oneGoalHits}</Text>
+                      <Text style={[styles.rankingCell, styles.numericColumn]}>{row.misses}</Text>
+                      <View style={[styles.rankingCellBox, styles.formColumn]}>
+                        <LastFive values={row.lastFive} />
+                      </View>
+                      <Text
+                        style={[styles.rankingCell, styles.pointsColumn, styles.rankingPointsText]}
+                      >
+                        {row.points}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </ScrollView>
+            ) : (
+              <Text style={styles.muted}>{noResultsMessage}</Text>
+            )}
+          </View>
+
+          <Text style={styles.rankingFooterNote}>
+            {liveCount > 0
+              ? 'Pontuacoes com jogos em andamento podem oscilar ate a confirmacao final dos resultados.'
+              : 'Sem partidas ao vivo neste momento. O ranking abaixo reflete apenas resultados consolidados.'}
+          </Text>
+        </View>
+
+        <View style={styles.rankingSidebar}>
+          <View style={styles.rankingSidePanel}>
+            <Text style={styles.rankingSideTitle}>Radar do ranking</Text>
+            <Text style={styles.rankingSideText}>
+              Veja quem abre a rodada em vantagem e quem ainda busca reagir.
+            </Text>
+            <View style={styles.rankingHighlightStack}>
+              <RankingHighlight label="Lider" row={leader} icon="trophy-outline" tone="leader" />
+              {last && last.userId !== leader?.userId ? (
+                <RankingHighlight
+                  label="Lanterna"
+                  row={last}
+                  icon="flashlight-outline"
+                  tone="last"
+                />
+              ) : null}
+            </View>
+          </View>
+
+          <View style={styles.rankingSidePanel}>
+            <Text style={styles.rankingSideTitle}>Top 5 geral</Text>
+            <Text style={styles.rankingSideText}>
+              Comparativo rapido da lideranca considerando a pontuacao atual.
+            </Text>
+            <View style={styles.rankingSidebarList}>
+              {topFive.map((row) => (
+                <View key={row.userId} style={styles.rankingSidebarRow}>
+                  <View style={styles.rankingSidebarRowHeader}>
+                    <View style={styles.rankingSidebarRowCopy}>
+                      <Text style={styles.rankingSidebarRowName}>
+                        #{row.rank} {row.nickname}
+                      </Text>
+                      <Text style={styles.rankingSidebarRowMeta}>
+                        {row.exactScores} exato(s) · {row.resultHits} resultado(s)
+                      </Text>
+                    </View>
+                    <Text style={styles.rankingSidebarRowPoints}>{row.points}</Text>
+                  </View>
+                  <View style={styles.rankingSidebarMeterTrack}>
+                    <View
+                      style={[
+                        styles.rankingSidebarMeterFill,
+                        { width: `${Math.max(10, (row.points / leaderPoints) * 100)}%` },
+                      ]}
+                    />
+                  </View>
+                </View>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.rankingSidePanel}>
+            <Text style={styles.rankingSideTitle}>Criterios da tabela</Text>
+            <View style={styles.rankingCriteriaList}>
+              <View style={styles.rankingCriteriaRow}>
+                <Text style={styles.rankingCriteriaKey}>EX</Text>
+                <Text style={styles.rankingCriteriaText}>placares exatos acertados</Text>
+              </View>
+              <View style={styles.rankingCriteriaRow}>
+                <Text style={styles.rankingCriteriaKey}>RES</Text>
+                <Text style={styles.rankingCriteriaText}>resultado correto da partida</Text>
+              </View>
+              <View style={styles.rankingCriteriaRow}>
+                <Text style={styles.rankingCriteriaKey}>GOL</Text>
+                <Text style={styles.rankingCriteriaText}>gols de uma equipe acertados</Text>
+              </View>
+              <View style={styles.rankingCriteriaRow}>
+                <Text style={styles.rankingCriteriaKey}>ER</Text>
+                <Text style={styles.rankingCriteriaText}>palpites sem pontuacao</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 function RankingScreen({ refreshVersion }: { refreshVersion: number }) {
   const [ranking, setRanking] = useState<RankingRow[]>([]);
   const leader = ranking[0];
@@ -1864,6 +2480,9 @@ function RankingScreen({ refreshVersion }: { refreshVersion: number }) {
     </View>
   );
 }
+
+void Header;
+void RankingScreen;
 
 function CupFormBadges({ values }: { values: Array<'W' | 'D' | 'L'> }) {
   const padded: Array<'W' | 'D' | 'L' | '-'> = [...values.slice(-5)];
@@ -2328,7 +2947,8 @@ export default function App() {
   }, [triggerRefresh]);
 
   const content = useMemo(() => {
-    if (screen === 'ranking') return <RankingScreen refreshVersion={refreshVersion} />;
+    if (screen === 'ranking')
+      return <RankingScreenLayout refreshVersion={refreshVersion} currentUserId={user?.id ?? ''} />;
     if (screen === 'cup') {
       if (competitionUiV2) return <CupOverviewV2 refreshVersion={refreshVersion} />;
       return (
@@ -2389,7 +3009,7 @@ export default function App() {
 
   return (
     <AppShell>
-      <Header
+      <HeaderLayout
         user={user}
         screen={screen}
         setScreen={setScreen}
@@ -2419,6 +3039,8 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: '100%',
     backgroundColor: colors.bg,
+    backgroundImage:
+      'radial-gradient(1200px 420px at 55% 0%, rgba(43,160,107,0.14), transparent 60%)' as never,
   },
   authScroll: {
     minHeight: '100%',
@@ -2440,9 +3062,10 @@ const styles = StyleSheet.create({
   },
   brandSmall: {
     color: colors.gold,
-    fontSize: 13,
-    fontWeight: '800',
+    fontSize: 12,
+    fontWeight: '900',
     textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   authTitle: {
     color: colors.text,
@@ -2654,14 +3277,15 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   button: {
-    minHeight: 48,
+    minHeight: 42,
     borderRadius: 10,
     backgroundColor: colors.green,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     gap: 8,
-    paddingHorizontal: 16,
+    paddingHorizontal: 15,
+    boxShadow: 'inset 0 -1px 0 rgba(255,255,255,0.06)' as never,
   },
   buttonSecondary: {
     backgroundColor: colors.panel2,
@@ -2675,21 +3299,39 @@ const styles = StyleSheet.create({
     opacity: 0.55,
   },
   buttonText: {
-    color: colors.text,
     fontWeight: '900',
     fontSize: 15,
   },
   header: {
-    padding: 18,
-    borderBottomColor: colors.goldBorder,
-    borderBottomWidth: 1,
-    backgroundColor: colors.bg2,
+    minHeight: 122,
+    paddingTop: 18,
+    paddingHorizontal: 24,
+    paddingBottom: 14,
+    borderBottomColor: 'rgba(227,185,68,0.6)' as never,
+    borderBottomWidth: 2,
+    backgroundColor: '#071b17',
     gap: 14,
+    position: 'relative',
+  },
+  headerWide: {
+    paddingBottom: 0,
   },
   headerIdentity: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+  },
+  headerIdentityWide: {
+    justifyContent: 'space-between',
+  },
+  headerAvatarShell: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    padding: 2,
+    backgroundImage: 'linear-gradient(135deg, #2e5f51, #1b362e)' as never,
+    borderColor: '#2c5a4b',
+    borderWidth: 2,
   },
   headerUserText: {
     flex: 1,
@@ -2699,18 +3341,22 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 24,
     fontWeight: '900',
+    lineHeight: 25,
   },
   avatarActions: {
     flexDirection: 'row',
     gap: 8,
   },
+  avatarActionsWide: {
+    paddingTop: 4,
+  },
   avatarActionButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    borderColor: colors.border,
+    width: 36,
+    height: 36,
+    borderRadius: 9,
+    borderColor: '#20493f',
     borderWidth: 1,
-    backgroundColor: colors.panel,
+    backgroundColor: '#0d281f',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2730,16 +3376,26 @@ const styles = StyleSheet.create({
     color: colors.gold,
     fontWeight: '900',
   },
+  navScroll: {
+    marginTop: 4,
+  },
+  navScrollWide: {
+    position: 'absolute',
+    left: 24,
+    top: 76,
+    right: 170,
+    marginTop: 0,
+  },
   nav: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
+    gap: 8,
   },
   appScrollView: {
     flex: 1,
   },
   appScroll: {
-    padding: 18,
+    paddingTop: 18,
+    paddingHorizontal: 24,
     paddingBottom: 32,
     flexGrow: 1,
   },
@@ -2977,13 +3633,15 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     color: colors.text,
-    fontSize: 22,
+    fontSize: 25,
     fontWeight: '900',
+    letterSpacing: 0,
   },
   muted: {
     color: colors.muted,
     fontSize: 14,
     lineHeight: 20,
+    fontWeight: '700',
   },
   emptyCard: {
     backgroundColor: colors.panel,
@@ -3285,36 +3943,327 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
-  rankingHighlights: {
+  rankingPage: {
+    width: '100%',
+    maxWidth: 1280,
+    alignSelf: 'center',
+    borderColor: '#1c4a3c',
+    borderWidth: 1,
+    borderRadius: 15,
+    backgroundColor: 'rgba(12,42,34,0.92)' as never,
+    boxShadow: '0 18px 55px rgba(0,0,0,0.34)' as never,
+    padding: 18,
+    gap: 16,
+  },
+  rankingHead: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 18,
+  },
+  rankingHeadCompact: {
+    flexDirection: 'column',
+  },
+  rankingHeadCopy: {
+    flex: 1,
+    gap: 6,
+  },
+  rankingHeadText: {
+    color: '#9bb9ac',
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 20,
+    maxWidth: 540,
+  },
+  rankingBadgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 4,
+  },
+  rankingLiveBadge: {
+    borderColor: '#8b5a41',
+    borderWidth: 1,
+    backgroundColor: '#734532',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  rankingLiveBadgeText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  rankingContextBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+  },
+  rankingContextBadgePositive: {
+    borderColor: '#2e9c72',
+    backgroundColor: '#144a39',
+  },
+  rankingContextBadgeNeutral: {
+    borderColor: '#1e4a3e',
+    backgroundColor: '#0f271f',
+  },
+  rankingContextBadgeText: {
+    color: '#6cffb1',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  rankingTools: {
+    minWidth: 0,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: 10,
+    alignItems: 'center',
+  },
+  rankingToolsCompact: {
+    justifyContent: 'flex-start',
+  },
+  rankingSegmentedControl: {
+    flexDirection: 'row',
+    backgroundColor: '#061a15',
+    borderColor: '#1e4a3e',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 4,
+    minHeight: 42,
+  },
+  rankingSegmentedButton: {
+    minHeight: 32,
+    paddingHorizontal: 15,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rankingSegmentedButtonActive: {
+    backgroundColor: '#2ed085',
+    boxShadow: '0 8px 20px rgba(50,210,139,0.25)' as never,
+  },
+  rankingSegmentedText: {
+    color: '#bbd7cb',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  rankingSegmentedTextActive: {
+    color: '#052016',
+  },
+  rankingSearchField: {
+    minWidth: 190,
+    minHeight: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 12,
+    borderColor: '#1e4a3e',
+    borderWidth: 1,
+    backgroundColor: '#09221c',
+    paddingHorizontal: 12,
+  },
+  rankingSearchInput: {
+    flex: 1,
+    minWidth: 120,
+    color: '#eafff6',
+    fontSize: 14,
+    fontWeight: '800',
+    outlineStyle: 'none' as never,
+  },
+  rankingStatsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
   },
-  rankingHighlightCard: {
-    minWidth: 220,
+  rankingStatCard: {
+    minWidth: 180,
     flex: 1,
-    borderRadius: 12,
+    minHeight: 82,
+    borderColor: '#1c493c',
     borderWidth: 1,
+    backgroundImage: 'linear-gradient(180deg, #103227, #0b261f)' as never,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    gap: 8,
+  },
+  rankingStatLabel: {
+    color: '#99b9ac',
+    fontSize: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  rankingStatValue: {
+    color: colors.text,
+    fontSize: 25,
+    fontWeight: '900',
+  },
+  rankingStatDetail: {
+    color: '#5ee8a0',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  rankingMainGrid: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 16,
+  },
+  rankingMainGridCompact: {
+    flexDirection: 'column',
+    width: '100%',
+  },
+  rankingPrimaryColumn: {
+    flex: 1,
+    minWidth: 0,
+    width: '100%',
+    alignSelf: 'stretch',
+    gap: 14,
+  },
+  rankingPodiumGrid: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 12,
+  },
+  rankingPodiumGridCompact: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    width: '100%',
+  },
+  rankingPodiumCard: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 136,
+    borderColor: '#2d5a48',
+    borderWidth: 1,
+    backgroundColor: '#0a211b',
+    borderRadius: 16,
+    padding: 14,
+    gap: 10,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  rankingPodiumCardFirst: {
+    minHeight: 158,
+    borderColor: '#9d842e',
+    backgroundImage:
+      'linear-gradient(135deg, rgba(227,185,68,0.2), rgba(16,47,38,0.92))' as never,
+  },
+  rankingPodiumCardSecond: {
+    borderColor: '#537064',
+    backgroundImage:
+      'linear-gradient(135deg, rgba(185,205,196,0.12), rgba(16,47,38,0.9))' as never,
+  },
+  rankingPodiumCardThird: {
+    borderColor: '#9c6b36',
+    backgroundImage:
+      'linear-gradient(135deg, rgba(227,139,68,0.14), rgba(16,47,38,0.9))' as never,
+  },
+  rankingPodiumGhostRank: {
+    position: 'absolute',
+    right: 12,
+    top: 10,
+    color: 'rgba(255,255,255,0.08)' as never,
+    fontSize: 42,
+    lineHeight: 42,
+    fontWeight: '900',
+  },
+  rankingPodiumLabel: {
+    color: colors.gold,
+    fontSize: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  rankingPodiumIdentity: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  rankingPodiumInfo: {
+    flex: 1,
+    gap: 4,
+  },
+  rankingPodiumName: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  rankingPodiumMeta: {
+    color: '#a7c4b9',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  rankingPodiumPoints: {
+    marginTop: 4,
+    color: colors.gold,
+    fontSize: 24,
+    fontWeight: '900',
+  },
+  rankingTablePanel: {
+    width: '100%',
+    alignSelf: 'stretch',
+    borderColor: '#1a463b',
+    borderWidth: 1,
+    borderRadius: 15,
+    backgroundColor: '#071c17',
+    padding: 0,
+    overflow: 'hidden',
+  },
+  rankingTableHeaderRow: {
+    minHeight: 78,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomColor: '#1c4a3e',
+    borderBottomWidth: 1,
+    backgroundColor: '#071913',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  rankingTableTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  rankingTableSubtitle: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 3,
+  },
+  loaderInline: {
+    marginVertical: 14,
+  },
+  rankingHighlights: {
+    gap: 10,
+  },
+  rankingHighlightStack: {
+    gap: 10,
+  },
+  rankingHighlightCard: {
+    borderColor: '#1c493c',
+    borderWidth: 1,
+    borderRadius: 15,
     padding: 12,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
   },
   leaderCard: {
-    borderColor: colors.goldBorder,
-    backgroundColor: 'rgba(229, 186, 82, 0.13)',
+    backgroundImage: 'linear-gradient(180deg, #102f26, #0a241e)' as never,
   },
   lastCard: {
-    borderColor: colors.red,
-    backgroundColor: 'rgba(239, 107, 90, 0.12)',
+    backgroundColor: '#0c231d',
   },
   rankingHighlightAvatar: {
     position: 'relative',
-    paddingBottom: 10,
   },
   rankingMarker: {
     position: 'absolute',
-    bottom: 0,
+    bottom: -4,
     alignSelf: 'center',
     width: 28,
     height: 28,
@@ -3342,56 +4291,70 @@ const styles = StyleSheet.create({
   },
   rankingHighlightName: {
     color: colors.text,
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '900',
   },
   rankingTable: {
-    minWidth: 760,
-    borderRadius: 10,
-    overflow: 'hidden',
-    borderColor: colors.border,
+    minWidth: 980,
+    borderColor: '#1a463b',
     borderWidth: 1,
+    borderRadius: 15,
+    overflow: 'hidden',
+    backgroundColor: '#071c17',
   },
   rankingTableRow: {
     minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.bg2,
-    borderBottomColor: colors.border,
+    backgroundColor: '#071c17',
+    borderBottomColor: '#17382f',
     borderBottomWidth: 1,
   },
+  rankingTableRowAlt: {
+    backgroundColor: '#082019',
+  },
+  rankingTableRowCurrentUser: {
+    borderLeftColor: colors.green,
+    borderLeftWidth: 3,
+    boxShadow: 'inset 0 0 0 1px rgba(50,210,139,0.45)' as never,
+    backgroundImage:
+      'linear-gradient(90deg, rgba(50,210,139,0.16), rgba(8,32,25,0.2))' as never,
+  },
   rankingTableHeader: {
-    minHeight: 38,
-    backgroundColor: colors.input,
+    minHeight: 42,
+    backgroundColor: '#071913',
   },
   rankingCell: {
-    color: colors.text,
-    fontSize: 13,
+    color: '#cce6dc',
+    fontSize: 12,
     fontWeight: '900',
-    paddingHorizontal: 8,
-    textAlign: 'center',
+    paddingHorizontal: 12,
+    textAlign: 'left',
+    textTransform: 'uppercase' as never,
+    letterSpacing: 0.6,
   },
   rankingCellBox: {
-    paddingHorizontal: 8,
+    paddingHorizontal: 12,
   },
   rankColumn: {
-    width: 44,
+    width: 48,
   },
   playerColumn: {
-    width: 230,
+    width: 260,
   },
   numericColumn: {
-    width: 54,
+    width: 56,
   },
   formColumn: {
-    width: 145,
+    width: 148,
   },
   pointsColumn: {
-    width: 56,
+    width: 64,
   },
   rankingRankText: {
     color: colors.gold,
     fontSize: 16,
+    textAlign: 'center',
   },
   rankingPlayerCell: {
     flexDirection: 'row',
@@ -3407,42 +4370,147 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   rankingPlayerStatus: {
-    color: colors.muted,
+    color: '#8fae9f',
     fontSize: 11,
     fontWeight: '700',
+    marginTop: 2,
   },
   rankingPointsText: {
     color: colors.gold,
+    fontSize: 18,
+    textAlign: 'center',
+  },
+  rankingFooterNote: {
+    marginTop: 12,
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  rankingSidebar: {
+    width: '100%',
+    alignSelf: 'stretch',
+    minWidth: 280,
+    flexBasis: 360,
+    flexShrink: 1,
+    gap: 14,
+  },
+  rankingSidePanel: {
+    borderColor: '#1c493c',
+    borderWidth: 1,
+    borderRadius: 15,
+    backgroundImage: 'linear-gradient(180deg, #102f26, #0a241e)' as never,
+    padding: 14,
+    gap: 10,
+  },
+  rankingSideTitle: {
+    color: colors.text,
     fontSize: 16,
+    fontWeight: '900',
+  },
+  rankingSideText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  rankingSidebarList: {
+    gap: 9,
+  },
+  rankingSidebarRow: {
+    borderColor: '#1b4338',
+    borderWidth: 1,
+    backgroundColor: '#071f19',
+    borderRadius: 12,
+    padding: 10,
+    gap: 9,
+  },
+  rankingSidebarRowHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  rankingSidebarRowCopy: {
+    flex: 1,
+  },
+  rankingSidebarRowName: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  rankingSidebarRowMeta: {
+    color: '#97b5a8',
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  rankingSidebarRowPoints: {
+    color: colors.gold,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  rankingSidebarMeterTrack: {
+    height: 8,
+    backgroundColor: '#0a1b16',
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  rankingSidebarMeterFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundImage: 'linear-gradient(90deg, #2ed085, #f2c14e)' as never,
+  },
+  rankingCriteriaList: {
+    gap: 8,
+    marginTop: 8,
+  },
+  rankingCriteriaRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  rankingCriteriaKey: {
+    color: colors.gold,
+    fontSize: 12,
+    fontWeight: '900',
+    minWidth: 28,
+  },
+  rankingCriteriaText: {
+    flex: 1,
+    color: '#bed7ce',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
   },
   lastFiveList: {
     flexDirection: 'row',
     gap: 5,
   },
   lastFiveBadge: {
-    width: 22,
-    height: 22,
-    borderRadius: 5,
+    width: 21,
+    height: 21,
+    borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
   },
   lastFiveExact: {
-    backgroundColor: colors.green,
+    backgroundColor: '#35d283',
   },
   lastFiveResult: {
-    backgroundColor: colors.gold,
+    backgroundColor: '#f2c14e',
   },
   lastFiveGoal: {
-    backgroundColor: '#52a9ff',
+    backgroundColor: colors.blue,
   },
   lastFiveMiss: {
     backgroundColor: colors.red,
   },
   lastFiveEmpty: {
-    backgroundColor: colors.border,
+    backgroundColor: '#37554a',
   },
   lastFiveText: {
-    color: colors.bg,
+    color: '#062017',
     fontSize: 11,
     fontWeight: '900',
   },
