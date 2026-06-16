@@ -3,7 +3,9 @@ import { config } from './config.js';
 import { logger } from './logger.js';
 import { prisma } from './prisma.js';
 import { startJobs, stopJobs } from './jobs/scheduler.js';
+import { ensurePredictionCloseSetting } from './services/prediction-settings.service.js';
 
+await ensurePredictionCloseSetting();
 const app = createApp();
 const server = app.listen(config.PORT, () => {
   logger.info({ port: config.PORT }, 'API listening');

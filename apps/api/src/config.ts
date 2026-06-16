@@ -7,6 +7,7 @@ const envSchema = z.object({
   WEB_ORIGIN: z.string().url().default('http://localhost:8080'),
   DATABASE_URL: z.string().min(1),
   SESSION_SECRET: z.string().min(24),
+  INTERNAL_EVENTS_SECRET: z.string().min(24).optional(),
   SERVE_WEB_DIST: z.coerce.boolean().default(false),
   WEB_DIST_PATH: z.string().default('../web/dist'),
   LIVE_POLL_SECONDS: z.coerce.number().int().positive().default(15),

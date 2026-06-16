@@ -39,14 +39,20 @@ export const avatarUpload = multer({
       }
     },
     filename: (req, file, callback) => {
-      const extension = allowedMimeTypes.get(file.mimetype) ?? path.extname(file.originalname).toLowerCase();
-      callback(null, `${req.session.user?.id ?? 'user'}-${Date.now()}-${crypto.randomUUID()}${extension}`);
+      const extension =
+        allowedMimeTypes.get(file.mimetype) ?? path.extname(file.originalname).toLowerCase();
+      callback(
+        null,
+        `${req.session.user?.id ?? 'user'}-${Date.now()}-${crypto.randomUUID()}${extension}`,
+      );
     },
   }),
   limits: { fileSize: 2 * 1024 * 1024, files: 1 },
   fileFilter: (_req, file, callback) => {
     if (!allowedMimeTypes.has(file.mimetype)) {
-      callback(new AppError(400, 'Envie uma imagem JPG, PNG ou WEBP de ate 2 MB.', 'INVALID_AVATAR_FILE'));
+      callback(
+        new AppError(400, 'Envie uma imagem JPG, PNG ou WEBP de at? 2 MB.', 'INVALID_AVATAR_FILE'),
+      );
       return;
     }
 
@@ -64,7 +70,7 @@ export async function updateUserAvatar(userId: string, file?: Express.Multer.Fil
     select: { avatarUrl: true },
   });
 
-  if (!user) throw new AppError(404, 'Usuario nao encontrado.', 'USER_NOT_FOUND');
+  if (!user) throw new AppError(404, 'Usuário não encontrado.', 'USER_NOT_FOUND');
 
   const avatarUrl = `/uploads/avatars/${file.filename}`;
   const updated = await prisma.user.update({
@@ -83,7 +89,7 @@ export async function resetUserAvatar(userId: string) {
     select: { avatarUrl: true },
   });
 
-  if (!user) throw new AppError(404, 'Usuario nao encontrado.', 'USER_NOT_FOUND');
+  if (!user) throw new AppError(404, 'Usuário não encontrado.', 'USER_NOT_FOUND');
 
   const updated = await prisma.user.update({
     where: { id: userId },

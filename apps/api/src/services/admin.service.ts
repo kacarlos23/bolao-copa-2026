@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../prisma.js';
 import { AppError } from '../http/errors.js';
 import { worldCup2026GroupStageMatches, worldCup2026Teams } from '../data/world-cup-2026.js';
+import { getPredictionCloseMinutes, predictionCloseAt } from './prediction-settings.service.js';
 
 export async function listUsers() {
   return prisma.user.findMany({
@@ -22,7 +23,11 @@ export async function listUsers() {
 
 export async function setUserStatus(actorId: string, userId: string, blocked: boolean) {
   if (actorId === userId) {
-    throw new AppError(400, 'O administrador nao pode bloquear a propria conta.', 'SELF_BLOCK_NOT_ALLOWED');
+    throw new AppError(
+      400,
+      'O administrador não pode bloquear a própria conta.',
+      'SELF_BLOCK_NOT_ALLOWED',
+    );
   }
 
   const user = await prisma.user.update({
@@ -71,16 +76,6 @@ function flagUrl(iso2?: string) {
   return iso2 ? `https://flagcdn.com/w80/${iso2}.png` : null;
 }
 
-function predictionCloseMinutes(firstMatchStartsAt: Date, metadata: Prisma.InputJsonValue) {
-  void firstMatchStartsAt;
-  void metadata;
-  return 5;
-}
-
-function predictionsCloseAt(firstMatchStartsAt: Date, metadata: Prisma.InputJsonValue) {
-  return new Date(firstMatchStartsAt.getTime() - predictionCloseMinutes(firstMatchStartsAt, metadata) * 60 * 1000);
-}
-
 export async function listTeams() {
   return prisma.team.findMany({ orderBy: [{ name: 'asc' }] });
 }
@@ -95,6 +90,7 @@ export async function seedOfficialWorldCupData(actorId: string) {
       update: {
         name: team.name,
         code: team.code,
+        fifaRank: team.fifaRank,
         flagUrl: flagUrl(team.iso2),
         metadata: { iso2: team.iso2, flagEmoji: team.flagEmoji, group: team.group },
       },
@@ -102,6 +98,7 @@ export async function seedOfficialWorldCupData(actorId: string) {
         externalId: `official:team:${team.code}`,
         name: team.name,
         code: team.code,
+        fifaRank: team.fifaRank,
         flagUrl: flagUrl(team.iso2),
         metadata: { iso2: team.iso2, flagEmoji: team.flagEmoji, group: team.group },
       },
@@ -148,12 +145,12 @@ export async function createOrUpdateMatch({
   metadata?: Prisma.InputJsonValue;
 }) {
   if (homeTeamCode === awayTeamCode) {
-    throw new AppError(400, 'Selecione duas selecoes diferentes.', 'SAME_TEAM_MATCH');
+    throw new AppError(400, 'Selecione duas seleções diferentes.', 'SAME_TEAM_MATCH');
   }
 
   const startsAtDate = new Date(startsAt);
   if (Number.isNaN(startsAtDate.getTime())) {
-    throw new AppError(400, 'Data e horario do jogo invalidos.', 'INVALID_MATCH_DATE');
+    throw new AppError(400, 'Data e horário do jogo inválidos.', 'INVALID_MATCH_DATE');
   }
 
   const [homeTeam, awayTeam] = await Promise.all([
@@ -162,17 +159,18 @@ export async function createOrUpdateMatch({
   ]);
 
   if (!homeTeam || !awayTeam) {
-    throw new AppError(400, 'Selecao nao encontrada no cadastro.', 'TEAM_NOT_FOUND');
+    throw new AppError(400, 'Seleção não encontrada no cadastro.', 'TEAM_NOT_FOUND');
   }
 
+  const predictionCloseMinutes = await getPredictionCloseMinutes();
   const date = localDateStart(startsAtDate);
-  const closeAt = predictionsCloseAt(startsAtDate, metadata);
+  const closeAt = predictionCloseAt(startsAtDate, predictionCloseMinutes);
   const existingDay = await prisma.matchDay.findUnique({ where: { date } });
   const firstMatchStartsAt =
     existingDay && existingDay.firstMatchStartsAt < startsAtDate
       ? existingDay.firstMatchStartsAt
       : startsAtDate;
-  const matchDayCloseAt = predictionsCloseAt(firstMatchStartsAt, metadata);
+  const matchDayCloseAt = predictionCloseAt(firstMatchStartsAt, predictionCloseMinutes);
 
   const matchDay = await prisma.matchDay.upsert({
     where: { date },
@@ -209,6 +207,29 @@ export async function createOrUpdateMatch({
       startsAt: startsAtDate,
       status: 'SCHEDULED',
       rawPayload: metadata,
+    },
+  });
+
+  const dayMatches = await prisma.match.findMany({
+    where: { matchDayId: matchDay.id },
+    select: { startsAt: true },
+  });
+  const aggregateFirstMatch = dayMatches.reduce(
+    (earliest, item) => (item.startsAt < earliest ? item.startsAt : earliest),
+    startsAtDate,
+  );
+  const now = new Date();
+  await prisma.matchDay.update({
+    where: { id: matchDay.id },
+    data: {
+      firstMatchStartsAt: aggregateFirstMatch,
+      predictionsCloseAt: predictionCloseAt(aggregateFirstMatch, predictionCloseMinutes),
+      status: dayMatches.some(
+        (item) =>
+          item.startsAt > now && predictionCloseAt(item.startsAt, predictionCloseMinutes) > now,
+      )
+        ? 'OPEN'
+        : 'CLOSED',
     },
   });
 

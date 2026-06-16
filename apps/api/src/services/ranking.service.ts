@@ -3,7 +3,10 @@ import { calculatePredictionScore } from '@bolao/shared';
 import { prisma } from '../prisma.js';
 import { emitSse } from '../realtime/sse.js';
 
-export async function recalculateScoresForMatch(matchId: string) {
+export async function recalculateScoresForMatch(
+  matchId: string,
+  options: { refreshRanking?: boolean } = {},
+) {
   const match = await prisma.match.findUnique({
     where: { id: matchId },
     include: { predictions: true },
@@ -43,7 +46,7 @@ export async function recalculateScoresForMatch(matchId: string) {
     });
   }
 
-  await refreshRankingSnapshot();
+  if (options.refreshRanking !== false) await refreshRankingSnapshot();
 }
 
 export async function getRanking() {
@@ -57,13 +60,20 @@ export async function getRanking() {
         orderBy: { calculatedAt: 'desc' },
         select: { points: true, isFinal: true, scoreType: true, calculatedAt: true },
       },
+      knockoutScores: {
+        orderBy: { calculatedAt: 'desc' },
+        select: { points: true, isFinal: true, scoreType: true, calculatedAt: true },
+      },
     },
   });
 
   return users
     .map((user) => {
-      const points = user.scores.reduce((sum, score) => sum + score.points, 0);
-      const finalPoints = user.scores
+      const scores = [...user.scores, ...user.knockoutScores].sort(
+        (a, b) => b.calculatedAt.getTime() - a.calculatedAt.getTime(),
+      );
+      const points = scores.reduce((sum, score) => sum + score.points, 0);
+      const finalPoints = scores
         .filter((score) => score.isFinal)
         .reduce((sum, score) => sum + score.points, 0);
       return {
@@ -72,16 +82,16 @@ export async function getRanking() {
         avatarUrl: user.avatarUrl,
         points,
         finalPoints,
-        played: user.scores.length,
-        exactScores: user.scores.filter((score) => score.scoreType === 'EXACT_SCORE').length,
-        resultHits: user.scores.filter((score) => score.scoreType === 'RESULT').length,
-        oneGoalHits: user.scores.filter((score) => score.scoreType === 'ONE_TEAM_GOALS').length,
-        misses: user.scores.filter((score) => score.scoreType === 'MISS').length,
-        lastFive: user.scores
+        played: scores.length,
+        exactScores: scores.filter((score) => score.scoreType === 'EXACT_SCORE').length,
+        resultHits: scores.filter((score) => score.scoreType === 'RESULT').length,
+        oneGoalHits: scores.filter((score) => score.scoreType === 'ONE_TEAM_GOALS').length,
+        misses: scores.filter((score) => score.scoreType === 'MISS').length,
+        lastFive: scores
           .slice(0, 5)
           .reverse()
           .map((score) => score.points),
-        hasLiveData: user.scores.some((score) => !score.isFinal),
+        hasLiveData: scores.some((score) => !score.isFinal),
       };
     })
     .sort((a, b) => b.points - a.points || b.exactScores - a.exactScores || a.nickname.localeCompare(b.nickname))

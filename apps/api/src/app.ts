@@ -18,6 +18,11 @@ import { adminRouter } from './routes/admin.routes.js';
 import { sseRouter } from './routes/sse.routes.js';
 import { cupRouter } from './routes/cup.routes.js';
 import { avatarUploadDir } from './services/avatar.service.js';
+import {
+  knockoutBracketRouter,
+  predictionBoardRouter,
+} from './routes/prediction-board.routes.js';
+import { internalRouter } from './routes/internal.routes.js';
 
 const PgSession = connectPgSimple(session);
 const pinoHttp = pinoHttpModule as unknown as (options: { logger: typeof logger }) => express.RequestHandler;
@@ -76,6 +81,9 @@ export function createApp() {
   app.use('/api/match-days', matchDayRouter);
   app.use('/api/ranking', rankingRouter);
   app.use('/api/cup', cupRouter);
+  app.use('/api/prediction-board', predictionBoardRouter);
+  app.use('/api/knockout-bracket', knockoutBracketRouter);
+  app.use('/api/internal', internalRouter);
   app.use('/api/admin', adminRouter);
   app.use('/api', sseRouter);
   app.use('/uploads/avatars', express.static(avatarUploadDir));

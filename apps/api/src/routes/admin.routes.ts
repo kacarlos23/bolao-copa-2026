@@ -11,10 +11,35 @@ import {
   setUserStatus,
 } from '../services/admin.service.js';
 import { prisma } from '../prisma.js';
+import {
+  getPredictionCloseSetting,
+  updatePredictionCloseMinutes,
+} from '../services/prediction-settings.service.js';
 
 export const adminRouter = Router();
 
 adminRouter.use(requireAdmin);
+
+adminRouter.get(
+  '/settings/predictions',
+  asyncHandler(async (_req, res) => {
+    const setting = await getPredictionCloseSetting();
+    res.json({
+      predictionCloseMinutes: setting.closeMinutes,
+      updatedAt: setting.updatedAt?.toISOString() ?? null,
+    });
+  }),
+);
+
+adminRouter.patch(
+  '/settings/predictions',
+  asyncHandler(async (req, res) => {
+    const body = z
+      .object({ predictionCloseMinutes: z.number().int().min(1).max(120) })
+      .parse(req.body);
+    res.json(await updatePredictionCloseMinutes(req.session.user!.id, body.predictionCloseMinutes));
+  }),
+);
 
 adminRouter.get(
   '/users',

@@ -13,11 +13,11 @@ export async function registerUser(input: RegisterInput) {
   ]);
 
   if (existingUsername) {
-    throw new AppError(409, 'Nome real ja esta em uso.', 'USERNAME_TAKEN');
+    throw new AppError(409, 'Nome real já está em uso.', 'USERNAME_TAKEN');
   }
 
   if (existingNickname) {
-    throw new AppError(409, 'Nickname ja esta em uso.', 'NICKNAME_TAKEN');
+    throw new AppError(409, 'Nickname já está em uso.', 'NICKNAME_TAKEN');
   }
 
   const passwordHash = await argon2.hash(input.password, { type: argon2.argon2id });
@@ -40,12 +40,12 @@ export async function loginUser(input: LoginInput) {
   });
 
   if (!user || user.status !== 'ACTIVE') {
-    throw new AppError(401, 'Credenciais invalidas.', 'INVALID_CREDENTIALS');
+    throw new AppError(401, 'Credenciais inválidas.', 'INVALID_CREDENTIALS');
   }
 
   const valid = await argon2.verify(user.passwordHash, input.password);
   if (!valid) {
-    throw new AppError(401, 'Credenciais invalidas.', 'INVALID_CREDENTIALS');
+    throw new AppError(401, 'Credenciais inválidas.', 'INVALID_CREDENTIALS');
   }
 
   return {
@@ -64,7 +64,7 @@ export async function getPublicUser(userId: string) {
   });
 
   if (!user || user.status !== 'ACTIVE') {
-    throw new AppError(401, 'Usuario nao encontrado ou inativo.', 'USER_NOT_ACTIVE');
+    throw new AppError(401, 'Usuário não encontrado ou inativo.', 'USER_NOT_ACTIVE');
   }
 
   return user;

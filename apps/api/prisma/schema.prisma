@@ -39,6 +39,26 @@ enum ScoreType {
   MISS
 }
 
+enum KnockoutStage {
+  ROUND_OF_32
+  ROUND_OF_16
+  QUARTER_FINAL
+  SEMI_FINAL
+  THIRD_PLACE
+  FINAL
+}
+
+enum KnockoutGenerationMode {
+  PROVISIONAL
+  OFFICIAL
+}
+
+enum KnockoutGenerationStatus {
+  ACTIVE
+  LOCKED
+  RESET
+}
+
 enum SyncStatus {
   SUCCESS
   FAILED
@@ -55,38 +75,48 @@ enum AuditAction {
 }
 
 model User {
-  id             String            @id @default(cuid())
-  username       String            @unique
-  usernameLower  String            @unique
-  nickname       String
-  avatarUrl      String?
-  passwordHash   String
-  role           UserRole          @default(USER)
-  status         UserStatus        @default(ACTIVE)
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
-  predictions    Prediction[]
-  scores         PredictionScore[]
-  auditLogs      AdminAuditLog[]   @relation("AdminAuditActor")
+  id               String                    @id @default(cuid())
+  username         String                    @unique
+  usernameLower    String                    @unique
+  nickname         String
+  avatarUrl        String?
+  passwordHash     String
+  role             UserRole                  @default(USER)
+  status           UserStatus                @default(ACTIVE)
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+  predictions      Prediction[]
+  scores           PredictionScore[]
+  auditLogs        AdminAuditLog[]           @relation("AdminAuditActor")
+  knockoutBrackets KnockoutBracket[]
+  knockoutScores   KnockoutPredictionScore[]
 
   @@index([role, status])
   @@index([nickname])
 }
 
 model Team {
-  id         String   @id @default(cuid())
-  externalId String   @unique
-  name       String
-  code       String?
-  flagUrl    String?
-  metadata   Json?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  homeMatches Match[] @relation("HomeTeam")
-  awayMatches Match[] @relation("AwayTeam")
+  id                    String            @id @default(cuid())
+  externalId            String            @unique
+  name                  String
+  code                  String?
+  flagUrl               String?
+  metadata              Json?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  homeMatches           Match[]           @relation("HomeTeam")
+  awayMatches           Match[]           @relation("AwayTeam")
+  fifaRank              Int?
+  knockoutHomeFixtures  KnockoutFixture[] @relation("KnockoutHomeTeam")
+  knockoutAwayFixtures  KnockoutFixture[] @relation("KnockoutAwayTeam")
+  knockoutWinners       KnockoutFixture[] @relation("KnockoutWinnerTeam")
+  knockoutPickHome      KnockoutPick[]    @relation("KnockoutPickHomeTeam")
+  knockoutPickAway      KnockoutPick[]    @relation("KnockoutPickAwayTeam")
+  knockoutPickAdvancing KnockoutPick[]    @relation("KnockoutPickAdvancingTeam")
 
   @@index([name])
   @@index([code])
+  @@index([fifaRank])
 }
 
 model MatchDay {
@@ -105,24 +135,24 @@ model MatchDay {
 }
 
 model Match {
-  id             String       @id @default(cuid())
-  externalId     String       @unique
+  id             String            @id @default(cuid())
+  externalId     String            @unique
   matchDayId     String
   homeTeamId     String
   awayTeamId     String
   startsAt       DateTime
-  status         MatchStatus  @default(SCHEDULED)
+  status         MatchStatus       @default(SCHEDULED)
   homeScore      Int?
   awayScore      Int?
   finalHomeScore Int?
   finalAwayScore Int?
   rawPayload     Json?
   lastSyncedAt   DateTime?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  matchDay       MatchDay     @relation(fields: [matchDayId], references: [id], onDelete: Cascade)
-  homeTeam       Team         @relation("HomeTeam", fields: [homeTeamId], references: [id])
-  awayTeam       Team         @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  matchDay       MatchDay          @relation(fields: [matchDayId], references: [id], onDelete: Cascade)
+  homeTeam       Team              @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam       Team              @relation("AwayTeam", fields: [awayTeamId], references: [id])
   predictions    Prediction[]
   scores         PredictionScore[]
 
@@ -133,15 +163,15 @@ model Match {
 }
 
 model Prediction {
-  id                 String            @id @default(cuid())
+  id                 String           @id @default(cuid())
   userId             String
   matchId            String
   predictedHomeScore Int
   predictedAwayScore Int
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
-  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  match              Match             @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  match              Match            @relation(fields: [matchId], references: [id], onDelete: Cascade)
   score              PredictionScore?
 
   @@unique([userId, matchId])
@@ -150,14 +180,14 @@ model Prediction {
 }
 
 model PredictionScore {
-  id           String    @id @default(cuid())
-  predictionId String    @unique
+  id           String     @id @default(cuid())
+  predictionId String     @unique
   matchId      String
   userId       String
   points       Int
   scoreType    ScoreType
-  isFinal      Boolean   @default(false)
-  calculatedAt DateTime  @default(now())
+  isFinal      Boolean    @default(false)
+  calculatedAt DateTime   @default(now())
   prediction   Prediction @relation(fields: [predictionId], references: [id], onDelete: Cascade)
   match        Match      @relation(fields: [matchId], references: [id], onDelete: Cascade)
   user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -167,16 +197,119 @@ model PredictionScore {
   @@index([points])
 }
 
+model KnockoutFixture {
+  id             String                    @id @default(cuid())
+  matchNumber    Int                       @unique
+  stage          KnockoutStage
+  startsAt       DateTime
+  homeSource     String
+  awaySource     String
+  homeTeamId     String?
+  awayTeamId     String?
+  winnerTeamId   String?
+  status         MatchStatus               @default(SCHEDULED)
+  homeScore      Int?
+  awayScore      Int?
+  finalHomeScore Int?
+  finalAwayScore Int?
+  rawPayload     Json?
+  lastSyncedAt   DateTime?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+  homeTeam       Team?                     @relation("KnockoutHomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam       Team?                     @relation("KnockoutAwayTeam", fields: [awayTeamId], references: [id])
+  winnerTeam     Team?                     @relation("KnockoutWinnerTeam", fields: [winnerTeamId], references: [id])
+  picks          KnockoutPick[]
+  scores         KnockoutPredictionScore[]
+
+  @@index([stage, startsAt])
+  @@index([status, startsAt])
+  @@index([homeTeamId])
+  @@index([awayTeamId])
+}
+
+model KnockoutGeneration {
+  id        String                   @id @default(cuid())
+  sequence  Int                      @unique
+  mode      KnockoutGenerationMode
+  status    KnockoutGenerationStatus @default(ACTIVE)
+  closesAt  DateTime?
+  resetAt   DateTime?
+  createdAt DateTime                 @default(now())
+  updatedAt DateTime                 @updatedAt
+  brackets  KnockoutBracket[]
+
+  @@index([mode, status])
+  @@index([closesAt])
+}
+
+model KnockoutBracket {
+  id           String             @id @default(cuid())
+  userId       String
+  generationId String
+  submittedAt  DateTime           @default(now())
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  generation   KnockoutGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
+  picks        KnockoutPick[]
+
+  @@unique([userId, generationId])
+  @@index([generationId, submittedAt])
+  @@index([userId])
+}
+
+model KnockoutPick {
+  id                 String                   @id @default(cuid())
+  bracketId          String
+  fixtureId          String
+  homeTeamId         String
+  awayTeamId         String
+  advancingTeamId    String
+  predictedHomeScore Int
+  predictedAwayScore Int
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  bracket            KnockoutBracket          @relation(fields: [bracketId], references: [id], onDelete: Cascade)
+  fixture            KnockoutFixture          @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
+  homeTeam           Team                     @relation("KnockoutPickHomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam           Team                     @relation("KnockoutPickAwayTeam", fields: [awayTeamId], references: [id])
+  advancingTeam      Team                     @relation("KnockoutPickAdvancingTeam", fields: [advancingTeamId], references: [id])
+  score              KnockoutPredictionScore?
+
+  @@unique([bracketId, fixtureId])
+  @@index([fixtureId])
+  @@index([advancingTeamId])
+}
+
+model KnockoutPredictionScore {
+  id           String          @id @default(cuid())
+  pickId       String          @unique
+  fixtureId    String
+  userId       String
+  points       Int
+  scoreType    ScoreType
+  isFinal      Boolean         @default(false)
+  calculatedAt DateTime        @default(now())
+  pick         KnockoutPick    @relation(fields: [pickId], references: [id], onDelete: Cascade)
+  fixture      KnockoutFixture @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isFinal])
+  @@index([fixtureId, isFinal])
+  @@index([points])
+}
+
 model RankingSnapshot {
-  id          String   @id @default(cuid())
-  userId      String
-  points      Int
-  finalPoints Int
-  exactScores Int
-  resultHits  Int
-  oneGoalHits Int
-  rank        Int
-  hasLiveData Boolean  @default(false)
+  id           String   @id @default(cuid())
+  userId       String
+  points       Int
+  finalPoints  Int
+  exactScores  Int
+  resultHits   Int
+  oneGoalHits  Int
+  rank         Int
+  hasLiveData  Boolean  @default(false)
   calculatedAt DateTime @default(now())
 
   @@index([rank])
@@ -186,14 +319,14 @@ model RankingSnapshot {
 }
 
 model ApiSyncLog {
-  id           String     @id @default(cuid())
-  status       SyncStatus
-  source       String
-  message      String?
-  details      Json?
-  startedAt    DateTime
-  finishedAt   DateTime?
-  createdAt    DateTime   @default(now())
+  id         String     @id @default(cuid())
+  status     SyncStatus
+  source     String
+  message    String?
+  details    Json?
+  startedAt  DateTime
+  finishedAt DateTime?
+  createdAt  DateTime   @default(now())
 
   @@index([status, createdAt])
   @@index([source, createdAt])

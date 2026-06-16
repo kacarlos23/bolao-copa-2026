@@ -1,7 +1,8 @@
-﻿import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Animated,
+  Easing,
   Image,
   Modal,
   Pressable,
@@ -9,6 +10,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
@@ -27,8 +29,13 @@ import {
 } from './src/api';
 import { flagSources } from './src/flagSources';
 import { teamCatalogByCode } from './src/teamCatalog';
+import { PredictionBoardScreen } from './src/predictionBoard';
+import { CupOverviewV2 } from './src/competitionV2';
+import { DrawerReveal, SoftReveal } from './src/motion';
 
 type Screen = 'days' | 'predictions' | 'ranking' | 'cup' | 'teams' | 'admin';
+
+const competitionUiV2 = process.env.EXPO_PUBLIC_COMPETITION_UI_V2 === '1';
 
 const colors = {
   bg: '#071311',
@@ -65,6 +72,21 @@ function monthTitle(value: Date) {
 
 function addMonths(value: Date, months: number) {
   return new Date(value.getFullYear(), value.getMonth() + months, 1);
+}
+
+function gameCountLabel(count: number) {
+  return count === 1 ? '1 jogo' : `${count} jogos`;
+}
+
+function saoPauloMonth(value = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(value);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return new Date(Number(values.year), Number(values.month) - 1, 1);
 }
 
 function matchMeta(match: MatchDay['matches'][number]) {
@@ -299,6 +321,7 @@ function Field({
   secureTextEntry,
   placeholder,
   help,
+  keyboardType,
 }: {
   label: string;
   value: string;
@@ -306,6 +329,7 @@ function Field({
   secureTextEntry?: boolean;
   placeholder?: string;
   help?: string;
+  keyboardType?: 'default' | 'number-pad';
 }) {
   return (
     <View style={styles.fieldGroup}>
@@ -319,6 +343,7 @@ function Field({
         placeholderTextColor="#6e8379"
         autoCapitalize="none"
         autoCorrect={false}
+        keyboardType={keyboardType}
       />
       {help ? <Text style={styles.helpText}>{help}</Text> : null}
     </View>
@@ -472,7 +497,7 @@ function AuthScreen({ onAuth }: { onAuth: (user: User) => void }) {
     }
 
     if (mode === 'register' && !normalizedNickname) {
-      setError('Informe o nickname publico.');
+      setError('Informe o nickname público.');
       return;
     }
 
@@ -499,10 +524,10 @@ function AuthScreen({ onAuth }: { onAuth: (user: User) => void }) {
     <AppShell>
       <ScrollView contentContainerStyle={styles.authScroll}>
         <View style={styles.authHero}>
-          <Text style={styles.brand}>Bolao Copa 2026</Text>
+          <Text style={styles.brand}>Bolão Copa 2026</Text>
           <Text style={styles.authTitle}>Palpites Copa do Mundo 2026</Text>
           <Text style={styles.authSubtitle}>
-            Cadastre seu nome real, escolha um nickname publico e acompanhe o ranking ao vivo.
+            Cadastre seu nome real, escolha um nickname público e acompanhe o ranking ao vivo.
           </Text>
         </View>
 
@@ -539,14 +564,14 @@ function AuthScreen({ onAuth }: { onAuth: (user: User) => void }) {
             placeholder={mode === 'login' ? 'ex: maria.silva' : 'ex: Maria Silva'}
             help={
               mode === 'login'
-                ? 'Use o nickname publico escolhido no cadastro para entrar.'
-                : 'Use seu nome real no cadastro. Espacos, hifen e apostrofo sao permitidos.'
+                ? 'Use o nickname público escolhido no cadastro para entrar.'
+                : 'Use seu nome real no cadastro. Espaços, hífen e apóstrofo são permitidos.'
             }
           />
 
           {mode === 'register' ? (
             <Field
-              label="Nickname publico"
+              label="Nickname público"
               value={nickname}
               onChangeText={setNickname}
               placeholder="ex: maria.silva"
@@ -559,7 +584,7 @@ function AuthScreen({ onAuth }: { onAuth: (user: User) => void }) {
             value={password}
             onChangeText={setPassword}
             secureTextEntry
-            placeholder="minimo 6 caracteres"
+            placeholder="mínimo 6 caracteres"
             help="Pode usar letras maiusculas, minusculas, numeros e simbolos."
           />
 
@@ -586,12 +611,14 @@ function Header({
   user,
   screen,
   setScreen,
+  onRefresh,
   onUserChange,
   onLogout,
 }: {
   user: User;
   screen: Screen;
   setScreen: (screen: Screen) => void;
+  onRefresh: () => void;
   onUserChange: (user: User) => void;
   onLogout: () => void;
 }) {
@@ -604,7 +631,7 @@ function Header({
 
   function pickAvatar() {
     if (typeof document === 'undefined') {
-      showAvatarError('Upload de avatar disponivel apenas no navegador.');
+      showAvatarError('Upload de avatar disponível apenas no navegador.');
       return;
     }
 
@@ -646,10 +673,17 @@ function Header({
       <View style={styles.headerIdentity}>
         <UserAvatar nickname={user.nickname} avatarUrl={user.avatarUrl} size={50} />
         <View style={styles.headerUserText}>
-          <Text style={styles.brandSmall}>Bolao Copa 2026</Text>
+          <Text style={styles.brandSmall}>Bolão Copa 2026</Text>
           <Text style={styles.headerTitle}>{user.nickname}</Text>
         </View>
         <View style={styles.avatarActions}>
+          <Pressable
+            onPress={onRefresh}
+            style={styles.avatarActionButton}
+            accessibilityLabel="Atualizar dados"
+          >
+            <Ionicons name="refresh-outline" size={18} color={colors.text} />
+          </Pressable>
           <Pressable
             disabled={avatarBusy}
             onPress={pickAvatar}
@@ -671,7 +705,7 @@ function Header({
       <ConfirmModal
         visible={deleteAvatarVisible}
         title="Excluir foto do perfil?"
-        message="Sua foto atual sera removida e o avatar padrao com suas iniciais voltara a ser exibido."
+        message="Sua foto atual será removida e o avatar padrão com suas iniciais voltará a ser exibido."
         confirmLabel="Excluir foto"
         loading={avatarBusy}
         onCancel={() => setDeleteAvatarVisible(false)}
@@ -722,10 +756,19 @@ function Header({
   );
 }
 
-function DaysScreen({ onOpenTeam }: { onOpenTeam: (team: Team) => void }) {
+function DaysScreen({
+  refreshVersion,
+  onOpenTeam,
+}: {
+  refreshVersion: number;
+  onOpenTeam: (team: Team) => void;
+}) {
+  const { width } = useWindowDimensions();
+  const compactCalendar = width < 560;
+  const [predictionCloseMinutes, setPredictionCloseMinutes] = useState(5);
   const [days, setDays] = useState<MatchDay[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [currentMonth, setCurrentMonth] = useState(() => new Date(2026, 5, 1));
+  const [currentMonth, setCurrentMonth] = useState(() => saoPauloMonth());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -734,12 +777,19 @@ function DaysScreen({ onOpenTeam }: { onOpenTeam: (team: Team) => void }) {
     try {
       const result = await api.matchDays();
       setDays(result.matchDays);
-      const firstDay = result.matchDays[0];
-      if (firstDay) {
-        const firstDate = new Date(firstDay.date);
-        setCurrentMonth(new Date(firstDate.getFullYear(), firstDate.getMonth(), 1));
-        setSelectedId((current) => current ?? firstDay.id);
-      }
+      setPredictionCloseMinutes(result.predictionCloseMinutes);
+      const today = dateOnly(new Date());
+      const currentDay = result.matchDays.find(
+        (day) =>
+          dateOnly(day.date) === today ||
+          dateOnly(day.firstMatchStartsAt) === today ||
+          day.matches.some((match) => dateOnly(match.startsAt) === today),
+      );
+      setCurrentMonth(saoPauloMonth());
+      setSelectedId((current) => {
+        if (current && result.matchDays.some((day) => day.id === current)) return current;
+        return currentDay?.id ?? null;
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar jogos.');
     } finally {
@@ -749,12 +799,13 @@ function DaysScreen({ onOpenTeam }: { onOpenTeam: (team: Team) => void }) {
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [refreshVersion]);
 
   if (loading) return <ActivityIndicator color={colors.green} style={styles.loader} />;
 
   const daysByDate = new Map(days.map((day) => [dateOnly(day.date), day]));
   const selectedDay = days.find((day) => day.id === selectedId) ?? null;
+  const today = dateOnly(new Date());
   const firstOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
   const lastOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
   const calendarCells: Array<{ key: string; date?: Date; day?: MatchDay }> = [];
@@ -774,7 +825,7 @@ function DaysScreen({ onOpenTeam }: { onOpenTeam: (team: Team) => void }) {
         <View style={styles.calendarHeader}>
           <View>
             <Text style={styles.sectionTitle}>Dias de jogos</Text>
-            <Text style={styles.muted}>Calendario mensal dos jogos cadastrados.</Text>
+            <Text style={styles.muted}>Calendário mensal dos jogos cadastrados.</Text>
           </View>
           <View style={styles.monthNav}>
             <PrimaryButton
@@ -802,14 +853,21 @@ function DaysScreen({ onOpenTeam }: { onOpenTeam: (team: Team) => void }) {
             </Text>
           </View>
         ) : (
-          <View style={styles.calendarGrid}>
+          <SoftReveal
+            key={`${currentMonth.getFullYear()}-${currentMonth.getMonth()}`}
+            style={[styles.calendarGrid, compactCalendar && styles.calendarGridCompact]}
+          >
             {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'].map((label) => (
-              <Text key={label} style={styles.weekdayLabel}>
+              <Text
+                key={label}
+                style={[styles.weekdayLabel, compactCalendar && styles.weekdayLabelCompact]}
+              >
                 {label}
               </Text>
             ))}
             {calendarCells.map((cell) => {
               const selected = cell.day?.id === selectedId;
+              const isToday = cell.date ? dateOnly(cell.date) === today : false;
               return (
                 <Pressable
                   key={cell.key}
@@ -817,9 +875,11 @@ function DaysScreen({ onOpenTeam }: { onOpenTeam: (team: Team) => void }) {
                   onPress={() => cell.day && setSelectedId(cell.day.id)}
                   style={[
                     styles.calendarDay,
+                    compactCalendar && styles.calendarDayCompact,
                     !cell.date && styles.calendarDayBlank,
                     cell.date && !cell.day && styles.calendarDayInactive,
                     cell.day && styles.calendarDayHasGames,
+                    isToday && styles.calendarDayToday,
                     selected && styles.calendarDaySelected,
                   ]}
                 >
@@ -828,14 +888,20 @@ function DaysScreen({ onOpenTeam }: { onOpenTeam: (team: Team) => void }) {
                       <Text
                         style={[
                           styles.calendarDayNumber,
+                          isToday && styles.calendarDayNumberToday,
                           selected && styles.calendarDayNumberSelected,
                         ]}
                       >
                         {cell.date.getDate()}
                       </Text>
                       {cell.day ? (
-                        <Text style={styles.calendarDayMeta}>
-                          {cell.day.matches.length} jogo(s)
+                        <Text
+                          style={[
+                            styles.calendarDayMeta,
+                            compactCalendar && styles.calendarDayMetaCompact,
+                          ]}
+                        >
+                          {gameCountLabel(cell.day.matches.length)}
                         </Text>
                       ) : null}
                     </>
@@ -843,17 +909,19 @@ function DaysScreen({ onOpenTeam }: { onOpenTeam: (team: Team) => void }) {
                 </Pressable>
               );
             })}
-          </View>
+          </SoftReveal>
         )}
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
       </View>
 
       {selectedDay ? (
-        <View style={styles.panel}>
+        <SoftReveal key={selectedDay.id} style={styles.panel}>
           <View style={styles.panelHeader}>
             <View>
               <Text style={styles.sectionTitle}>{dateTime(selectedDay.firstMatchStartsAt)}</Text>
-              <Text style={styles.muted}>Cada jogo fecha 5 minutos antes do inicio.</Text>
+              <Text style={styles.muted}>
+                Cada partida fecha {predictionCloseMinutes} minutos antes do início.
+              </Text>
             </View>
             <Pill
               label={selectedDay.isOpenForPredictions ? 'Palpites abertos' : 'Palpites fechados'}
@@ -887,7 +955,7 @@ function DaysScreen({ onOpenTeam }: { onOpenTeam: (team: Team) => void }) {
                   {matchMeta(match) ? <Text style={styles.muted}>{matchMeta(match)}</Text> : null}
                   <Text style={styles.muted}>
                     {isMatchOpenForPredictions(match)
-                      ? `Palpites ate ${dateTime(matchPredictionCloseAt(match))}`
+                      ? `Palpites até ${dateTime(matchPredictionCloseAt(match))}`
                       : 'Palpites fechados'}
                   </Text>
                 </View>
@@ -895,7 +963,7 @@ function DaysScreen({ onOpenTeam }: { onOpenTeam: (team: Team) => void }) {
               </View>
             );
           })}
-        </View>
+        </SoftReveal>
       ) : null}
     </View>
   );
@@ -903,17 +971,24 @@ function DaysScreen({ onOpenTeam }: { onOpenTeam: (team: Team) => void }) {
 
 function PredictionsScreen({
   currentUserId,
+  refreshVersion,
   onOpenTeam,
   onAdjustScroll,
 }: {
   currentUserId: string;
+  refreshVersion: number;
   onOpenTeam: (team: Team) => void;
   onAdjustScroll: (delta: number) => void;
 }) {
+  if (process.env.EXPO_PUBLIC_LEGACY_PREDICTIONS !== '1') {
+    return <PredictionBoardScreen currentUserId={currentUserId} refreshVersion={refreshVersion} />;
+  }
+
   const [days, setDays] = useState<MatchDay[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [predictionCloseMinutes, setPredictionCloseMinutes] = useState(5);
   const dayMeasurements = useRef<
     Record<
       string,
@@ -928,6 +1003,7 @@ function PredictionsScreen({
     try {
       const result = await api.matchDays();
       setDays(result.matchDays);
+      setPredictionCloseMinutes(result.predictionCloseMinutes);
       setSelectedId((current) => {
         if (current) return current;
 
@@ -953,7 +1029,7 @@ function PredictionsScreen({
     return () => {
       positionTimers.current.forEach(clearTimeout);
     };
-  }, []);
+  }, [refreshVersion]);
 
   function selectDay(dayId: string) {
     const nextId = selectedId === dayId ? null : dayId;
@@ -989,15 +1065,15 @@ function PredictionsScreen({
     <View style={styles.sideList}>
       <View style={styles.panel}>
         <View style={styles.panelHeader}>
-          <Text style={styles.sectionTitle}>Regras de pontuacao</Text>
+          <Text style={styles.sectionTitle}>Regras de pontuação</Text>
           <Text style={styles.muted}>
-            A pontuacao e calculada automaticamente ao atualizar os placares.
+            A pontuação é calculada automaticamente ao atualizar os placares.
           </Text>
         </View>
         <View style={styles.predictionNotice}>
           <Ionicons name="time-outline" size={20} color={colors.gold} />
           <Text style={styles.predictionNoticeText}>
-            Os palpites fecham por jogo, sempre 5 minutos antes do inicio de cada partida.
+            Cada partida fecha {predictionCloseMinutes} minutos antes do início.
           </Text>
         </View>
         <View style={styles.rulesList}>
@@ -1025,7 +1101,7 @@ function PredictionsScreen({
       {days.length === 0 ? (
         <View style={styles.emptyCard}>
           <Ionicons name="cloud-download-outline" size={28} color={colors.gold} />
-          <Text style={styles.emptyTitle}>Carregando jogos da proxima rodada</Text>
+          <Text style={styles.emptyTitle}>Carregando jogos da próxima rodada</Text>
           <Text style={styles.muted}>
             Entre no painel Admin para importar a tabela da Copa ou cadastrar jogos manualmente.
           </Text>
@@ -1065,7 +1141,7 @@ function PredictionsScreen({
                 </View>
                 <Text style={styles.muted}>
                   {nextCloseAt
-                    ? `Proximo fechamento: ${dateTime(nextCloseAt)}`
+                    ? `Próximo fechamento: ${dateTime(nextCloseAt)}`
                     : 'Todos os jogos fechados'}
                 </Text>
                 <Text style={styles.muted}>{day.matches.length} jogo(s)</Text>
@@ -1104,7 +1180,8 @@ function AnimatedMatchDayDetail({
 
     Animated.timing(progress, {
       toValue: open ? 1 : 0,
-      duration: open ? 260 : 190,
+      duration: open ? 210 : 160,
+      easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start(({ finished }) => {
       if (finished && !open) setRendered(false);
@@ -1124,13 +1201,13 @@ function AnimatedMatchDayDetail({
             {
               translateY: progress.interpolate({
                 inputRange: [0, 1],
-                outputRange: [-18, 0],
+                outputRange: [-8, 0],
               }),
             },
             {
               scaleY: progress.interpolate({
                 inputRange: [0, 1],
-                outputRange: [0.94, 1],
+                outputRange: [0.98, 1],
               }),
             },
           ],
@@ -1155,13 +1232,15 @@ function MatchDayDetail({
   const [values, setValues] = useState<Record<string, { home: string; away: string }>>({});
   const [successVisible, setSuccessVisible] = useState(false);
   const [error, setError] = useState('');
+  const [predictionCloseMinutes, setPredictionCloseMinutes] = useState(5);
 
   useEffect(() => {
     setDay(null);
     setSuccessVisible(false);
     setError('');
-    api.matchDay(id).then(({ matchDay }) => {
+    api.matchDay(id).then(({ matchDay, predictionCloseMinutes: closeMinutes }) => {
       setDay(matchDay);
+      setPredictionCloseMinutes(closeMinutes);
       const next: Record<string, { home: string; away: string }> = {};
       for (const match of matchDay.matches) {
         const mine = match.predictions.find((prediction) => prediction.userId === currentUserId);
@@ -1191,7 +1270,7 @@ function MatchDayDetail({
       ]);
       setSuccessVisible(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Nao foi possivel salvar.');
+      setError(err instanceof Error ? err.message : 'Não foi possível salvar.');
     }
   }
 
@@ -1204,10 +1283,12 @@ function MatchDayDetail({
       <View style={styles.panelHeader}>
         <View>
           <Text style={styles.sectionTitle}>Campo de palpites</Text>
-          <Text style={styles.muted}>Cada jogo fecha 5 minutos antes do inicio.</Text>
+          <Text style={styles.muted}>
+            Cada partida fecha {predictionCloseMinutes} minutos antes do início.
+          </Text>
         </View>
         <Pill
-          label={hasOpenMatches ? 'Com jogos abertos' : 'Publico'}
+          label={hasOpenMatches ? 'Com jogos abertos' : 'Público'}
           tone={hasOpenMatches ? 'ok' : 'warn'}
         />
       </View>
@@ -1242,7 +1323,7 @@ function MatchDayDetail({
               <Text style={styles.muted}>
                 {closed
                   ? 'Palpites fechados para este jogo'
-                  : `Palpites ate ${dateTime(matchPredictionCloseAt(match))}`}
+                  : `Palpites até ${dateTime(matchPredictionCloseAt(match))}`}
               </Text>
               {score ? (
                 <View style={styles.matchScoreBoard}>
@@ -1358,7 +1439,13 @@ function MatchDayDetail({
   );
 }
 
-function AdminScreen({ currentUserId }: { currentUserId: string }) {
+function AdminScreen({
+  currentUserId,
+  refreshVersion,
+}: {
+  currentUserId: string;
+  refreshVersion: number;
+}) {
   const [teams, setTeams] = useState<Team[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [homeTeamCode, setHomeTeamCode] = useState('');
@@ -1372,18 +1459,27 @@ function AdminScreen({ currentUserId }: { currentUserId: string }) {
   const [saving, setSaving] = useState(false);
   const [userSaving, setUserSaving] = useState<string | null>(null);
   const [passwords, setPasswords] = useState<Record<string, string>>({});
+  const [predictionCloseMinutes, setPredictionCloseMinutes] = useState('5');
+  const [settingSaving, setSettingSaving] = useState(false);
+  const [settingMessage, setSettingMessage] = useState('');
+  const [settingError, setSettingError] = useState('');
 
   async function loadAdminData() {
     setLoading(true);
     try {
-      const [teamsResult, usersResult] = await Promise.all([api.adminTeams(), api.adminUsers()]);
+      const [teamsResult, usersResult, predictionSettings] = await Promise.all([
+        api.adminTeams(),
+        api.adminUsers(),
+        api.adminPredictionSettings(),
+      ]);
       setTeams(teamsResult.teams);
       setUsers(usersResult.users);
       setHomeTeamCode((current) => current || teamsResult.teams[0]?.code || '');
       setAwayTeamCode((current) => current || teamsResult.teams[1]?.code || '');
+      setPredictionCloseMinutes(String(predictionSettings.predictionCloseMinutes));
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : 'Nao foi possivel carregar dados administrativos.',
+        err instanceof Error ? err.message : 'Não foi possível carregar dados administrativos.',
       );
     } finally {
       setLoading(false);
@@ -1392,7 +1488,7 @@ function AdminScreen({ currentUserId }: { currentUserId: string }) {
 
   useEffect(() => {
     void loadAdminData();
-  }, []);
+  }, [refreshVersion]);
 
   async function seedOfficialData() {
     setSaving(true);
@@ -1400,10 +1496,10 @@ function AdminScreen({ currentUserId }: { currentUserId: string }) {
     setMessage('');
     try {
       const result = await api.seedWorldCup2026();
-      setMessage(`Tabela importada: ${result.teams} selecoes e ${result.matches} jogos salvos.`);
+      setMessage(`Tabela importada: ${result.teams} seleções e ${result.matches} jogos salvos.`);
       await loadAdminData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Nao foi possivel importar a tabela.');
+      setError(err instanceof Error ? err.message : 'Não foi possível importar a tabela.');
     } finally {
       setSaving(false);
     }
@@ -1421,9 +1517,31 @@ function AdminScreen({ currentUserId }: { currentUserId: string }) {
       });
       setMessage('Jogo cadastrado com sucesso.');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Nao foi possivel cadastrar o jogo.');
+      setError(err instanceof Error ? err.message : 'Não foi possível cadastrar o jogo.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function savePredictionDeadline(minutesValue = predictionCloseMinutes) {
+    const minutes = Number(minutesValue);
+    if (!Number.isInteger(minutes) || minutes < 1 || minutes > 120) {
+      setSettingError('Informe um numero inteiro entre 1 e 120 minutos.');
+      return;
+    }
+    setSettingSaving(true);
+    setSettingError('');
+    setSettingMessage('');
+    try {
+      const result = await api.updateAdminPredictionSettings(minutes);
+      setPredictionCloseMinutes(String(result.predictionCloseMinutes));
+      setSettingMessage(
+        `Prazo atualizado. ${result.reopenedMatches ?? 0} jogo(s) reaberto(s) e ${result.closedMatches ?? 0} fechado(s).`,
+      );
+    } catch (err) {
+      setSettingError(err instanceof Error ? err.message : 'Não foi possível atualizar o prazo.');
+    } finally {
+      setSettingSaving(false);
     }
   }
 
@@ -1437,9 +1555,9 @@ function AdminScreen({ currentUserId }: { currentUserId: string }) {
       setUsers((current) =>
         current.map((user) => (user.id === targetUser.id ? result.user : user)),
       );
-      setUserMessage(blocked ? 'Usuario bloqueado.' : 'Usuario desbloqueado.');
+      setUserMessage(blocked ? 'Usuário bloqueado.' : 'Usuário desbloqueado.');
     } catch (err) {
-      setUserError(err instanceof Error ? err.message : 'Nao foi possivel alterar o usuario.');
+      setUserError(err instanceof Error ? err.message : 'Não foi possível alterar o usuário.');
     } finally {
       setUserSaving(null);
     }
@@ -1460,7 +1578,7 @@ function AdminScreen({ currentUserId }: { currentUserId: string }) {
       setPasswords((current) => ({ ...current, [targetUser.id]: '' }));
       setUserMessage(`Senha de ${targetUser.nickname} alterada com sucesso.`);
     } catch (err) {
-      setUserError(err instanceof Error ? err.message : 'Nao foi possivel alterar a senha.');
+      setUserError(err instanceof Error ? err.message : 'Não foi possível alterar a senha.');
     } finally {
       setUserSaving(null);
     }
@@ -1484,15 +1602,62 @@ function AdminScreen({ currentUserId }: { currentUserId: string }) {
           disabled={saving}
         />
         <Text style={styles.muted}>
-          Fonte usada para a carga local: calendario publicado pelo ge e conferencia na pagina de
+          Fonte usada para a carga local: calendário publicado pelo GE e conferência na página de
           jogos da FIFA.
         </Text>
       </View>
 
       <View style={styles.panel}>
+        <View style={styles.panelHeader}>
+          <Text style={styles.sectionTitle}>Prazo dos palpites</Text>
+          <Text style={styles.muted}>
+            Aplica o fechamento antes de cada partida e ao primeiro jogo da chave oficial.
+          </Text>
+        </View>
+        <View style={styles.deadlinePresetRow}>
+          {[5, 10, 15, 30].map((minutes) => {
+            const selected = predictionCloseMinutes === String(minutes);
+            return (
+              <Pressable
+                key={minutes}
+                onPress={() => {
+                  setPredictionCloseMinutes(String(minutes));
+                  void savePredictionDeadline(String(minutes));
+                }}
+                disabled={settingSaving}
+                style={[styles.deadlinePreset, selected && styles.deadlinePresetActive]}
+              >
+                <Text
+                  style={[styles.deadlinePresetText, selected && styles.deadlinePresetTextActive]}
+                >
+                  {minutes} min
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <Field
+          label="Prazo personalizado"
+          value={predictionCloseMinutes}
+          onChangeText={setPredictionCloseMinutes}
+          placeholder="5"
+          keyboardType="number-pad"
+          help="Aceita valores inteiros de 1 a 120 minutos. A alteração entra em vigor imediatamente."
+        />
+        <PrimaryButton
+          label={settingSaving ? 'Atualizando...' : 'Aplicar prazo'}
+          icon="time-outline"
+          onPress={() => savePredictionDeadline()}
+          disabled={settingSaving}
+        />
+        {settingMessage ? <Text style={styles.successText}>{settingMessage}</Text> : null}
+        {settingError ? <Text style={styles.errorText}>{settingError}</Text> : null}
+      </View>
+
+      <View style={styles.panel}>
         <Text style={styles.sectionTitle}>Cadastrar jogo</Text>
         <Field
-          label="Data e hora de Brasilia"
+          label="Data e hora de Brasília"
           value={startsAt}
           onChangeText={setStartsAt}
           placeholder="2026-06-11T16:00"
@@ -1524,7 +1689,7 @@ function AdminScreen({ currentUserId }: { currentUserId: string }) {
         <View style={styles.panelHeader}>
           <Text style={styles.sectionTitle}>Usuarios</Text>
           <Text style={styles.muted}>
-            Administradores visualizam e gerenciam contas, mas nao entram no ranking nem participam
+            Administradores visualizam e gerenciam contas, mas não entram no ranking nem participam
             dos palpites.
           </Text>
         </View>
@@ -1540,7 +1705,7 @@ function AdminScreen({ currentUserId }: { currentUserId: string }) {
                     <Text style={styles.matchTitle}>{managedUser.nickname}</Text>
                     <Pill
                       label={
-                        managedUser.role === 'ADMIN' ? 'Admin' : isBlocked ? 'Bloqueado' : 'Usuario'
+                        managedUser.role === 'ADMIN' ? 'Admin' : isBlocked ? 'Bloqueado' : 'Usuário'
                       }
                       tone={managedUser.role === 'ADMIN' ? 'warn' : isBlocked ? 'live' : 'ok'}
                     />
@@ -1555,7 +1720,7 @@ function AdminScreen({ currentUserId }: { currentUserId: string }) {
                       setPasswords((current) => ({ ...current, [managedUser.id]: value }))
                     }
                     secureTextEntry
-                    placeholder="minimo 6 caracteres"
+                    placeholder="mínimo 6 caracteres"
                   />
                   <View style={styles.userActionButtons}>
                     <PrimaryButton
@@ -1572,7 +1737,7 @@ function AdminScreen({ currentUserId }: { currentUserId: string }) {
                     />
                   </View>
                   {isSelf ? (
-                    <Text style={styles.muted}>Sua propria conta nao pode ser bloqueada.</Text>
+                    <Text style={styles.muted}>Sua própria conta não pode ser bloqueada.</Text>
                   ) : null}
                 </View>
               </View>
@@ -1622,7 +1787,7 @@ function TeamSelector({
   );
 }
 
-function RankingScreen() {
+function RankingScreen({ refreshVersion }: { refreshVersion: number }) {
   const [ranking, setRanking] = useState<RankingRow[]>([]);
   const leader = ranking[0];
   const last = ranking[ranking.length - 1];
@@ -1631,18 +1796,18 @@ function RankingScreen() {
     api.ranking().then((result) => setRanking(result.ranking));
     const source = createRankingEvents(setRanking);
     return () => source.close();
-  }, []);
+  }, [refreshVersion]);
 
   return (
     <View style={styles.panel}>
       <View style={styles.panelHeader}>
         <Text style={styles.sectionTitle}>Ranking ao vivo</Text>
-        <Pill label="Atualizacao ativa" tone="live" />
+        <Pill label="Atualização ativa" tone="live" />
       </View>
 
       {ranking.length > 0 ? (
         <View style={styles.rankingHighlights}>
-          <RankingHighlight label="Lider" row={leader} icon="trophy-outline" tone="leader" />
+          <RankingHighlight label="Líder" row={leader} icon="trophy-outline" tone="leader" />
           <RankingHighlight label="Lanterna" row={last} icon="flashlight-outline" tone="last" />
         </View>
       ) : null}
@@ -1658,7 +1823,7 @@ function RankingScreen() {
               <Text style={[styles.rankingCell, styles.numericColumn]}>RES</Text>
               <Text style={[styles.rankingCell, styles.numericColumn]}>GOL</Text>
               <Text style={[styles.rankingCell, styles.numericColumn]}>ER</Text>
-              <Text style={[styles.rankingCell, styles.formColumn]}>Ultimos 5</Text>
+              <Text style={[styles.rankingCell, styles.formColumn]}>Últimos 5</Text>
               <Text style={[styles.rankingCell, styles.pointsColumn]}>PTS</Text>
             </View>
             {ranking.map((row) => (
@@ -1675,7 +1840,7 @@ function RankingScreen() {
                       {row.nickname}
                     </Text>
                     <Text style={styles.rankingPlayerStatus}>
-                      {row.hasLiveData ? 'Provisorio' : 'Definitivo'}
+                      {row.hasLiveData ? 'Provisório' : 'Definitivo'}
                     </Text>
                   </View>
                 </View>
@@ -1750,7 +1915,7 @@ function CupStandingTable({
             <Text style={[styles.cupCell, styles.cupStatColumn]}>D</Text>
             <Text style={[styles.cupCell, styles.cupStatColumn]}>SG</Text>
             <Text style={[styles.cupCell, styles.cupStatColumn]}>GP</Text>
-            <Text style={[styles.cupCell, styles.cupFormColumn]}>Ultimos 5</Text>
+            <Text style={[styles.cupCell, styles.cupFormColumn]}>Últimos 5</Text>
             <Text style={[styles.cupCell, styles.cupPointsColumn]}>PTS</Text>
           </View>
           {rows.map((row) => (
@@ -1826,7 +1991,13 @@ function CupMatchRow({
   );
 }
 
-function CupOverviewScreen({ onOpenTeam }: { onOpenTeam: (team: Team) => void }) {
+function CupOverviewScreen({
+  refreshVersion,
+  onOpenTeam,
+}: {
+  refreshVersion: number;
+  onOpenTeam: (team: Team) => void;
+}) {
   const [overview, setOverview] = useState<CupOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -1837,7 +2008,7 @@ function CupOverviewScreen({ onOpenTeam }: { onOpenTeam: (team: Team) => void })
     try {
       setOverview(await api.cupOverview());
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Nao foi possivel carregar a Copa.');
+      setError(err instanceof Error ? err.message : 'Não foi possível carregar a Copa.');
     } finally {
       setLoading(false);
     }
@@ -1845,7 +2016,7 @@ function CupOverviewScreen({ onOpenTeam }: { onOpenTeam: (team: Team) => void })
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [refreshVersion]);
 
   if (loading) return <ActivityIndicator color={colors.green} style={styles.loader} />;
 
@@ -1861,7 +2032,7 @@ function CupOverviewScreen({ onOpenTeam }: { onOpenTeam: (team: Team) => void })
       <View style={styles.panel}>
         <View style={styles.panelHeader}>
           <Text style={styles.sectionTitle}>Copa do Mundo 2026</Text>
-          <Text style={styles.muted}>Classificacao por grupos, resultados e artilharia.</Text>
+          <Text style={styles.muted}>Classificação por grupos, resultados e artilharia.</Text>
         </View>
         {overview ? (
           <View style={styles.cupSummaryRow}>
@@ -1884,7 +2055,7 @@ function CupOverviewScreen({ onOpenTeam }: { onOpenTeam: (team: Team) => void })
 
       <View style={styles.panel}>
         <View style={styles.panelHeader}>
-          <Text style={styles.sectionTitle}>Classificacao</Text>
+          <Text style={styles.sectionTitle}>Classificação</Text>
           <Text style={styles.muted}>A tabela considera apenas partidas encerradas.</Text>
         </View>
         {overview?.standingsByGroup.length ? (
@@ -1926,7 +2097,7 @@ function CupOverviewScreen({ onOpenTeam }: { onOpenTeam: (team: Team) => void })
       <View style={styles.panel}>
         <View style={styles.panelHeader}>
           <Text style={styles.sectionTitle}>Artilharia</Text>
-          <Text style={styles.muted}>Lista de goleadores da competicao.</Text>
+          <Text style={styles.muted}>Lista de goleadores da competição.</Text>
         </View>
         {overview?.topScorers.length ? (
           <View style={styles.cupScorersTable}>
@@ -1970,7 +2141,7 @@ function CupOverviewScreen({ onOpenTeam }: { onOpenTeam: (team: Team) => void })
             <Ionicons name="football-outline" size={28} color={colors.gold} />
             <Text style={styles.emptyTitle}>Artilharia ainda sem dados</Text>
             <Text style={styles.muted}>
-              A coleta usa a pagina da Copa no GE e sera preenchida assim que o scraper encontrar
+              A coleta usa a página da Copa no GE e será preenchida assim que o scraper encontrar
               goleadores.
             </Text>
           </View>
@@ -1996,16 +2167,16 @@ function TeamCatalogScreen({
         <View style={styles.panelHeader}>
           <Text style={styles.sectionTitle}>Times participantes</Text>
           <Text style={styles.muted}>
-            Selecione um pais para abrir ou fechar o elenco cadastrado.
+            Selecione um país para abrir ou fechar o elenco cadastrado.
           </Text>
         </View>
 
         <View style={styles.teamCatalogHero}>
           <View>
             <Text style={styles.teamCatalogEyebrow}>Elenco</Text>
-            <Text style={styles.teamCatalogTitle}>{selected?.countryName ?? 'Selecoes'}</Text>
+            <Text style={styles.teamCatalogTitle}>{selected?.countryName ?? 'Seleções'}</Text>
           </View>
-          <Pill label={`${teams.length} selecoes`} tone="ok" />
+          <Pill label={`${teams.length} seleções`} tone="ok" />
         </View>
 
         <View style={styles.catalogAccordion}>
@@ -2046,7 +2217,7 @@ function TeamCatalogScreen({
                 </View>
               </Pressable>
 
-              {selected?.code === team.code ? (
+              <DrawerReveal open={selected?.code === team.code} maxHeight={3600}>
                 <View style={styles.catalogRoster}>
                   <Text style={styles.muted}>{team.sourceLabel}</Text>
                   <View style={styles.playerGrid}>
@@ -2085,11 +2256,11 @@ function TeamCatalogScreen({
                       </View>
                     ))}
                     {team.players.length === 0 ? (
-                      <Text style={styles.muted}>Elenco ainda nao cadastrado.</Text>
+                      <Text style={styles.muted}>Elenco ainda não cadastrado.</Text>
                     ) : null}
                   </View>
                 </View>
-              ) : null}
+              </DrawerReveal>
             </View>
           ))}
         </View>
@@ -2102,9 +2273,15 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [screen, setScreen] = useState<Screen>('days');
   const [selectedTeamCode, setSelectedTeamCode] = useState<string | null>('KOR');
+  const [refreshVersion, setRefreshVersion] = useState(0);
   const [booting, setBooting] = useState(true);
   const appScrollRef = useRef<ScrollView>(null);
   const appScrollY = useRef(0);
+  const inactiveSince = useRef<number | null>(null);
+
+  const triggerRefresh = useCallback(() => {
+    setRefreshVersion((current) => current + 1);
+  }, []);
 
   function adjustAppScroll(delta: number) {
     const nextY = Math.max(0, appScrollY.current + delta);
@@ -2120,11 +2297,43 @@ export default function App() {
       .finally(() => setBooting(false));
   }, []);
 
+  useEffect(() => {
+    if (typeof document === 'undefined' || typeof window === 'undefined') return undefined;
+
+    const markInactive = () => {
+      inactiveSince.current = Date.now();
+    };
+    const refreshAfterReturn = () => {
+      const startedAt = inactiveSince.current;
+      inactiveSince.current = null;
+      if (startedAt && Date.now() - startedAt >= 60_000) triggerRefresh();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        markInactive();
+      } else {
+        refreshAfterReturn();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', markInactive);
+    window.addEventListener('focus', refreshAfterReturn);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', markInactive);
+      window.removeEventListener('focus', refreshAfterReturn);
+    };
+  }, [triggerRefresh]);
+
   const content = useMemo(() => {
-    if (screen === 'ranking') return <RankingScreen />;
+    if (screen === 'ranking') return <RankingScreen refreshVersion={refreshVersion} />;
     if (screen === 'cup') {
+      if (competitionUiV2) return <CupOverviewV2 refreshVersion={refreshVersion} />;
       return (
         <CupOverviewScreen
+          refreshVersion={refreshVersion}
           onOpenTeam={(team) => {
             setSelectedTeamCode(team.code ?? null);
             setScreen('teams');
@@ -2141,6 +2350,7 @@ export default function App() {
       return (
         <PredictionsScreen
           currentUserId={user?.id ?? ''}
+          refreshVersion={refreshVersion}
           onAdjustScroll={adjustAppScroll}
           onOpenTeam={(team) => {
             setSelectedTeamCode(team.code ?? null);
@@ -2150,16 +2360,17 @@ export default function App() {
       );
     }
     if (screen === 'admin' && user?.role === 'ADMIN')
-      return <AdminScreen currentUserId={user.id} />;
+      return <AdminScreen currentUserId={user.id} refreshVersion={refreshVersion} />;
     return (
       <DaysScreen
+        refreshVersion={refreshVersion}
         onOpenTeam={(team) => {
           setSelectedTeamCode(team.code ?? null);
           setScreen('teams');
         }}
       />
     );
-  }, [screen, selectedTeamCode, user?.id, user?.role]);
+  }, [refreshVersion, screen, selectedTeamCode, user?.id, user?.role]);
 
   async function logout() {
     await api.logout().catch(() => undefined);
@@ -2182,6 +2393,7 @@ export default function App() {
         user={user}
         screen={screen}
         setScreen={setScreen}
+        onRefresh={triggerRefresh}
         onUserChange={setUser}
         onLogout={logout}
       />
@@ -2194,7 +2406,9 @@ export default function App() {
         }}
         scrollEventThrottle={16}
       >
-        {content}
+        <SoftReveal key={screen} style={styles.screenTransition}>
+          {content}
+        </SoftReveal>
       </ScrollView>
     </AppShell>
   );
@@ -2529,6 +2743,9 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
     flexGrow: 1,
   },
+  screenTransition: {
+    width: '100%',
+  },
   contentGrid: {
     gap: 18,
   },
@@ -2559,6 +2776,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
+  },
+  deadlinePresetRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  deadlinePreset: {
+    minWidth: 72,
+    minHeight: 40,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bg2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deadlinePresetActive: {
+    borderColor: colors.goldBorder,
+    backgroundColor: colors.greenDark,
+  },
+  deadlinePresetText: {
+    color: colors.soft,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  deadlinePresetTextActive: {
+    color: colors.text,
   },
   rulesList: {
     gap: 8,
@@ -2638,6 +2883,10 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 6,
   },
+  calendarGridCompact: {
+    gap: 0,
+    rowGap: 6,
+  },
   weekdayLabel: {
     width: '13.4%',
     minWidth: 42,
@@ -2646,6 +2895,11 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     textAlign: 'center',
     paddingVertical: 6,
+  },
+  weekdayLabelCompact: {
+    width: '14.2857%',
+    minWidth: 0,
+    fontSize: 11,
   },
   calendarDay: {
     width: '13.4%',
@@ -2658,6 +2912,14 @@ const styles = StyleSheet.create({
     padding: 8,
     gap: 5,
   },
+  calendarDayCompact: {
+    width: '14.2857%',
+    minWidth: 0,
+    minHeight: 64,
+    borderRadius: 8,
+    paddingHorizontal: 5,
+    paddingVertical: 7,
+  },
   calendarDayBlank: {
     opacity: 0,
   },
@@ -2667,6 +2929,11 @@ const styles = StyleSheet.create({
   calendarDayHasGames: {
     borderColor: colors.goldBorder,
     backgroundColor: '#17372c',
+  },
+  calendarDayToday: {
+    borderColor: colors.gold,
+    borderWidth: 2,
+    opacity: 1,
   },
   calendarDaySelected: {
     borderColor: colors.green,
@@ -2680,10 +2947,17 @@ const styles = StyleSheet.create({
   calendarDayNumberSelected: {
     color: colors.gold,
   },
+  calendarDayNumberToday: {
+    color: colors.gold,
+  },
   calendarDayMeta: {
     color: colors.muted,
     fontSize: 11,
     fontWeight: '800',
+  },
+  calendarDayMetaCompact: {
+    fontSize: 10,
+    lineHeight: 13,
   },
   calendarMatchRow: {
     backgroundColor: colors.bg2,

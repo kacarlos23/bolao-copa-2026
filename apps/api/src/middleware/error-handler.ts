@@ -16,7 +16,7 @@ export const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
     res.status(400).json({
       error: {
         code: 'VALIDATION_ERROR',
-        message: issues[0] ?? 'Dados invalidos.',
+        message: issues[0] ?? 'Dados inválidos.',
         issues: error.flatten(),
       },
     });
@@ -24,7 +24,10 @@ export const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
   }
 
   if (error instanceof multer.MulterError) {
-    const message = error.code === 'LIMIT_FILE_SIZE' ? 'Envie uma imagem de ate 2 MB.' : 'Upload de avatar invalido.';
+    const message =
+      error.code === 'LIMIT_FILE_SIZE'
+        ? 'Envie uma imagem de até 2 MB.'
+        : 'Upload de avatar inválido.';
     res.status(400).json({ error: { code: error.code, message } });
     return;
   }

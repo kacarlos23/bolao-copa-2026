@@ -11,14 +11,14 @@ matchDayRouter.use(requireAuth);
 matchDayRouter.get(
   '/',
   asyncHandler(async (req, res) => {
-    res.json({ matchDays: await listMatchDays(req.session.user!.id) });
+    res.json(await listMatchDays(req.session.user!.id));
   }),
 );
 
 matchDayRouter.get(
   '/:id',
   asyncHandler(async (req, res) => {
-    res.json({ matchDay: await getMatchDay(req.params.id, req.session.user!.id) });
+    res.json(await getMatchDay(req.params.id, req.session.user!.id));
   }),
 );
 

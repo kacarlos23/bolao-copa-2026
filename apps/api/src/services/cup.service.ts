@@ -1,5 +1,6 @@
 import { MatchStatus, Prisma } from '@prisma/client';
 import { prisma } from '../prisma.js';
+import { ensureKnockoutInfrastructure } from './knockout.service.js';
 
 type TeamSummary = {
   id: string;
@@ -57,9 +58,13 @@ function scoreForMatch(match: {
   finalAwayScore: number | null;
 }) {
   const homeScore =
-    match.status === MatchStatus.FINISHED ? match.finalHomeScore ?? match.homeScore : match.homeScore;
+    match.status === MatchStatus.FINISHED
+      ? (match.finalHomeScore ?? match.homeScore)
+      : match.homeScore;
   const awayScore =
-    match.status === MatchStatus.FINISHED ? match.finalAwayScore ?? match.awayScore : match.awayScore;
+    match.status === MatchStatus.FINISHED
+      ? (match.finalAwayScore ?? match.awayScore)
+      : match.awayScore;
 
   if (homeScore == null || awayScore == null) return null;
   return { homeScore, awayScore };
@@ -81,11 +86,7 @@ function emptyStanding(team: TeamSummary, group: string): StandingAccumulator {
   };
 }
 
-function addResult(
-  standing: StandingAccumulator,
-  goalsFor: number,
-  goalsAgainst: number,
-) {
+function addResult(standing: StandingAccumulator, goalsFor: number, goalsAgainst: number) {
   standing.played += 1;
   standing.goalsFor += goalsFor;
   standing.goalsAgainst += goalsAgainst;
@@ -139,11 +140,15 @@ function topScorersFromSetting(value: Prisma.JsonValue | null | undefined): CupT
       };
     })
     .filter((scorer): scorer is CupTopScorer => Boolean(scorer))
-    .sort((a, b) => b.goals - a.goals || a.rank - b.rank || a.playerName.localeCompare(b.playerName, 'pt-BR'));
+    .sort(
+      (a, b) =>
+        b.goals - a.goals || a.rank - b.rank || a.playerName.localeCompare(b.playerName, 'pt-BR'),
+    );
 }
 
 export async function getCupOverview() {
-  const [teams, matches, topScorersSetting] = await Promise.all([
+  await ensureKnockoutInfrastructure();
+  const [teams, matches, knockoutFixtures, topScorersSetting] = await Promise.all([
     prisma.team.findMany({ orderBy: [{ name: 'asc' }] }),
     prisma.match.findMany({
       orderBy: { startsAt: 'asc' },
@@ -151,6 +156,10 @@ export async function getCupOverview() {
         homeTeam: true,
         awayTeam: true,
       },
+    }),
+    prisma.knockoutFixture.findMany({
+      orderBy: { matchNumber: 'asc' },
+      include: { homeTeam: true, awayTeam: true, winnerTeam: true },
     }),
     prisma.appSetting.findUnique({ where: { key: TOP_SCORERS_SETTING_KEY } }),
   ]);
@@ -237,6 +246,7 @@ export async function getCupOverview() {
     checkedAt: new Date().toISOString(),
     standingsByGroup,
     matches: matchResults,
+    knockoutFixtures,
     topScorers: topScorersFromSetting(topScorersSetting?.value),
   };
 }
