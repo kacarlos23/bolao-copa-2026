@@ -221,13 +221,6 @@ function RankingHighlight({
   );
 }
 
-function movementSummary(delta: number | null) {
-  if (delta == null) return null;
-  if (delta > 0) return `subiu ${delta}`;
-  if (delta < 0) return `caiu ${Math.abs(delta)}`;
-  return 'estavel';
-}
-
 function RankingMovementBadge({
   delta,
   compact = false,
@@ -2467,18 +2460,19 @@ function RankingScreenLayout({
                           styles.rankingPlayerCell,
                         ]}
                       >
-                        <UserAvatar nickname={row.nickname} avatarUrl={row.avatarUrl} size={31} />
+                        <View style={styles.rankingPlayerAvatarGroup}>
+                          <UserAvatar nickname={row.nickname} avatarUrl={row.avatarUrl} size={31} />
+                          <RankingMovementBadge
+                            delta={movementByUserId.get(row.userId) ?? null}
+                            compact
+                          />
+                        </View>
                         <View style={styles.rankingPlayerInfo}>
                           <Text style={styles.rankingPlayerName} numberOfLines={1}>
                             {row.nickname}
                           </Text>
                           <Text style={styles.rankingPlayerStatus}>
-                            {[
-                              row.hasLiveData ? 'Provisorio' : 'Definitivo',
-                              movementSummary(movementByUserId.get(row.userId) ?? null),
-                            ]
-                              .filter(Boolean)
-                              .join(' Â· ')}
+                            {row.hasLiveData ? 'Provisorio' : 'Definitivo'}
                           </Text>
                         </View>
                       </View>
@@ -2641,7 +2635,13 @@ function RankingScreen({ refreshVersion }: { refreshVersion: number }) {
                 <View
                   style={[styles.rankingCellBox, styles.playerColumn, styles.rankingPlayerCell]}
                 >
-                  <UserAvatar nickname={row.nickname} avatarUrl={row.avatarUrl} size={34} />
+                  <View style={styles.rankingPlayerAvatarGroup}>
+                    <UserAvatar nickname={row.nickname} avatarUrl={row.avatarUrl} size={34} />
+                    <RankingMovementBadge
+                      delta={movementByUserId.get(row.userId) ?? null}
+                      compact
+                    />
+                  </View>
                   <View style={styles.rankingPlayerInfo}>
                     <Text style={styles.rankingPlayerName} numberOfLines={1}>
                       {row.nickname}
@@ -4594,6 +4594,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+  },
+  rankingPlayerAvatarGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   rankingPlayerInfo: {
     flex: 1,
