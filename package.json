@@ -27,6 +27,7 @@
     "seed": "npm --workspace @bolao/api run seed",
     "scrape:ge-scores": "npm --workspace @bolao/api run scrape:ge-scores",
     "scrape:ge-scores:once": "npm --workspace @bolao/api run scrape:ge-scores:once",
+    "scrape:ge-scores:watch": "npm --workspace @bolao/api run scrape:ge-scores:watch",
     "sync:fifa-squads": "node scripts/sync-fifa-squads.mjs",
     "backup": "powershell -ExecutionPolicy Bypass -File .\\scripts\\backup-postgres.ps1",
     "restore": "powershell -ExecutionPolicy Bypass -File .\\scripts\\restore-postgres.ps1",

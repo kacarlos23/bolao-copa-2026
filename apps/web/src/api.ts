@@ -109,6 +109,21 @@ export interface RankingRow {
   hasLiveData: boolean;
 }
 
+export type RankingPeriod = 'all' | 'week' | 'day';
+
+export interface RankingRefreshResponse {
+  ranking: RankingRow[];
+  sync: {
+    startedAt: string;
+    finishedAt: string;
+    scraped: number;
+    topScorers: number | null;
+    changedEntries: number;
+    updatedMatches: number;
+    updatedKnockoutFixtures: number;
+  };
+}
+
 export interface CupStandingRow {
   rank: number;
   group: string;
@@ -321,7 +336,12 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ predictions }),
     }),
-  ranking: () => request<{ ranking: RankingRow[] }>('/api/ranking'),
+  ranking: (period: RankingPeriod = 'all') =>
+    request<{ ranking: RankingRow[] }>(`/api/ranking?period=${period}`),
+  refreshRanking: (period: RankingPeriod = 'all') =>
+    request<RankingRefreshResponse>(`/api/ranking/refresh?period=${period}`, {
+      method: 'POST',
+    }),
   cupOverview: () => request<CupOverview>('/api/cup/overview'),
   predictionBoard: () => request<PredictionBoard>('/api/prediction-board'),
   saveKnockoutBracket: (

@@ -13,7 +13,8 @@
     "prisma:migrate": "prisma migrate dev",
     "seed": "tsx prisma/seed.ts",
     "scrape:ge-scores": "tsx src/scripts/scrape-ge-scores.ts",
-    "scrape:ge-scores:once": "tsx src/scripts/scrape-ge-scores.ts --once"
+    "scrape:ge-scores:once": "tsx src/scripts/scrape-ge-scores.ts --once",
+    "scrape:ge-scores:watch": "tsx src/scripts/scrape-ge-scores.ts --watch"
   },
   "dependencies": {
     "@bolao/shared": "0.1.0",

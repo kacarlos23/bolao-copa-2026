@@ -3,6 +3,8 @@ import { calculatePredictionScore } from '@bolao/shared';
 import { prisma } from '../prisma.js';
 import { emitSse } from '../realtime/sse.js';
 
+export type RankingPeriod = 'all' | 'week' | 'day';
+
 export async function recalculateScoresForMatch(
   matchId: string,
   options: { refreshRanking?: boolean } = {},
@@ -49,25 +51,77 @@ export async function recalculateScoresForMatch(
   if (options.refreshRanking !== false) await refreshRankingSnapshot();
 }
 
-export async function getRanking() {
-  const users = await prisma.user.findMany({
-    where: { role: 'USER', status: 'ACTIVE' },
-    select: {
-      id: true,
-      nickname: true,
-      avatarUrl: true,
-      scores: {
-        orderBy: { calculatedAt: 'desc' },
-        select: { points: true, isFinal: true, scoreType: true, calculatedAt: true },
-      },
-      knockoutScores: {
-        orderBy: { calculatedAt: 'desc' },
-        select: { points: true, isFinal: true, scoreType: true, calculatedAt: true },
-      },
-    },
-  });
+function saoPauloDateParts(value = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(value);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return {
+    year: Number(values.year),
+    month: Number(values.month),
+    day: Number(values.day),
+  };
+}
 
-  return users
+function addCivilDays(
+  value: { year: number; month: number; day: number },
+  amount: number,
+) {
+  const next = new Date(Date.UTC(value.year, value.month - 1, value.day));
+  next.setUTCDate(next.getUTCDate() + amount);
+  return {
+    year: next.getUTCFullYear(),
+    month: next.getUTCMonth() + 1,
+    day: next.getUTCDate(),
+  };
+}
+
+function toSaoPauloMidnight(value: { year: number; month: number; day: number }) {
+  const year = String(value.year);
+  const month = String(value.month).padStart(2, '0');
+  const day = String(value.day).padStart(2, '0');
+  return new Date(`${year}-${month}-${day}T00:00:00-03:00`);
+}
+
+function rankingWindow(period: RankingPeriod) {
+  if (period === 'all') return null;
+
+  const today = saoPauloDateParts();
+  if (period === 'day') {
+    return {
+      start: toSaoPauloMidnight(today),
+      end: toSaoPauloMidnight(addCivilDays(today, 1)),
+    };
+  }
+
+  const civilDate = new Date(Date.UTC(today.year, today.month - 1, today.day));
+  const weekday = civilDate.getUTCDay() || 7;
+  const weekStart = addCivilDays(today, 1 - weekday);
+  return {
+    start: toSaoPauloMidnight(weekStart),
+    end: toSaoPauloMidnight(addCivilDays(weekStart, 7)),
+  };
+}
+
+function buildRankingRows(
+  users: Array<{
+    id: string;
+    nickname: string;
+    avatarUrl: string | null;
+    scores: Array<{ points: number; isFinal: boolean; scoreType: ScoreType; calculatedAt: Date }>;
+    knockoutScores: Array<{
+      points: number;
+      isFinal: boolean;
+      scoreType: ScoreType;
+      calculatedAt: Date;
+    }>;
+  }>,
+  period: RankingPeriod,
+) {
+  const rows = users
     .map((user) => {
       const scores = [...user.scores, ...user.knockoutScores].sort(
         (a, b) => b.calculatedAt.getTime() - a.calculatedAt.getTime(),
@@ -94,12 +148,64 @@ export async function getRanking() {
         hasLiveData: scores.some((score) => !score.isFinal),
       };
     })
-    .sort((a, b) => b.points - a.points || b.exactScores - a.exactScores || a.nickname.localeCompare(b.nickname))
+    .filter((row) => period === 'all' || row.played > 0);
+
+  return rows
+    .sort(
+      (a, b) =>
+        b.points - a.points || b.exactScores - a.exactScores || a.nickname.localeCompare(b.nickname),
+    )
     .map((row, index) => ({ rank: index + 1, ...row }));
 }
 
+export async function getRanking(period: RankingPeriod = 'all') {
+  const window = rankingWindow(period);
+  const users = await prisma.user.findMany({
+    where: { role: 'USER', status: 'ACTIVE' },
+    select: {
+      id: true,
+      nickname: true,
+      avatarUrl: true,
+      scores: {
+        ...(window
+          ? {
+              where: {
+                match: {
+                  startsAt: {
+                    gte: window.start,
+                    lt: window.end,
+                  },
+                },
+              },
+            }
+          : {}),
+        orderBy: { calculatedAt: 'desc' },
+        select: { points: true, isFinal: true, scoreType: true, calculatedAt: true },
+      },
+      knockoutScores: {
+        ...(window
+          ? {
+              where: {
+                fixture: {
+                  startsAt: {
+                    gte: window.start,
+                    lt: window.end,
+                  },
+                },
+              },
+            }
+          : {}),
+        orderBy: { calculatedAt: 'desc' },
+        select: { points: true, isFinal: true, scoreType: true, calculatedAt: true },
+      },
+    },
+  });
+
+  return buildRankingRows(users, period);
+}
+
 export async function refreshRankingSnapshot() {
-  const ranking = await getRanking();
+  const ranking = await getRanking('all');
   await prisma.rankingSnapshot.createMany({
     data: ranking.map((row) => ({
       userId: row.userId,

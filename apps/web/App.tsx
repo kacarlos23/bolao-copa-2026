@@ -23,6 +23,7 @@ import {
   CupOverview,
   CupStandingRow,
   MatchDay,
+  RankingPeriod,
   RankingRow,
   Team,
   User,
@@ -185,11 +186,13 @@ function RankingHighlight({
   row,
   icon,
   tone,
+  movement,
 }: {
   label: string;
   row?: RankingRow;
   icon: keyof typeof Ionicons.glyphMap;
   tone: 'leader' | 'last';
+  movement?: number | null;
 }) {
   if (!row) return null;
 
@@ -212,7 +215,60 @@ function RankingHighlight({
         <Text style={styles.rankingHighlightLabel}>{label}</Text>
         <Text style={styles.rankingHighlightName}>{row.nickname}</Text>
         <Text style={styles.muted}>{row.points} pts</Text>
+        <RankingMovementBadge delta={movement ?? null} />
       </View>
+    </View>
+  );
+}
+
+function movementSummary(delta: number | null) {
+  if (delta == null) return null;
+  if (delta > 0) return `subiu ${delta}`;
+  if (delta < 0) return `caiu ${Math.abs(delta)}`;
+  return 'estavel';
+}
+
+function RankingMovementBadge({
+  delta,
+  compact = false,
+}: {
+  delta: number | null;
+  compact?: boolean;
+}) {
+  if (delta == null) return null;
+
+  const positive = delta > 0;
+  const negative = delta < 0;
+  const neutral = delta === 0;
+  const icon = neutral ? 'remove-outline' : positive ? 'arrow-up-outline' : 'arrow-down-outline';
+  const label = neutral ? '0' : `${positive ? '+' : ''}${delta}`;
+
+  return (
+    <View
+      style={[
+        styles.rankingMovementBadge,
+        compact && styles.rankingMovementBadgeCompact,
+        positive && styles.rankingMovementBadgeUp,
+        negative && styles.rankingMovementBadgeDown,
+        neutral && styles.rankingMovementBadgeNeutral,
+      ]}
+    >
+      <Ionicons
+        name={icon}
+        size={compact ? 11 : 12}
+        color={positive ? '#8ff5be' : negative ? '#ffb0a4' : '#d4e4dc'}
+      />
+      <Text
+        style={[
+          styles.rankingMovementText,
+          compact && styles.rankingMovementTextCompact,
+          positive && styles.rankingMovementTextUp,
+          negative && styles.rankingMovementTextDown,
+          neutral && styles.rankingMovementTextNeutral,
+        ]}
+      >
+        {label}
+      </Text>
     </View>
   );
 }
@@ -1957,6 +2013,12 @@ const rankingStatusOptions: Array<{ key: RankingStatusFilter; label: string }> =
   { key: 'final', label: 'Definitivos' },
 ];
 
+const rankingPeriodOptions: Array<{ key: RankingPeriod; label: string }> = [
+  { key: 'all', label: 'Geral' },
+  { key: 'week', label: 'Semanal' },
+  { key: 'day', label: 'Dia' },
+];
+
 function RankingStatCard({
   label,
   value,
@@ -1978,14 +2040,16 @@ function RankingStatCard({
 function RankingPodiumCard({
   row,
   place,
+  movement,
 }: {
   row: RankingRow;
   place: 1 | 2 | 3;
+  movement?: number | null;
 }) {
   const labels = {
-    1: '1o lugar',
-    2: '2o lugar',
-    3: '3o lugar',
+    1: '1º lugar',
+    2: '2º lugar',
+    3: '3º lugar',
   } as const;
 
   return (
@@ -2010,6 +2074,7 @@ function RankingPodiumCard({
           </Text>
         </View>
       </View>
+      <RankingMovementBadge delta={movement ?? null} />
       <Text style={styles.rankingPodiumPoints}>{row.points} pts</Text>
       <LastFive values={row.lastFive} />
     </View>
@@ -2025,36 +2090,54 @@ function RankingScreenLayout({
 }) {
   const { width } = useWindowDimensions();
   const [ranking, setRanking] = useState<RankingRow[]>([]);
+  const [overallRanking, setOverallRanking] = useState<RankingRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<RankingStatusFilter>('all');
+  const [periodFilter, setPeriodFilter] = useState<RankingPeriod>('all');
   const pulse = useRef(new Animated.Value(1)).current;
 
   const isCompact = width < 1100;
   const stackTools = width < 880;
 
-  const loadRanking = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const result = await api.ranking();
-      setRanking(result.ranking);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Nao foi possivel carregar o ranking.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const loadRanking = useCallback(
+    async (mode: 'blocking' | 'quiet' | 'refresh' = 'blocking') => {
+      if (mode === 'blocking') setLoading(true);
+      if (mode === 'refresh') setRefreshing(true);
+      if (mode !== 'quiet') setError('');
+
+      try {
+        const [result, overallResult] = await Promise.all([
+          mode === 'refresh'
+            ? api.refreshRanking(periodFilter)
+            : api.ranking(periodFilter),
+          periodFilter === 'all' ? Promise.resolve(null) : api.ranking('all'),
+        ]);
+        setRanking(result.ranking);
+        setOverallRanking(overallResult?.ranking ?? result.ranking);
+        if (mode === 'quiet') setError('');
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Nao foi possivel carregar o ranking.');
+      } finally {
+        if (mode === 'blocking') setLoading(false);
+        if (mode === 'refresh') setRefreshing(false);
+      }
+    },
+    [periodFilter],
+  );
 
   useEffect(() => {
     void loadRanking();
-    const source = createRankingEvents((nextRanking) => {
-      setRanking(nextRanking);
-      setLoading(false);
+  }, [loadRanking, refreshVersion]);
+
+  useEffect(() => {
+    const source = createRankingEvents(() => {
+      void loadRanking('quiet');
     });
     return () => source.close();
-  }, [loadRanking, refreshVersion]);
+  }, [loadRanking]);
 
   useEffect(() => {
     const animation = Animated.loop(
@@ -2079,16 +2162,54 @@ function RankingScreenLayout({
   const last = ranking[ranking.length - 1];
   const currentUserRow = ranking.find((row) => row.userId === currentUserId);
   const liveCount = ranking.filter((row) => row.hasLiveData).length;
-  const filteredRanking = useMemo(() => {
-    const query = search.trim().toLowerCase();
+  const scopedRanking = useMemo(() => {
     return ranking.filter((row) => {
       if (statusFilter === 'live' && !row.hasLiveData) return false;
       if (statusFilter === 'final' && row.hasLiveData) return false;
+      return true;
+    });
+  }, [ranking, statusFilter]);
+  const filteredRanking = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return scopedRanking.filter((row) => {
       if (query && !row.nickname.toLowerCase().includes(query)) return false;
       return true;
     });
-  }, [ranking, search, statusFilter]);
-  const podiumSeed = filteredRanking.length >= 3 ? filteredRanking : ranking;
+  }, [scopedRanking, search]);
+  const periodRankMap = useMemo(
+    () => new Map(ranking.map((row, index) => [row.userId, index + 1])),
+    [ranking],
+  );
+  const overallRankMap = useMemo(
+    () => new Map(overallRanking.map((row, index) => [row.userId, index + 1])),
+    [overallRanking],
+  );
+  const scopedRankMap = useMemo(
+    () => new Map(scopedRanking.map((row, index) => [row.userId, index + 1])),
+    [scopedRanking],
+  );
+  const showMovement = periodFilter !== 'all' || statusFilter === 'live';
+  const movementBaseMap =
+    statusFilter !== 'all'
+      ? periodRankMap
+      : periodFilter !== 'all'
+        ? overallRankMap
+        : null;
+  const currentMovementRankMap = statusFilter !== 'all' ? scopedRankMap : periodRankMap;
+  const movementByUserId = useMemo(() => {
+    const next = new Map<string, number | null>();
+    for (const row of ranking) {
+      if (!showMovement || !movementBaseMap) {
+        next.set(row.userId, null);
+        continue;
+      }
+      const currentRank = currentMovementRankMap.get(row.userId);
+      const baseRank = movementBaseMap.get(row.userId);
+      next.set(row.userId, currentRank && baseRank ? baseRank - currentRank : null);
+    }
+    return next;
+  }, [ranking, showMovement, movementBaseMap, currentMovementRankMap]);
+  const podiumSeed = filteredRanking.length >= 3 ? filteredRanking : scopedRanking;
   const podiumRows = podiumSeed.slice(0, 3);
   const podiumLayout =
     podiumRows.length === 3 && !isCompact
@@ -2110,6 +2231,37 @@ function RankingScreenLayout({
     : '--';
   const topFive = ranking.slice(0, 5);
   const leaderPoints = Math.max(leader?.points ?? 0, 1);
+  const scopeTitle =
+    periodFilter === 'week'
+      ? 'Ranking semanal'
+      : periodFilter === 'day'
+        ? 'Ranking do dia'
+        : 'Ranking ao vivo';
+  const scopeDescription =
+    periodFilter === 'week'
+      ? 'Veja quem mais pontuou na semana atual e acompanhe variacoes provisórias da rodada.'
+      : periodFilter === 'day'
+        ? 'Compare quem mais pontuou hoje e acompanhe ajustes em tempo real das partidas do dia.'
+        : 'Acompanhe lideranca, provisoes em tempo real e o desempenho recente de cada participante.';
+  const scopeRefreshText = 'Atualizacao manual';
+  const scopeTopFiveTitle =
+    periodFilter === 'week'
+      ? 'Top 5 semanal'
+      : periodFilter === 'day'
+        ? 'Top 5 do dia'
+        : 'Top 5 geral';
+  const scopeTopFiveText =
+    periodFilter === 'week'
+      ? 'Comparativo rapido da lideranca considerando apenas a semana atual.'
+      : periodFilter === 'day'
+        ? 'Comparativo rapido da lideranca considerando apenas os jogos de hoje.'
+        : 'Comparativo rapido da lideranca considerando a pontuacao atual.';
+  const scopeFooterText =
+    periodFilter === 'week'
+      ? 'Sem partidas ao vivo neste recorte. O ranking abaixo reflete apenas resultados consolidados da semana atual.'
+      : periodFilter === 'day'
+        ? 'Sem partidas ao vivo neste recorte. O ranking abaixo reflete apenas resultados consolidados do dia.'
+        : 'Sem partidas ao vivo neste momento. O ranking abaixo reflete apenas resultados consolidados.';
   const noResultsMessage =
     ranking.length === 0
       ? 'Ranking vazio por enquanto.'
@@ -2119,16 +2271,13 @@ function RankingScreenLayout({
     <View style={styles.rankingPage}>
       <View style={[styles.rankingHead, isCompact && styles.rankingHeadCompact]}>
         <View style={styles.rankingHeadCopy}>
-          <Text style={styles.sectionTitle}>Ranking ao vivo</Text>
-          <Text style={styles.rankingHeadText}>
-            Acompanhe lideranca, provisoes em tempo real e o desempenho recente de cada
-            participante.
-          </Text>
+          <Text style={styles.sectionTitle}>{scopeTitle}</Text>
+          <Text style={styles.rankingHeadText}>{scopeDescription}</Text>
           <View style={styles.rankingBadgeRow}>
             <Animated.View
               style={[styles.rankingLiveBadge, { transform: [{ scale: pulse }] }]}
             >
-              <Text style={styles.rankingLiveBadgeText}>Atualizacao ativa</Text>
+              <Text style={styles.rankingLiveBadgeText}>{scopeRefreshText}</Text>
             </Animated.View>
             <View
               style={[
@@ -2171,6 +2320,31 @@ function RankingScreenLayout({
             })}
           </View>
 
+          <View style={styles.rankingSegmentedControl}>
+            {rankingPeriodOptions.map((option) => {
+              const active = periodFilter === option.key;
+              return (
+                <Pressable
+                  key={option.key}
+                  onPress={() => setPeriodFilter(option.key)}
+                  style={[
+                    styles.rankingSegmentedButton,
+                    active && styles.rankingSegmentedButtonActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.rankingSegmentedText,
+                      active && styles.rankingSegmentedTextActive,
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
           <View style={styles.rankingSearchField}>
             <Ionicons name="search-outline" size={16} color={colors.muted} />
             <TextInput
@@ -2185,11 +2359,11 @@ function RankingScreenLayout({
           </View>
 
           <PrimaryButton
-            label={loading ? 'Atualizando' : 'Atualizar'}
-            onPress={() => void loadRanking()}
+            label={refreshing ? 'Sincronizando' : loading ? 'Carregando' : 'Atualizar'}
+            onPress={() => void loadRanking('refresh')}
             tone="secondary"
             icon="refresh-outline"
-            disabled={loading}
+            disabled={loading || refreshing}
           />
         </View>
       </View>
@@ -2205,14 +2379,14 @@ function RankingScreenLayout({
           value={currentUserRow ? `#${currentUserRow.rank}` : '--'}
           detail={
             currentUserRow
-              ? `${currentUserRow.points} pts acumulados`
-              : 'Sem pontuacao no ranking'
+              ? `${currentUserRow.points} pts no recorte`
+              : 'Sem pontuacao no recorte'
           }
         />
         <RankingStatCard
           label="Pontos do lider"
           value={leader ? `${leader.points}` : '--'}
-          detail={leader ? leader.nickname : 'Aguardando resultados'}
+          detail={leader ? leader.nickname : 'Aguardando pontuacoes'}
         />
         <RankingStatCard
           label="Media geral"
@@ -2220,7 +2394,9 @@ function RankingScreenLayout({
           detail={
             liveCount > 0
               ? `${liveCount} posicoes provisoria(s)`
-              : 'Tudo definitivo no momento'
+              : periodFilter === 'all'
+                ? 'Tudo definitivo no momento'
+                : 'Recorte consolidado no momento'
           }
         />
         <RankingStatCard
@@ -2235,7 +2411,12 @@ function RankingScreenLayout({
           {podiumRows.length > 0 ? (
             <View style={[styles.rankingPodiumGrid, isCompact && styles.rankingPodiumGridCompact]}>
               {podiumLayout.map(({ row, place }) => (
-                <RankingPodiumCard key={row.userId} row={row} place={place} />
+                <RankingPodiumCard
+                  key={row.userId}
+                  row={row}
+                  place={place}
+                  movement={movementByUserId.get(row.userId) ?? null}
+                />
               ))}
             </View>
           ) : null}
@@ -2292,7 +2473,12 @@ function RankingScreenLayout({
                             {row.nickname}
                           </Text>
                           <Text style={styles.rankingPlayerStatus}>
-                            {row.hasLiveData ? 'Provisorio' : 'Definitivo'}
+                            {[
+                              row.hasLiveData ? 'Provisorio' : 'Definitivo',
+                              movementSummary(movementByUserId.get(row.userId) ?? null),
+                            ]
+                              .filter(Boolean)
+                              .join(' Â· ')}
                           </Text>
                         </View>
                       </View>
@@ -2321,7 +2507,7 @@ function RankingScreenLayout({
           <Text style={styles.rankingFooterNote}>
             {liveCount > 0
               ? 'Pontuacoes com jogos em andamento podem oscilar ate a confirmacao final dos resultados.'
-              : 'Sem partidas ao vivo neste momento. O ranking abaixo reflete apenas resultados consolidados.'}
+              : scopeFooterText}
           </Text>
         </View>
 
@@ -2332,23 +2518,28 @@ function RankingScreenLayout({
               Veja quem abre a rodada em vantagem e quem ainda busca reagir.
             </Text>
             <View style={styles.rankingHighlightStack}>
-              <RankingHighlight label="Lider" row={leader} icon="trophy-outline" tone="leader" />
+              <RankingHighlight
+                label="Lider"
+                row={leader}
+                icon="trophy-outline"
+                tone="leader"
+                movement={leader ? (movementByUserId.get(leader.userId) ?? null) : null}
+              />
               {last && last.userId !== leader?.userId ? (
                 <RankingHighlight
                   label="Lanterna"
                   row={last}
                   icon="flashlight-outline"
                   tone="last"
+                  movement={movementByUserId.get(last.userId) ?? null}
                 />
               ) : null}
             </View>
           </View>
 
           <View style={styles.rankingSidePanel}>
-            <Text style={styles.rankingSideTitle}>Top 5 geral</Text>
-            <Text style={styles.rankingSideText}>
-              Comparativo rapido da lideranca considerando a pontuacao atual.
-            </Text>
+            <Text style={styles.rankingSideTitle}>{scopeTopFiveTitle}</Text>
+            <Text style={styles.rankingSideText}>{scopeTopFiveText}</Text>
             <View style={styles.rankingSidebarList}>
               {topFive.map((row) => (
                 <View key={row.userId} style={styles.rankingSidebarRow}>
@@ -4200,6 +4391,49 @@ const styles = StyleSheet.create({
     color: colors.gold,
     fontSize: 24,
     fontWeight: '900',
+  },
+  rankingMovementBadge: {
+    alignSelf: 'flex-start',
+    minHeight: 24,
+    paddingHorizontal: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  rankingMovementBadgeCompact: {
+    minHeight: 20,
+    paddingHorizontal: 7,
+    gap: 3,
+  },
+  rankingMovementBadgeUp: {
+    borderColor: 'rgba(72, 214, 133, 0.4)',
+    backgroundColor: 'rgba(30, 96, 62, 0.35)',
+  },
+  rankingMovementBadgeDown: {
+    borderColor: 'rgba(239, 107, 90, 0.4)',
+    backgroundColor: 'rgba(95, 38, 35, 0.35)',
+  },
+  rankingMovementBadgeNeutral: {
+    borderColor: 'rgba(150, 177, 165, 0.3)',
+    backgroundColor: 'rgba(16, 42, 34, 0.6)',
+  },
+  rankingMovementText: {
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  rankingMovementTextCompact: {
+    fontSize: 10,
+  },
+  rankingMovementTextUp: {
+    color: '#8ff5be',
+  },
+  rankingMovementTextDown: {
+    color: '#ffb0a4',
+  },
+  rankingMovementTextNeutral: {
+    color: '#d4e4dc',
   },
   rankingTablePanel: {
     width: '100%',
