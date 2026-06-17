@@ -773,19 +773,60 @@ function sourceParticipant(
 ) {
   const sourceNumber = Number(source.slice(1));
   const previous = participants.get(sourceNumber);
-  const advancing = draft[sourceNumber]?.advancingTeamId;
+  const advancing = resolvedAdvancingTeam(draft[sourceNumber], previous);
   if (!previous?.homeTeamId || !previous.awayTeamId || !advancing) return null;
   if (source.startsWith('W')) return advancing;
   return advancing === previous.homeTeamId ? previous.awayTeamId : previous.homeTeamId;
 }
 
+function resolvedAdvancingTeam(
+  value: KnockoutDraft[number] | undefined,
+  participants?: { homeTeamId: string | null; awayTeamId: string | null },
+) {
+  if (
+    !value ||
+    !participants?.homeTeamId ||
+    !participants.awayTeamId ||
+    value.home === '' ||
+    value.away === ''
+  ) {
+    return null;
+  }
+  if (value.home !== value.away) {
+    return Number(value.home) > Number(value.away)
+      ? participants.homeTeamId
+      : participants.awayTeamId;
+  }
+  return value.advancingTeamId &&
+    [participants.homeTeamId, participants.awayTeamId].includes(value.advancingTeamId)
+    ? value.advancingTeamId
+    : null;
+}
+
+function sourceMatchNumber(source: string) {
+  const sourceNumber = Number(source.slice(1));
+  return Number.isInteger(sourceNumber) ? sourceNumber : null;
+}
+
+function dependentKnockoutMatches(fixtures: KnockoutFixture[], matchNumber: number) {
+  const affected = new Set([matchNumber]);
+  const dependents: number[] = [];
+  for (const fixture of [...fixtures].sort((a, b) => a.matchNumber - b.matchNumber)) {
+    if (fixture.matchNumber === matchNumber) continue;
+    const homeSource = sourceMatchNumber(fixture.homeSource);
+    const awaySource = sourceMatchNumber(fixture.awaySource);
+    if (
+      (homeSource != null && affected.has(homeSource)) ||
+      (awaySource != null && affected.has(awaySource))
+    ) {
+      affected.add(fixture.matchNumber);
+      dependents.push(fixture.matchNumber);
+    }
+  }
+  return dependents;
+}
+
 function materializeClientParticipants(board: PredictionBoard, draft: KnockoutDraft) {
-  const savedParticipants = new Map(
-    (board.knockout.savedBracket?.picks ?? []).map((pick) => [
-      pick.matchNumber,
-      { homeTeamId: pick.homeTeamId, awayTeamId: pick.awayTeamId },
-    ]),
-  );
   const participants = new Map(
     board.knockout.roundOf32.map((item) => [
       item.matchNumber,
@@ -795,11 +836,6 @@ function materializeClientParticipants(board: PredictionBoard, draft: KnockoutDr
   for (const fixture of [...board.knockout.fixtures].sort(
     (a, b) => a.matchNumber - b.matchNumber,
   )) {
-    const saved = savedParticipants.get(fixture.matchNumber);
-    if (saved) {
-      participants.set(fixture.matchNumber, saved);
-      continue;
-    }
     if (participants.has(fixture.matchNumber)) continue;
     const homeTeamId = sourceParticipant(fixture.homeSource, participants, draft);
     const awayTeamId = sourceParticipant(fixture.awaySource, participants, draft);
@@ -1127,6 +1163,14 @@ function KnockoutBoard({
   const bracketScrollRef = useRef<ScrollView>(null);
   const draftKey = `bolao-knockout-draft-v1:${board.knockout.generation.id}`;
   const [draft, setDraft] = useState<KnockoutDraft>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = JSON.parse(window.localStorage.getItem(draftKey) ?? '{}') as KnockoutDraft;
+        if (Object.keys(stored).length) return stored;
+      } catch {
+        // Ignore corrupted local drafts and fall back to the saved bracket.
+      }
+    }
     const saved = board.knockout.savedBracket?.picks ?? [];
     if (saved.length) {
       return Object.fromEntries(
@@ -1139,13 +1183,6 @@ function KnockoutBoard({
           },
         ]),
       );
-    }
-    if (typeof window !== 'undefined') {
-      try {
-        return JSON.parse(window.localStorage.getItem(draftKey) ?? '{}') as KnockoutDraft;
-      } catch {
-        return {};
-      }
     }
     return {};
   });
@@ -1195,6 +1232,8 @@ function KnockoutBoard({
   function changeScore(matchNumber: number, side: 'home' | 'away', text: string) {
     setDraft((current) => {
       const next = { ...current };
+      const matchParticipants = participants.get(matchNumber);
+      const previousAdvancingTeamId = resolvedAdvancingTeam(next[matchNumber], matchParticipants);
       const value = {
         home: '',
         away: '',
@@ -1202,7 +1241,6 @@ function KnockoutBoard({
         ...next[matchNumber],
         [side]: text,
       };
-      const matchParticipants = participants.get(matchNumber);
       if (
         matchParticipants?.homeTeamId &&
         matchParticipants.awayTeamId &&
@@ -1218,11 +1256,42 @@ function KnockoutBoard({
         value.advancingTeamId = null;
       }
       next[matchNumber] = value;
-      for (const fixture of board.knockout.fixtures.filter(
-        (item) => item.matchNumber > matchNumber,
-      )) {
-        if (next[fixture.matchNumber])
-          next[fixture.matchNumber] = { home: '', away: '', advancingTeamId: null };
+      if (previousAdvancingTeamId !== resolvedAdvancingTeam(value, matchParticipants)) {
+        for (const dependentMatchNumber of dependentKnockoutMatches(
+          board.knockout.fixtures,
+          matchNumber,
+        )) {
+          if (next[dependentMatchNumber]) {
+            next[dependentMatchNumber] = { home: '', away: '', advancingTeamId: null };
+          }
+        }
+      }
+      return next;
+    });
+  }
+
+  function chooseAdvancingTeam(matchNumber: number, teamId: string) {
+    setDraft((current) => {
+      const matchParticipants = participants.get(matchNumber);
+      const previousAdvancingTeamId = resolvedAdvancingTeam(current[matchNumber], matchParticipants);
+      const next = {
+        ...current,
+        [matchNumber]: {
+          home: '',
+          away: '',
+          ...current[matchNumber],
+          advancingTeamId: teamId,
+        },
+      };
+      if (previousAdvancingTeamId !== resolvedAdvancingTeam(next[matchNumber], matchParticipants)) {
+        for (const dependentMatchNumber of dependentKnockoutMatches(
+          board.knockout.fixtures,
+          matchNumber,
+        )) {
+          if (next[dependentMatchNumber]) {
+            next[dependentMatchNumber] = { home: '', away: '', advancingTeamId: null };
+          }
+        }
       }
       return next;
     });
@@ -1233,13 +1302,14 @@ function KnockoutBoard({
       board.knockout.fixtures.flatMap((fixture) => {
         const value = draft[fixture.matchNumber];
         const matchup = participants.get(fixture.matchNumber);
+        const advancingTeamId = resolvedAdvancingTeam(value, matchup);
         if (
           !matchup?.homeTeamId ||
           !matchup.awayTeamId ||
           !value ||
           value.home === '' ||
           value.away === '' ||
-          !value.advancingTeamId
+          !advancingTeamId
         ) {
           return [];
         }
@@ -1251,7 +1321,7 @@ function KnockoutBoard({
             awayTeamId: matchup.awayTeamId,
             predictedHomeScore: Number(value.home),
             predictedAwayScore: Number(value.away),
-            advancingTeamId: value.advancingTeamId,
+            advancingTeamId,
           },
         ];
       }),
@@ -1505,17 +1575,7 @@ function KnockoutBoard({
                     }
                     open={canEdit}
                     onChangeScore={(side, value) => changeScore(fixture.matchNumber, side, value)}
-                    onChoose={(teamId) =>
-                      setDraft((current) => ({
-                        ...current,
-                        [fixture.matchNumber]: {
-                          home: '',
-                          away: '',
-                          ...current[fixture.matchNumber],
-                          advancingTeamId: teamId,
-                        },
-                      }))
-                    }
+                    onChoose={(teamId) => chooseAdvancingTeam(fixture.matchNumber, teamId)}
                   />
                 </View>
               );
@@ -1598,6 +1658,7 @@ export function PredictionBoardScreen({
   standaloneKnockout?: boolean;
 }) {
   const { width } = useWindowDimensions();
+  const previewRequestRef = useRef(0);
   const [view, setView] = useState<'groups' | 'knockout'>(initialView);
   const [board, setBoard] = useState<PredictionBoard | null>(null);
   const [draft, setDraft] = useState<ScoreDraft>({});
@@ -1678,18 +1739,24 @@ export function PredictionBoardScreen({
 
   useEffect(() => {
     if (!standaloneKnockout || !board || loading) return undefined;
+    const requestId = previewRequestRef.current + 1;
+    previewRequestRef.current = requestId;
     const timer = setTimeout(() => {
       setPreviewing(true);
       api
         .previewPredictionBoard(groupScorePayload)
         .then((next) => {
+          if (previewRequestRef.current !== requestId) return;
           applyBoard(next);
           setError('');
         })
         .catch((caught) => {
+          if (previewRequestRef.current !== requestId) return;
           setError(caught instanceof Error ? caught.message : 'Erro ao atualizar a simulacao.');
         })
-        .finally(() => setPreviewing(false));
+        .finally(() => {
+          if (previewRequestRef.current === requestId) setPreviewing(false);
+        });
     }, 450);
 
     return () => clearTimeout(timer);
@@ -1726,12 +1793,7 @@ export function PredictionBoardScreen({
   if (!board)
     return <Text style={styles.error}>{error || 'Quadro de palpites indisponível.'}</Text>;
 
-  const knockoutKey = `${board.knockout.generation.id}:${board.knockout.roundOf32
-    .map(
-      (matchup) =>
-        `${matchup.matchNumber}-${matchup.homeTeamId ?? ''}-${matchup.awayTeamId ?? ''}`,
-    )
-    .join('|')}`;
+  const knockoutKey = board.knockout.generation.id;
 
   return (
     <View style={[styles.screen, standaloneKnockout && styles.knockoutStandaloneShell]}>
