@@ -344,6 +344,17 @@ export const api = {
     }),
   cupOverview: () => request<CupOverview>('/api/cup/overview'),
   predictionBoard: () => request<PredictionBoard>('/api/prediction-board'),
+  previewPredictionBoard: (
+    groupScores: Array<{
+      matchId: string;
+      predictedHomeScore: number;
+      predictedAwayScore: number;
+    }>,
+  ) =>
+    request<PredictionBoard>('/api/prediction-board/preview', {
+      method: 'POST',
+      body: JSON.stringify({ groupScores }),
+    }),
   saveKnockoutBracket: (
     picks: Array<{
       matchNumber: number;
@@ -351,10 +362,15 @@ export const api = {
       predictedAwayScore: number;
       advancingTeamId: string;
     }>,
+    groupScores?: Array<{
+      matchId: string;
+      predictedHomeScore: number;
+      predictedAwayScore: number;
+    }>,
   ) =>
     request<PredictionBoard>('/api/knockout-bracket', {
       method: 'PUT',
-      body: JSON.stringify({ picks }),
+      body: JSON.stringify({ picks, groupScores }),
     }),
   publicKnockoutBrackets: () =>
     request<PublicKnockoutBracketsResponse>('/api/knockout-bracket/public'),

@@ -49,6 +49,15 @@ const palette = {
 
 type ScoreDraft = Record<string, { home: string; away: string }>;
 type KnockoutDraft = Record<number, { home: string; away: string; advancingTeamId: string | null }>;
+type FilledKnockoutPick = {
+  fixture: KnockoutFixture;
+  matchNumber: number;
+  homeTeamId: string;
+  awayTeamId: string;
+  predictedHomeScore: number;
+  predictedAwayScore: number;
+  advancingTeamId: string;
+};
 
 function dateTime(value: string) {
   return new Intl.DateTimeFormat('pt-BR', {
@@ -457,6 +466,140 @@ function GroupModule({
   );
 }
 
+function SimulationMatchRow({
+  match,
+  draft,
+  onChange,
+}: {
+  match: PredictionBoardMatch;
+  draft: ScoreDraft;
+  onChange: (matchId: string, side: 'home' | 'away', value: string) => void;
+}) {
+  const value = draft[match.id] ?? { home: '', away: '' };
+  const lockedByReality = match.status === 'LIVE' || match.status === 'FINISHED';
+  const official = scoreForMatch(match, draft);
+  const displayHome = lockedByReality ? String(official?.home ?? '-') : value.home;
+  const displayAway = lockedByReality ? String(official?.away ?? '-') : value.away;
+
+  return (
+    <View style={[styles.simMatchRow, lockedByReality && styles.simMatchLocked]}>
+      <View style={styles.simMatchTeams}>
+        <TeamLabel team={match.homeTeam} compact tone="light" />
+        <TeamLabel team={match.awayTeam} compact tone="light" />
+      </View>
+      <View style={styles.compactScoreInputs}>
+        <TextInput
+          editable={!lockedByReality}
+          keyboardType="number-pad"
+          maxLength={2}
+          value={displayHome}
+          onChangeText={(text) => onChange(match.id, 'home', text.replace(/\D/g, ''))}
+          style={[
+            styles.compactScoreInput,
+            styles.simScoreInput,
+            lockedByReality && styles.simScoreLocked,
+          ]}
+        />
+        <Text style={styles.scoreSeparator}>x</Text>
+        <TextInput
+          editable={!lockedByReality}
+          keyboardType="number-pad"
+          maxLength={2}
+          value={displayAway}
+          onChangeText={(text) => onChange(match.id, 'away', text.replace(/\D/g, ''))}
+          style={[
+            styles.compactScoreInput,
+            styles.simScoreInput,
+            lockedByReality && styles.simScoreLocked,
+          ]}
+        />
+      </View>
+      <Text style={styles.simMatchState}>
+        {lockedByReality ? (match.status === 'LIVE' ? 'Ao vivo' : 'Real') : shortTime(match.startsAt)}
+      </Text>
+    </View>
+  );
+}
+
+function GroupSimulationPanel({
+  groups,
+  draft,
+  onChange,
+}: {
+  groups: PredictionBoardGroup[];
+  draft: ScoreDraft;
+  onChange: (matchId: string, side: 'home' | 'away', value: string) => void;
+}) {
+  return (
+    <View style={styles.simulatorPanel}>
+      <View style={styles.simulatorHeader}>
+        <View>
+          <Text style={styles.simulatorTitle}>Simulador da fase de grupos</Text>
+          <Text style={styles.simulatorSubtitle}>
+            Ajuste apenas os jogos em aberto. Resultados ao vivo ou finalizados entram como reais.
+          </Text>
+        </View>
+        <View style={styles.simulatorBadge}>
+          <Ionicons name="git-branch-outline" size={16} color="#5ee8a0" />
+          <Text style={styles.simulatorBadgeText}>nao altera palpites regulares</Text>
+        </View>
+      </View>
+      <View style={styles.simulatorGrid}>
+        {groups.map((group) => {
+          const standings = projectedRows(group, draft);
+          return (
+            <View key={group.group} style={styles.simGroupCard}>
+              <View style={styles.simGroupHeader}>
+                <Text style={styles.simGroupTitle}>Grupo {group.group}</Text>
+                <Text style={styles.simGroupMeta}>
+                  {group.matches.filter((match) => match.status !== 'SCHEDULED').length}/6 reais
+                </Text>
+              </View>
+              <View style={styles.simMatchList}>
+                {group.matches.map((match) => (
+                  <SimulationMatchRow
+                    key={match.id}
+                    match={match}
+                    draft={draft}
+                    onChange={onChange}
+                  />
+                ))}
+              </View>
+              <View style={styles.simStandings}>
+                {standings.slice(0, 3).map((row) => (
+                  <View key={row.team.id} style={styles.simStandingRow}>
+                    <Text style={styles.simStandingRank}>{row.rank}</Text>
+                    <TeamLabel team={row.team} compact tone="light" />
+                    <Text style={styles.simStandingPoints}>{row.points}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function KnockoutGuide() {
+  return (
+    <View style={styles.knockoutGuide}>
+      {[
+        ['1', 'A base vem dos seus palpites da fase de grupos e dos resultados reais que ja entrarem.'],
+        ['2', 'Use o simulador para testar os jogos ainda em aberto sem trocar seus palpites oficiais.'],
+        ['3', 'Preencha a chave ate final e terceiro lugar; em empate, toque na selecao que avanca.'],
+        ['4', 'Salve a chave parcial ou completa. Confronto exato vale 15 pts; uma selecao correta vale 7 pts.'],
+      ].map(([step, text]) => (
+        <View key={step} style={styles.guideStep}>
+          <Text style={styles.guideStepNumber}>{step}</Text>
+          <Text style={styles.guideStepText}>{text}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 const stageLabels: Record<KnockoutFixture['stage'], string> = {
   ROUND_OF_32: '32 avos',
   ROUND_OF_16: 'Oitavas',
@@ -637,6 +780,12 @@ function sourceParticipant(
 }
 
 function materializeClientParticipants(board: PredictionBoard, draft: KnockoutDraft) {
+  const savedParticipants = new Map(
+    (board.knockout.savedBracket?.picks ?? []).map((pick) => [
+      pick.matchNumber,
+      { homeTeamId: pick.homeTeamId, awayTeamId: pick.awayTeamId },
+    ]),
+  );
   const participants = new Map(
     board.knockout.roundOf32.map((item) => [
       item.matchNumber,
@@ -646,6 +795,11 @@ function materializeClientParticipants(board: PredictionBoard, draft: KnockoutDr
   for (const fixture of [...board.knockout.fixtures].sort(
     (a, b) => a.matchNumber - b.matchNumber,
   )) {
+    const saved = savedParticipants.get(fixture.matchNumber);
+    if (saved) {
+      participants.set(fixture.matchNumber, saved);
+      continue;
+    }
     if (participants.has(fixture.matchNumber)) continue;
     const homeTeamId = sourceParticipant(fixture.homeSource, participants, draft);
     const awayTeamId = sourceParticipant(fixture.awaySource, participants, draft);
@@ -694,7 +848,7 @@ function KnockoutMatchCard({
             onPress={() => teamId && onChoose(teamId)}
             style={[styles.knockoutTeamRow, selected && styles.knockoutTeamSelected]}
           >
-            <TeamLabel team={team} dense />
+            <TeamLabel team={team} dense tone="light" />
             <View style={styles.knockoutScoreArea}>
               <TextInput
                 editable={open && matchupReady}
@@ -706,7 +860,7 @@ function KnockoutMatchCard({
               />
               <View style={styles.knockoutAdvanceMarker}>
                 {tied && selected ? (
-                  <Ionicons name="checkmark-circle" size={10} color={palette.greenDark} />
+                  <Ionicons name="checkmark-circle" size={10} color="#6cffb1" />
                 ) : null}
               </View>
             </View>
@@ -787,11 +941,186 @@ function PublicBracketsModal({
   );
 }
 
+function drawCanvasRoundRect(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+  fill: string,
+  stroke?: string,
+) {
+  context.beginPath();
+  context.moveTo(x + radius, y);
+  context.lineTo(x + width - radius, y);
+  context.quadraticCurveTo(x + width, y, x + width, y + radius);
+  context.lineTo(x + width, y + height - radius);
+  context.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+  context.lineTo(x + radius, y + height);
+  context.quadraticCurveTo(x, y + height, x, y + height - radius);
+  context.lineTo(x, y + radius);
+  context.quadraticCurveTo(x, y, x + radius, y);
+  context.closePath();
+  context.fillStyle = fill;
+  context.fill();
+  if (stroke) {
+    context.strokeStyle = stroke;
+    context.lineWidth = 2;
+    context.stroke();
+  }
+}
+
+function drawFitCanvasText(
+  context: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  maxWidth: number,
+  size: number,
+  weight: string,
+  color: string,
+) {
+  let fontSize = size;
+  do {
+    context.font = `${weight} ${fontSize}px Arial, sans-serif`;
+    if (context.measureText(text).width <= maxWidth || fontSize <= 14) break;
+    fontSize -= 1;
+  } while (fontSize > 14);
+  context.fillStyle = color;
+  context.fillText(text, x, y);
+}
+
+function teamName(teams: Map<string, Team>, teamId: string) {
+  return teams.get(teamId)?.name ?? 'A definir';
+}
+
+function canvasToPngBlob(canvas: HTMLCanvasElement) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('Nao foi possivel gerar a imagem do chaveamento.'));
+    }, 'image/png');
+  });
+}
+
+async function createBracketShareImage(picks: FilledKnockoutPick[], teams: Map<string, Team>) {
+  if (typeof document === 'undefined') {
+    throw new Error('Compartilhamento de imagem disponivel apenas no navegador.');
+  }
+
+  const grouped = bracketStageOrder
+    .map((stage) => ({
+      stage,
+      picks: picks
+        .filter((pick) => pick.fixture.stage === stage)
+        .sort((left, right) => left.matchNumber - right.matchNumber),
+    }))
+    .filter((group) => group.picks.length);
+  const width = 1080;
+  const height = Math.max(
+    640,
+    190 + grouped.length * 46 + picks.length * 70 + 86,
+  );
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Nao foi possivel preparar a imagem do chaveamento.');
+
+  context.textBaseline = 'top';
+  context.fillStyle = palette.shell;
+  context.fillRect(0, 0, width, height);
+  drawCanvasRoundRect(context, 48, 40, 984, 110, 22, palette.shellSoft, palette.bracketBorder);
+  context.fillStyle = palette.yellow;
+  context.font = '900 22px Arial, sans-serif';
+  context.fillText('BOLAO COPA 2026', 78, 65);
+  context.fillStyle = palette.white;
+  context.font = '900 42px Arial, sans-serif';
+  context.fillText('Meu chaveamento palpitado', 78, 94);
+  context.fillStyle = '#b7c6bf';
+  context.font = '800 19px Arial, sans-serif';
+  context.fillText(
+    `${picks.length}/32 jogos preenchidos - gerado em ${dateTime(new Date().toISOString())}`,
+    78,
+    134,
+  );
+
+  let y = 182;
+  grouped.forEach((group) => {
+    context.fillStyle = palette.yellow;
+    context.font = '900 22px Arial, sans-serif';
+    context.fillText(stageLabels[group.stage], 60, y);
+    context.fillStyle = '#b7c6bf';
+    context.font = '800 16px Arial, sans-serif';
+    context.fillText(`${group.picks.length} jogo(s)`, 244, y + 4);
+    y += 34;
+
+    group.picks.forEach((pick) => {
+      const homeName = teamName(teams, pick.homeTeamId);
+      const awayName = teamName(teams, pick.awayTeamId);
+      const winnerName = teamName(teams, pick.advancingTeamId);
+      drawCanvasRoundRect(context, 56, y, 968, 58, 14, palette.bracketCard, palette.bracketBorder);
+      drawCanvasRoundRect(context, 76, y + 13, 76, 32, 10, '#0c1d18', '#224739');
+      context.fillStyle = palette.yellow;
+      context.font = '900 16px Arial, sans-serif';
+      context.fillText(`Jogo ${pick.matchNumber}`, 88, y + 21);
+      drawFitCanvasText(
+        context,
+        `${homeName} ${pick.predictedHomeScore} x ${pick.predictedAwayScore} ${awayName}`,
+        176,
+        y + 15,
+        600,
+        24,
+        '900',
+        palette.white,
+      );
+      drawFitCanvasText(
+        context,
+        `Avanca: ${winnerName}`,
+        176,
+        y + 39,
+        600,
+        16,
+        '800',
+        '#b7c6bf',
+      );
+      drawCanvasRoundRect(context, 814, y + 14, 182, 30, 15, palette.green, undefined);
+      drawFitCanvasText(context, stageLabels[pick.fixture.stage], 838, y + 21, 134, 14, '900', palette.white);
+      y += 70;
+    });
+    y += 12;
+  });
+
+  context.fillStyle = '#b7c6bf';
+  context.font = '800 17px Arial, sans-serif';
+  context.fillText('Compartilhe a imagem e acompanhe as eliminatorias no ranking.', 60, height - 58);
+  return canvasToPngBlob(canvas);
+}
+
+function downloadBlob(blob: Blob, fileName: string) {
+  if (typeof document === 'undefined' || typeof URL === 'undefined') return;
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function KnockoutBoard({
   board,
+  groupScores,
   onSaved,
 }: {
   board: PredictionBoard;
+  groupScores: Array<{
+    matchId: string;
+    predictedHomeScore: number;
+    predictedAwayScore: number;
+  }>;
   onSaved: (next: PredictionBoard) => void;
 }) {
   const { width } = useWindowDimensions();
@@ -823,6 +1152,9 @@ function KnockoutBoard({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [shareReady, setShareReady] = useState(Boolean(board.knockout.savedBracket?.picks.length));
+  const [shareBusy, setShareBusy] = useState(false);
+  const [savedPickCount, setSavedPickCount] = useState(board.knockout.savedBracket?.picks.length ?? 0);
   const [publicVisible, setPublicVisible] = useState(false);
   const [publicLoading, setPublicLoading] = useState(false);
   const [publicBrackets, setPublicBrackets] = useState<PublicKnockoutBracket[]>([]);
@@ -851,6 +1183,14 @@ function KnockoutBoard({
   useEffect(() => {
     if (typeof window !== 'undefined') window.localStorage.setItem(draftKey, JSON.stringify(draft));
   }, [draft, draftKey]);
+
+  useEffect(() => {
+    const savedCount = board.knockout.savedBracket?.picks.length ?? 0;
+    if (savedCount) {
+      setShareReady(true);
+      setSavedPickCount(savedCount);
+    }
+  }, [board.knockout.savedBracket?.picks.length]);
 
   function changeScore(matchNumber: number, side: 'home' | 'away', text: string) {
     setDraft((current) => {
@@ -888,38 +1228,117 @@ function KnockoutBoard({
     });
   }
 
-  const complete = board.knockout.fixtures.every((fixture) => {
-    const value = draft[fixture.matchNumber];
-    const matchup = participants.get(fixture.matchNumber);
-    return Boolean(
-      matchup?.homeTeamId &&
-      matchup.awayTeamId &&
-      value &&
-      value.home !== '' &&
-      value.away !== '' &&
-      value.advancingTeamId,
-    );
-  });
+  const filledPicks = useMemo(
+    () =>
+      board.knockout.fixtures.flatMap((fixture) => {
+        const value = draft[fixture.matchNumber];
+        const matchup = participants.get(fixture.matchNumber);
+        if (
+          !matchup?.homeTeamId ||
+          !matchup.awayTeamId ||
+          !value ||
+          value.home === '' ||
+          value.away === '' ||
+          !value.advancingTeamId
+        ) {
+          return [];
+        }
+        return [
+          {
+            fixture,
+            matchNumber: fixture.matchNumber,
+            homeTeamId: matchup.homeTeamId,
+            awayTeamId: matchup.awayTeamId,
+            predictedHomeScore: Number(value.home),
+            predictedAwayScore: Number(value.away),
+            advancingTeamId: value.advancingTeamId,
+          },
+        ];
+      }),
+    [board.knockout.fixtures, draft, participants],
+  );
+  const complete = filledPicks.length === board.knockout.fixtures.length;
+  const missingCount = board.knockout.fixtures.length - filledPicks.length;
 
   async function save() {
+    if (!filledPicks.length) {
+      setError('Preencha pelo menos um confronto para salvar a chave.');
+      return;
+    }
+    if (missingCount > 0 && typeof window !== 'undefined') {
+      window.alert(
+        `Ainda faltam ${missingCount} jogo(s) no chaveamento. Vamos salvar os ${filledPicks.length} jogo(s) preenchidos agora e voce pode completar depois.`,
+      );
+    }
+
     setSaving(true);
     setError('');
     try {
       const next = await api.saveKnockoutBracket(
-        board.knockout.fixtures.map((fixture) => ({
-          matchNumber: fixture.matchNumber,
-          predictedHomeScore: Number(draft[fixture.matchNumber].home),
-          predictedAwayScore: Number(draft[fixture.matchNumber].away),
-          advancingTeamId: draft[fixture.matchNumber].advancingTeamId!,
+        filledPicks.map((pick) => ({
+          matchNumber: pick.matchNumber,
+          predictedHomeScore: pick.predictedHomeScore,
+          predictedAwayScore: pick.predictedAwayScore,
+          advancingTeamId: pick.advancingTeamId,
         })),
+        groupScores,
       );
       if (typeof window !== 'undefined') window.localStorage.removeItem(draftKey);
       onSaved(next);
+      setSavedPickCount(filledPicks.length);
+      setShareReady(true);
       setSuccess(true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Não foi possível salvar a chave.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function shareBracketImage() {
+    if (!filledPicks.length) {
+      setError('Preencha pelo menos um confronto para gerar a imagem do chaveamento.');
+      return;
+    }
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+      setError('Compartilhamento de imagem disponivel apenas no navegador.');
+      return;
+    }
+
+    setShareBusy(true);
+    setError('');
+    try {
+      const blob = await createBracketShareImage(filledPicks, teams);
+      const fileName = `chaveamento-bolao-${new Date().toISOString().slice(0, 10)}.png`;
+      const shareText = `Meu chaveamento palpitado no Bolao Copa 2026: ${filledPicks.length}/32 jogos preenchidos.`;
+      const shareNavigator = navigator as Navigator & {
+        canShare?: (data: { files?: File[]; text?: string; title?: string }) => boolean;
+        share?: (data: { files?: File[]; text?: string; title?: string }) => Promise<void>;
+      };
+
+      if (typeof File !== 'undefined') {
+        const file = new File([blob], fileName, { type: 'image/png' });
+        if (shareNavigator.share && shareNavigator.canShare?.({ files: [file] })) {
+          await shareNavigator.share({
+            files: [file],
+            title: 'Meu chaveamento - Bolao Copa 2026',
+            text: shareText,
+          });
+          return;
+        }
+      }
+
+      downloadBlob(blob, fileName);
+      window.open(
+        `https://wa.me/?text=${encodeURIComponent(`${shareText} Imagem baixada; anexe o PNG no WhatsApp.`)}`,
+        '_blank',
+        'noopener,noreferrer',
+      );
+    } catch (caught) {
+      if (caught instanceof Error && caught.name === 'AbortError') return;
+      setError(caught instanceof Error ? caught.message : 'Nao foi possivel compartilhar a imagem.');
+    } finally {
+      setShareBusy(false);
     }
   }
 
@@ -976,7 +1395,7 @@ function KnockoutBoard({
           </View>
         </View>
         <View style={styles.knockoutDeadlineCard}>
-          <Ionicons name="time-outline" size={22} color={palette.greenDark} />
+          <Ionicons name="time-outline" size={22} color="#5ee8a0" />
           <View style={styles.knockoutDeadlineCopy}>
             <Text style={styles.knockoutDeadlineTitle}>
               {canEdit ? 'Chave aberta para edição' : 'Chave fechada'}
@@ -1016,7 +1435,7 @@ function KnockoutBoard({
           ))}
         </ScrollView>
         <View style={styles.bracketHint}>
-          <Ionicons name="checkmark-circle-outline" size={16} color={palette.greenDark} />
+          <Ionicons name="checkmark-circle-outline" size={16} color="#5ee8a0" />
           <Text style={styles.bracketHintText}>
             {board.knockout.resolvedGroups.length
               ? `Grupos projetados: ${board.knockout.resolvedGroups.join(', ')}. Em empate, toque na seleção que avança.`
@@ -1118,23 +1537,43 @@ function KnockoutBoard({
           <Text style={styles.knockoutFooterText}>
             {complete
               ? 'Todos os 32 confrontos estão preenchidos.'
-              : 'Preencha e propague toda a chave para liberar o envio.'}
+              : filledPicks.length
+                ? `${filledPicks.length}/32 jogos preenchidos. Ao salvar agora, ${missingCount} jogo(s) fica(m) pendente(s).`
+                : 'Preencha pelo menos um confronto para salvar a chave.'}
           </Text>
-          <Pressable
-            disabled={!complete || saving}
-            onPress={save}
-            style={[styles.submitBracket, (!complete || saving) && styles.disabled]}
-          >
-            <Ionicons name="cloud-upload-outline" size={18} color={palette.shell} />
-            <Text style={styles.submitBracketText}>
-              {saving ? 'Salvando...' : 'Salvar chave completa'}
-            </Text>
-          </Pressable>
+          <View style={styles.knockoutFooterActions}>
+            <Pressable
+              disabled={!filledPicks.length || saving}
+              onPress={save}
+              style={[styles.submitBracket, (!filledPicks.length || saving) && styles.disabled]}
+            >
+              <Ionicons name="cloud-upload-outline" size={18} color={palette.shell} />
+              <Text style={styles.submitBracketText}>
+                {saving ? 'Salvando...' : complete ? 'Salvar chave completa' : 'Salvar chave parcial'}
+              </Text>
+            </Pressable>
+            {shareReady && filledPicks.length ? (
+              <Pressable
+                disabled={shareBusy}
+                onPress={shareBracketImage}
+                style={[styles.shareBracketButton, shareBusy && styles.disabled]}
+              >
+                <Ionicons name="logo-whatsapp" size={18} color={palette.shell} />
+                <Text style={styles.shareBracketButtonText}>
+                  {shareBusy ? 'Gerando...' : 'Compartilhar no WhatsApp'}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
       ) : null}
       <SuccessModal
         visible={success}
-        message="Sua chave completa foi salva em uma única operação."
+        message={
+          savedPickCount === board.knockout.fixtures.length
+            ? 'Sua chave completa foi salva em uma unica operacao.'
+            : `Sua chave parcial foi salva com ${savedPickCount} jogo(s).`
+        }
         onClose={() => setSuccess(false)}
       />
       <PublicBracketsModal
@@ -1150,15 +1589,20 @@ function KnockoutBoard({
 export function PredictionBoardScreen({
   currentUserId,
   refreshVersion,
+  initialView = 'groups',
+  standaloneKnockout = false,
 }: {
   currentUserId: string;
   refreshVersion: number;
+  initialView?: 'groups' | 'knockout';
+  standaloneKnockout?: boolean;
 }) {
   const { width } = useWindowDimensions();
-  const [view, setView] = useState<'groups' | 'knockout'>('groups');
+  const [view, setView] = useState<'groups' | 'knockout'>(initialView);
   const [board, setBoard] = useState<PredictionBoard | null>(null);
   const [draft, setDraft] = useState<ScoreDraft>({});
   const [loading, setLoading] = useState(true);
+  const [previewing, setPreviewing] = useState(false);
   const [error, setError] = useState('');
   const [savingMatchId, setSavingMatchId] = useState<string | null>(null);
   const [publicMatch, setPublicMatch] = useState<PredictionBoardMatch | null>(null);
@@ -1204,6 +1648,58 @@ export function PredictionBoardScreen({
     };
   }, [load, refreshVersion]);
 
+  const groupScorePayload = useMemo(() => {
+    if (!board) return [];
+    return board.groups
+      .flatMap((group) => group.matches)
+      .flatMap((match) => {
+        const value = draft[match.id];
+        if (!value || value.home === '' || value.away === '') return [];
+        return [
+          {
+            matchId: match.id,
+            predictedHomeScore: Number(value.home),
+            predictedAwayScore: Number(value.away),
+          },
+        ];
+      });
+  }, [board, draft]);
+
+  const groupScoreSignature = useMemo(
+    () =>
+      groupScorePayload
+        .map(
+          (score) =>
+            `${score.matchId}:${score.predictedHomeScore}:${score.predictedAwayScore}`,
+        )
+        .join('|'),
+    [groupScorePayload],
+  );
+
+  useEffect(() => {
+    if (!standaloneKnockout || !board || loading) return undefined;
+    const timer = setTimeout(() => {
+      setPreviewing(true);
+      api
+        .previewPredictionBoard(groupScorePayload)
+        .then((next) => {
+          applyBoard(next);
+          setError('');
+        })
+        .catch((caught) => {
+          setError(caught instanceof Error ? caught.message : 'Erro ao atualizar a simulacao.');
+        })
+        .finally(() => setPreviewing(false));
+    }, 450);
+
+    return () => clearTimeout(timer);
+  }, [
+    applyBoard,
+    groupScoreSignature,
+    loading,
+    standaloneKnockout,
+  ]);
+
   async function saveMatch(match: PredictionBoardMatch) {
     const value = draft[match.id];
     if (!value || value.home === '' || value.away === '') return;
@@ -1230,26 +1726,38 @@ export function PredictionBoardScreen({
   if (!board)
     return <Text style={styles.error}>{error || 'Quadro de palpites indisponível.'}</Text>;
 
+  const knockoutKey = `${board.knockout.generation.id}:${board.knockout.roundOf32
+    .map(
+      (matchup) =>
+        `${matchup.matchNumber}-${matchup.homeTeamId ?? ''}-${matchup.awayTeamId ?? ''}`,
+    )
+    .join('|')}`;
+
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, standaloneKnockout && styles.knockoutStandaloneShell]}>
       <View style={styles.boardHeader}>
         <View style={[styles.boardHeaderCopy, width < 760 && styles.boardHeaderCopyMobile]}>
           <Text style={styles.screenTitle}>
-            {view === 'knockout'
+            {standaloneKnockout
+              ? 'Eliminatorias'
+              : view === 'knockout'
               ? 'Eliminatórias'
               : competitionUiV2
                 ? 'Palpites'
                 : 'Palpites da Copa'}
           </Text>
           <Text style={styles.screenSubtitle}>
-            {view === 'knockout'
+            {standaloneKnockout
+              ? 'Simule os jogos em aberto, confira o chaveamento projetado e salve sua previsao das eliminatorias.'
+              : view === 'knockout'
               ? 'Monte todos os confrontos e salve a chave completa em uma única operação.'
               : competitionUiV2
                 ? 'Agenda compacta para preencher os placares de cada dia.'
                 : 'Placares e classificação projetada da fase de grupos.'}
           </Text>
         </View>
-        <View style={[styles.phaseTabs, width < 760 && styles.phaseTabsMobile]}>
+        {!standaloneKnockout ? (
+          <View style={[styles.phaseTabs, width < 760 && styles.phaseTabsMobile]}>
           <Pressable
             onPress={() => setView('groups')}
             style={[styles.phaseTab, view === 'groups' && styles.phaseTabActive]}
@@ -1276,7 +1784,8 @@ export function PredictionBoardScreen({
               Eliminatórias
             </Text>
           </Pressable>
-        </View>
+          </View>
+        ) : null}
       </View>
 
       {view === 'groups' && !competitionUiV2 ? (
@@ -1301,8 +1810,39 @@ export function PredictionBoardScreen({
         </View>
       ) : null}
 
-      <SoftReveal key={view}>
-        {view === 'groups' ? (
+      {standaloneKnockout ? (
+        <>
+          <KnockoutGuide />
+          <GroupSimulationPanel
+            groups={board.groups}
+            draft={draft}
+            onChange={(matchId, side, value) =>
+              setDraft((current) => ({
+                ...current,
+                [matchId]: { home: '', away: '', ...current[matchId], [side]: value },
+              }))
+            }
+          />
+          <View style={styles.previewStatusBar}>
+            <Ionicons name="sync-outline" size={15} color="#5ee8a0" />
+            <Text style={styles.previewStatusText}>
+              {previewing
+                ? 'Atualizando chave simulada...'
+                : 'Chave sincronizada com a simulacao atual.'}
+            </Text>
+          </View>
+        </>
+      ) : null}
+
+      <SoftReveal key={standaloneKnockout ? 'knockout-page' : view}>
+        {standaloneKnockout ? (
+          <KnockoutBoard
+            key={knockoutKey}
+            board={board}
+            groupScores={groupScorePayload}
+            onSaved={applyBoard}
+          />
+        ) : view === 'groups' ? (
           competitionUiV2 ? (
             <DailyPredictionsV2 currentUserId={currentUserId} refreshVersion={refreshVersion} />
           ) : (
@@ -1327,7 +1867,12 @@ export function PredictionBoardScreen({
             </View>
           )
         ) : (
-          <KnockoutBoard key={board.knockout.generation.id} board={board} onSaved={applyBoard} />
+          <KnockoutBoard
+            key={knockoutKey}
+            board={board}
+            groupScores={groupScorePayload}
+            onSaved={applyBoard}
+          />
         )}
       </SoftReveal>
 
@@ -1348,6 +1893,17 @@ export function PredictionBoardScreen({
 
 const styles = StyleSheet.create({
   screen: { gap: 16 },
+  knockoutStandaloneShell: {
+    width: '100%',
+    maxWidth: 1280,
+    alignSelf: 'center',
+    borderColor: '#1c4a3c',
+    borderWidth: 1,
+    borderRadius: 15,
+    backgroundColor: 'rgba(12,42,34,0.92)' as never,
+    boxShadow: '0 18px 55px rgba(0,0,0,0.34)' as never,
+    padding: 18,
+  },
   boardHeader: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1402,6 +1958,154 @@ const styles = StyleSheet.create({
   },
   ruleCompactPoints: { color: palette.yellow, fontSize: 14, fontWeight: '900' },
   ruleCompactLabel: { color: '#c8d6d0', fontSize: 12, fontWeight: '700' },
+  knockoutGuide: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    padding: 12,
+    borderRadius: 15,
+    backgroundImage: 'linear-gradient(180deg, #102f26, #0a241e)' as never,
+    borderWidth: 1,
+    borderColor: '#1c493c',
+  },
+  guideStep: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 240,
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: '#071f19',
+    borderWidth: 1,
+    borderColor: '#1b4338',
+  },
+  guideStepNumber: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    textAlign: 'center',
+    lineHeight: 28,
+    color: palette.shell,
+    backgroundColor: palette.yellow,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  guideStepText: { flex: 1, color: '#bed7ce', fontSize: 12, lineHeight: 17, fontWeight: '700' },
+  simulatorPanel: {
+    borderRadius: 15,
+    overflow: 'hidden',
+    backgroundColor: '#071c17',
+    borderWidth: 1,
+    borderColor: '#1a463b',
+  },
+  simulatorHeader: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1c4a3e',
+    backgroundColor: '#071913',
+  },
+  simulatorTitle: { color: palette.white, fontSize: 18, fontWeight: '900' },
+  simulatorSubtitle: { color: '#9bb9ac', fontSize: 12, lineHeight: 17, marginTop: 2 },
+  simulatorBadge: {
+    minHeight: 32,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#0f271f',
+    borderWidth: 1,
+    borderColor: '#1e4a3e',
+  },
+  simulatorBadgeText: {
+    color: '#6cffb1',
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  simulatorGrid: { padding: 12, flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  simGroupCard: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 300,
+    minWidth: 280,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundImage: 'linear-gradient(180deg, #103227, #0b261f)' as never,
+    borderWidth: 1,
+    borderColor: '#1c493c',
+  },
+  simGroupHeader: {
+    minHeight: 38,
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#0e3b2c',
+    borderBottomWidth: 1,
+    borderBottomColor: '#1c4a3e',
+  },
+  simGroupTitle: { color: palette.white, fontSize: 14, fontWeight: '900' },
+  simGroupMeta: { color: '#8ff5be', fontSize: 10, fontWeight: '800' },
+  simMatchList: { padding: 8, gap: 6 },
+  simMatchRow: {
+    minHeight: 42,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#071f19',
+    borderWidth: 1,
+    borderColor: '#1b4338',
+  },
+  simMatchLocked: { backgroundColor: '#0f2d25', borderColor: '#245544' },
+  simMatchTeams: { flex: 1, minWidth: 0, gap: 4 },
+  simMatchState: {
+    minWidth: 48,
+    color: '#5ee8a0',
+    fontSize: 10,
+    fontWeight: '900',
+    textAlign: 'right',
+  },
+  simStandings: {
+    padding: 8,
+    gap: 4,
+    borderTopWidth: 1,
+    borderTopColor: '#1c4a3e',
+    backgroundColor: '#071913',
+  },
+  simStandingRow: { minHeight: 22, flexDirection: 'row', alignItems: 'center', gap: 7 },
+  simStandingRank: { width: 18, color: palette.yellow, fontSize: 12, fontWeight: '900' },
+  simStandingPoints: {
+    marginLeft: 'auto',
+    color: palette.yellow,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  previewStatusBar: {
+    minHeight: 34,
+    paddingHorizontal: 10,
+    borderRadius: 7,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: '#0f2f26',
+    borderWidth: 1,
+    borderColor: '#1c493c',
+  },
+  previewStatusText: { color: '#6cffb1', fontSize: 12, fontWeight: '800' },
   groupsGrid: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 12 },
   groupsGridMobile: { gap: 10 },
   groupModule: {
@@ -1487,7 +2191,17 @@ const styles = StyleSheet.create({
     outlineStyle: 'none' as never,
   },
   compactScoreLocked: { backgroundColor: '#e1e8e4', color: palette.greenDark },
-  scoreSeparator: { color: palette.muted, fontSize: 12, fontWeight: '900' },
+  simScoreInput: {
+    borderColor: '#315447',
+    color: palette.white,
+    backgroundColor: '#09221c',
+  },
+  simScoreLocked: {
+    borderColor: '#245544',
+    color: '#5ee8a0',
+    backgroundColor: '#0f2d25',
+  },
+  scoreSeparator: { color: '#9bb9ac', fontSize: 12, fontWeight: '900' },
   matchActions: { minHeight: 26, flexDirection: 'row', justifyContent: 'flex-end', gap: 6 },
   saveMatchButton: {
     minHeight: 28,
@@ -1529,62 +2243,65 @@ const styles = StyleSheet.create({
   qualified: { color: palette.green, fontSize: 12, fontWeight: '900' },
   points: { color: palette.greenDark, fontWeight: '900' },
   knockoutSection: {
-    borderRadius: 8,
+    borderRadius: 15,
     overflow: 'hidden',
-    backgroundColor: '#f7f9f8',
+    backgroundColor: '#071c17',
     borderWidth: 1,
-    borderColor: '#d8e0dc',
+    borderColor: '#1a463b',
   },
   knockoutHeading: {
-    padding: 9,
+    padding: 12,
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'stretch',
     justifyContent: 'flex-end',
-    gap: 8,
-    backgroundColor: palette.paper,
+    gap: 10,
+    backgroundColor: '#071913',
+    borderBottomWidth: 1,
+    borderBottomColor: '#1c4a3e',
   },
   knockoutInfoCard: {
     flex: 1,
     minWidth: 300,
     maxWidth: 760,
     minHeight: 48,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     borderWidth: 1,
-    borderColor: '#e7c85c',
-    borderRadius: 7,
-    backgroundColor: '#fffdf2',
+    borderColor: '#9d842e',
+    borderRadius: 12,
+    backgroundImage:
+      'linear-gradient(135deg, rgba(227,185,68,0.12), rgba(16,47,38,0.92))' as never,
   },
-  knockoutInfoText: { flex: 1, color: '#34423c', fontSize: 11, lineHeight: 15, fontWeight: '700' },
+  knockoutInfoText: { flex: 1, color: '#bed7ce', fontSize: 11, lineHeight: 15, fontWeight: '700' },
   qualifierProgress: {
     minWidth: 70,
     alignItems: 'center',
     paddingLeft: 8,
     borderLeftWidth: 1,
-    borderLeftColor: '#eadb9d',
+    borderLeftColor: 'rgba(240,199,53,0.35)',
   },
-  qualifierProgressValue: { color: palette.greenDark, fontSize: 15, fontWeight: '900' },
-  qualifierProgressLabel: { color: palette.muted, fontSize: 8, fontWeight: '800' },
+  qualifierProgressValue: { color: '#6cffb1', fontSize: 15, fontWeight: '900' },
+  qualifierProgressLabel: { color: '#9bb9ac', fontSize: 8, fontWeight: '800' },
   knockoutDeadlineCard: {
     minWidth: 250,
     minHeight: 48,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     borderWidth: 1,
-    borderColor: '#d5dfda',
-    borderRadius: 7,
-    backgroundColor: palette.paper,
+    borderColor: '#1c493c',
+    borderRadius: 12,
+    backgroundColor: '#0f2f26',
   },
   knockoutDeadlineCopy: { flex: 1, gap: 2 },
-  knockoutDeadlineTitle: { color: palette.ink, fontSize: 12, fontWeight: '900' },
-  knockoutDeadlineText: { color: palette.greenDark, fontSize: 11, fontWeight: '700' },
+  knockoutDeadlineTitle: { color: palette.white, fontSize: 12, fontWeight: '900' },
+  knockoutDeadlineText: { color: '#6cffb1', fontSize: 11, fontWeight: '700' },
   knockoutSubtitle: { color: palette.muted, fontSize: 13, lineHeight: 19 },
   knockoutEmpty: {
     minHeight: 220,
@@ -1592,17 +2309,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 10,
     padding: 24,
-    backgroundColor: palette.paper,
+    backgroundColor: '#071913',
   },
   bracketPanel: {
-    margin: 9,
+    margin: 12,
     borderWidth: 1,
-    borderColor: '#d9e0dd',
-    borderRadius: 8,
+    borderColor: '#1a463b',
+    borderRadius: 15,
     overflow: 'hidden',
-    backgroundColor: palette.paper,
+    backgroundColor: '#071c17',
   },
-  bracketStageTabs: { minWidth: '100%', padding: 7, gap: 0 },
+  bracketStageTabs: { minWidth: '100%', padding: 7, gap: 0, backgroundColor: '#071913' },
   bracketStageTab: {
     minWidth: 130,
     minHeight: 32,
@@ -1610,17 +2327,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#d8e0dc',
+    borderColor: '#1e4a3e',
     marginRight: -1,
-    backgroundColor: palette.paper,
+    backgroundColor: '#061a15',
   },
   bracketStageTabActive: {
     zIndex: 1,
-    borderColor: palette.green,
-    backgroundColor: palette.greenDark,
+    borderColor: '#2ed085',
+    backgroundColor: '#2ed085',
+    boxShadow: '0 8px 20px rgba(50,210,139,0.22)' as never,
   },
-  bracketStageTabText: { color: '#34423c', fontSize: 10, fontWeight: '800' },
-  bracketStageTabTextActive: { color: palette.white },
+  bracketStageTabText: { color: '#bbd7cb', fontSize: 10, fontWeight: '900' },
+  bracketStageTabTextActive: { color: '#052016' },
   bracketHint: {
     minHeight: 24,
     paddingHorizontal: 10,
@@ -1628,16 +2346,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
+    backgroundColor: '#071913',
   },
-  bracketHintText: { flexShrink: 1, color: palette.muted, fontSize: 9, fontWeight: '700' },
+  bracketHintText: { flexShrink: 1, color: '#9bb9ac', fontSize: 9, fontWeight: '700' },
   bracketViewportContent: { minWidth: '100%', justifyContent: 'center' },
   bracketCanvas: {
     position: 'relative',
     width: BRACKET_CANVAS_WIDTH,
     height: BRACKET_CANVAS_HEIGHT,
-    backgroundColor: '#fbfcfb',
+    backgroundColor: '#071c17',
   },
-  bracketCanvasMobile: { backgroundColor: palette.paper },
+  bracketCanvasMobile: { backgroundColor: '#071c17' },
   bracketColumnLabel: {
     position: 'absolute',
     top: 4,
@@ -1646,12 +2365,12 @@ const styles = StyleSheet.create({
     gap: 1,
   },
   bracketColumnTitle: {
-    color: '#27352f',
+    color: palette.white,
     fontSize: 8,
     fontWeight: '900',
     textTransform: 'uppercase',
   },
-  bracketColumnRange: { color: palette.muted, fontSize: 7, fontWeight: '700' },
+  bracketColumnRange: { color: '#9bb9ac', fontSize: 7, fontWeight: '700' },
   bracketTrophy: {
     position: 'absolute',
     left: 580,
@@ -1666,17 +2385,17 @@ const styles = StyleSheet.create({
     borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fff9dc',
+    backgroundColor: '#0f2f26',
     borderWidth: 1,
-    borderColor: '#ead379',
+    borderColor: '#9d842e',
   },
   bracketTrophyTitle: {
-    color: palette.greenDark,
+    color: palette.yellow,
     fontSize: 9,
     fontWeight: '900',
     textTransform: 'uppercase',
   },
-  bracketTrophyDate: { color: palette.green, fontSize: 8, fontWeight: '800' },
+  bracketTrophyDate: { color: '#6cffb1', fontSize: 8, fontWeight: '800' },
   thirdPlaceLabel: {
     position: 'absolute',
     left: 580,
@@ -1689,13 +2408,13 @@ const styles = StyleSheet.create({
     position: 'absolute',
     height: 2,
     zIndex: 0,
-    backgroundColor: '#2b825b',
+    backgroundColor: '#2ed085',
   },
   bracketConnectorVertical: {
     position: 'absolute',
     width: 2,
     zIndex: 0,
-    backgroundColor: '#2b825b',
+    backgroundColor: '#2ed085',
   },
   knockoutCardPosition: {
     position: 'absolute',
@@ -1707,10 +2426,10 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     borderWidth: 1,
-    borderColor: '#d4ddd8',
+    borderColor: '#1b4338',
     borderRadius: 5,
     padding: 3,
-    backgroundColor: palette.paper,
+    backgroundColor: '#071f19',
     gap: 2,
     shadowColor: '#132b21',
     shadowOpacity: 0.06,
@@ -1724,8 +2443,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 3,
   },
-  knockoutMatchNumber: { color: palette.greenDark, fontSize: 7, fontWeight: '900' },
-  knockoutDate: { color: palette.muted, fontSize: 6.5, fontWeight: '700' },
+  knockoutMatchNumber: { color: '#6cffb1', fontSize: 7, fontWeight: '900' },
+  knockoutDate: { color: '#9bb9ac', fontSize: 6.5, fontWeight: '700' },
   knockoutTeamRow: {
     height: 16,
     borderRadius: 3,
@@ -1735,11 +2454,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 2,
-    backgroundColor: '#f3f7f5',
+    backgroundColor: '#0b2a22',
     borderWidth: 1,
-    borderColor: 'transparent',
+    borderColor: '#143a2f',
   },
-  knockoutTeamSelected: { borderColor: palette.green, backgroundColor: '#eaf6f0' },
+  knockoutTeamSelected: { borderColor: '#2ed085', backgroundColor: 'rgba(46,208,133,0.18)' as never },
   knockoutScoreArea: { flexDirection: 'row', alignItems: 'center', gap: 1 },
   knockoutScoreInput: {
     width: 22,
@@ -1747,9 +2466,9 @@ const styles = StyleSheet.create({
     padding: 0,
     borderRadius: 3,
     borderWidth: 1,
-    borderColor: '#cbd6d0',
-    backgroundColor: palette.paper,
-    color: palette.ink,
+    borderColor: '#315447',
+    backgroundColor: '#09221c',
+    color: palette.white,
     textAlign: 'center',
     fontSize: 9,
     fontWeight: '900',
@@ -1764,15 +2483,21 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 8,
     borderTopWidth: 1,
-    borderTopColor: '#d8e0dc',
-    backgroundColor: palette.paper,
+    borderTopColor: '#1c4a3e',
+    backgroundColor: '#071913',
   },
   knockoutFooterText: {
     flex: 1,
     minWidth: 240,
-    color: palette.muted,
+    color: '#9bb9ac',
     fontSize: 12,
     fontWeight: '700',
+  },
+  knockoutFooterActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: 8,
   },
   submitBracket: {
     minHeight: 42,
@@ -1784,6 +2509,16 @@ const styles = StyleSheet.create({
     backgroundColor: palette.yellow,
   },
   submitBracketText: { color: palette.shell, fontSize: 13, fontWeight: '900' },
+  shareBracketButton: {
+    minHeight: 42,
+    paddingHorizontal: 15,
+    borderRadius: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: '#25d366',
+  },
+  shareBracketButtonText: { color: palette.shell, fontSize: 13, fontWeight: '900' },
   error: { color: '#ff9d94', fontSize: 13, fontWeight: '700' },
   modalBackdrop: {
     flex: 1,

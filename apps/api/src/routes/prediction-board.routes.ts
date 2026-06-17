@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { upsertKnockoutBracketSchema } from '@bolao/shared';
+import { predictionInputSchema, upsertKnockoutBracketSchema } from '@bolao/shared';
+import { z } from 'zod';
 import { asyncHandler } from '../http/async-handler.js';
 import { requireAuth } from '../middleware/auth.js';
 import {
@@ -17,6 +18,16 @@ predictionBoardRouter.get(
   '/',
   asyncHandler(async (req, res) => {
     res.json(await getPredictionBoard(req.session.user!.id));
+  }),
+);
+
+predictionBoardRouter.post(
+  '/preview',
+  asyncHandler(async (req, res) => {
+    const input = z
+      .object({ groupScores: z.array(predictionInputSchema).optional() })
+      .parse(req.body);
+    res.json(await getPredictionBoard(req.session.user!.id, input.groupScores));
   }),
 );
 

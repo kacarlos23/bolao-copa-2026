@@ -31,13 +31,14 @@ import {
 import { flagSources } from './src/flagSources';
 import { teamCatalogByCode } from './src/teamCatalog';
 import { PredictionBoardScreen } from './src/predictionBoard';
-import { CupOverviewV2 } from './src/competitionV2';
+import { CupOverviewV2, DailyPredictionsV2 } from './src/competitionV2';
 import { DrawerReveal, SoftReveal } from './src/motion';
 
-type Screen = 'days' | 'predictions' | 'ranking' | 'cup' | 'teams' | 'admin';
+type Screen = 'days' | 'predictions' | 'knockout' | 'ranking' | 'cup' | 'teams' | 'admin';
 type RankingStatusFilter = 'all' | 'live' | 'final';
 
 const competitionUiV2 = process.env.EXPO_PUBLIC_COMPETITION_UI_V2 === '1';
+const knockoutDeadline = new Date('2026-06-18T13:00:00-03:00').getTime();
 
 const colors = {
   bg: '#071311',
@@ -63,6 +64,17 @@ function dateTime(value: string) {
   return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(
     new Date(value),
   );
+}
+
+function countdownText(targetTime: number, nowTime: number) {
+  const remaining = Math.max(0, targetTime - nowTime);
+  const totalSeconds = Math.floor(remaining / 1000);
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  const parts = days > 0 ? [days, hours, minutes] : [hours, minutes, seconds];
+  return parts.map((part) => String(part).padStart(2, '0')).join(':');
 }
 
 function dateOnly(value: string | Date) {
@@ -532,6 +544,56 @@ function ConfirmModal({
   );
 }
 
+function KnockoutCalloutModal({
+  visible,
+  now,
+  onClose,
+  onOpen,
+}: {
+  visible: boolean;
+  now: number;
+  onClose: () => void;
+  onOpen: () => void;
+}) {
+  return (
+    <Modal transparent animationType="fade" visible={visible} onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.knockoutCalloutModal}>
+          <View style={styles.knockoutCalloutIcon}>
+            <Ionicons name="git-network-outline" size={34} color={colors.bg} />
+          </View>
+          <Text style={styles.modalTitle}>Palpite das eliminatorias liberado</Text>
+          <Text style={styles.modalMessage}>
+            Simule os jogos em aberto da fase de grupos, visualize a chave projetada e salve sua
+            previsao sem alterar os palpites regulares.
+          </Text>
+          <View style={styles.knockoutCalloutCountdown}>
+            <Text style={styles.knockoutCalloutCountdownLabel}>Prazo final</Text>
+            <Text style={styles.knockoutCalloutCountdownValue}>
+              {countdownText(knockoutDeadline, now)}
+            </Text>
+            <Text style={styles.knockoutCalloutCountdownHint}>18/06/2026 as 13h</Text>
+          </View>
+          <View style={styles.knockoutCalloutRules}>
+            <View style={styles.knockoutCalloutRule}>
+              <Text style={styles.knockoutCalloutRulePoints}>15</Text>
+              <Text style={styles.knockoutCalloutRuleText}>pontos por confronto exato</Text>
+            </View>
+            <View style={styles.knockoutCalloutRule}>
+              <Text style={styles.knockoutCalloutRulePoints}>7</Text>
+              <Text style={styles.knockoutCalloutRuleText}>pontos por uma selecao correta</Text>
+            </View>
+          </View>
+          <View style={styles.confirmModalActions}>
+            <PrimaryButton label="Depois" icon="close-outline" tone="secondary" onPress={onClose} />
+            <PrimaryButton label="Abrir chave" icon="git-network-outline" onPress={onOpen} />
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function AuthScreen({ onAuth }: { onAuth: (user: User) => void }) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [username, setUsername] = useState('');
@@ -789,6 +851,12 @@ function HeaderLayout({
           onPress={() => setScreen('predictions')}
         />
         <PrimaryButton
+          label="Eliminatorias"
+          icon="git-network-outline"
+          tone={screen === 'knockout' ? 'primary' : 'secondary'}
+          onPress={() => setScreen('knockout')}
+        />
+        <PrimaryButton
           label="Ranking"
           icon="podium-outline"
           tone={screen === 'ranking' ? 'primary' : 'secondary'}
@@ -936,6 +1004,12 @@ function Header({
           icon="create-outline"
           tone={screen === 'predictions' ? 'primary' : 'secondary'}
           onPress={() => setScreen('predictions')}
+        />
+        <PrimaryButton
+          label="Eliminatorias"
+          icon="git-network-outline"
+          tone={screen === 'knockout' ? 'primary' : 'secondary'}
+          onPress={() => setScreen('knockout')}
         />
         <PrimaryButton
           label="Ranking"
@@ -1187,14 +1261,40 @@ function PredictionsScreen({
   refreshVersion,
   onOpenTeam,
   onAdjustScroll,
+  onOpenKnockout,
 }: {
   currentUserId: string;
   refreshVersion: number;
   onOpenTeam: (team: Team) => void;
   onAdjustScroll: (delta: number) => void;
+  onOpenKnockout: () => void;
 }) {
   if (process.env.EXPO_PUBLIC_LEGACY_PREDICTIONS !== '1') {
-    return <PredictionBoardScreen currentUserId={currentUserId} refreshVersion={refreshVersion} />;
+    return (
+      <View style={styles.predictionsDailyPage}>
+        <View style={styles.predictionsDailyHeader}>
+          <View style={styles.predictionsDailyCopy}>
+            <Text style={styles.predictionsDailyTitle}>Palpites</Text>
+            <Text style={styles.predictionsDailySubtitle}>
+              Agenda compacta para preencher os placares de cada dia.
+            </Text>
+          </View>
+          <View style={styles.predictionsDailyTabs}>
+            <View style={[styles.predictionsDailyTab, styles.predictionsDailyTabActive]}>
+              <Ionicons name="grid-outline" size={16} color={colors.bg} />
+              <Text style={[styles.predictionsDailyTabText, styles.predictionsDailyTabTextActive]}>
+                Jogos por dia
+              </Text>
+            </View>
+            <Pressable style={styles.predictionsDailyTab} onPress={onOpenKnockout}>
+              <Ionicons name="git-network-outline" size={16} color={colors.text} />
+              <Text style={styles.predictionsDailyTabText}>Eliminatorias</Text>
+            </Pressable>
+          </View>
+        </View>
+        <DailyPredictionsV2 currentUserId={currentUserId} refreshVersion={refreshVersion} />
+      </View>
+    );
   }
 
   const [days, setDays] = useState<MatchDay[]>([]);
@@ -3085,6 +3185,8 @@ export default function App() {
   const [selectedTeamCode, setSelectedTeamCode] = useState<string | null>('KOR');
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [booting, setBooting] = useState(true);
+  const [nowTime, setNowTime] = useState(Date.now());
+  const [knockoutCalloutDismissed, setKnockoutCalloutDismissed] = useState(false);
   const appScrollRef = useRef<ScrollView>(null);
   const appScrollY = useRef(0);
   const inactiveSince = useRef<number | null>(null);
@@ -3106,6 +3208,16 @@ export default function App() {
       .catch(() => undefined)
       .finally(() => setBooting(false));
   }, []);
+
+  useEffect(() => {
+    if (!user) return undefined;
+    const timer = setInterval(() => setNowTime(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [user]);
+
+  useEffect(() => {
+    if (user?.id) setKnockoutCalloutDismissed(false);
+  }, [user?.id]);
 
   useEffect(() => {
     if (typeof document === 'undefined' || typeof window === 'undefined') return undefined;
@@ -3149,6 +3261,7 @@ export default function App() {
             setSelectedTeamCode(team.code ?? null);
             setScreen('teams');
           }}
+          onOpenKnockout={() => setScreen('knockout')}
         />
       );
     }
@@ -3167,6 +3280,16 @@ export default function App() {
             setSelectedTeamCode(team.code ?? null);
             setScreen('teams');
           }}
+        />
+      );
+    }
+    if (screen === 'knockout') {
+      return (
+        <PredictionBoardScreen
+          currentUserId={user?.id ?? ''}
+          refreshVersion={refreshVersion}
+          initialView="knockout"
+          standaloneKnockout
         />
       );
     }
@@ -3197,6 +3320,7 @@ export default function App() {
   }
 
   if (!user) return <AuthScreen onAuth={setUser} />;
+  const knockoutCalloutVisible = !knockoutCalloutDismissed && nowTime < knockoutDeadline;
 
   return (
     <AppShell>
@@ -3221,6 +3345,15 @@ export default function App() {
           {content}
         </SoftReveal>
       </ScrollView>
+      <KnockoutCalloutModal
+        visible={knockoutCalloutVisible}
+        now={nowTime}
+        onClose={() => setKnockoutCalloutDismissed(true)}
+        onOpen={() => {
+          setKnockoutCalloutDismissed(true);
+          setScreen('knockout');
+        }}
+      />
     </AppShell>
   );
 }
@@ -3427,6 +3560,84 @@ const styles = StyleSheet.create({
     padding: 22,
     alignItems: 'center',
     gap: 14,
+  },
+  knockoutCalloutModal: {
+    width: '100%',
+    maxWidth: 500,
+    backgroundColor: colors.panel,
+    borderColor: colors.goldBorder,
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 22,
+    alignItems: 'center',
+    gap: 14,
+  },
+  knockoutCalloutIcon: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: colors.gold,
+    borderColor: colors.goldBorder,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  knockoutCalloutCountdown: {
+    width: '100%',
+    padding: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    backgroundColor: colors.input,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  knockoutCalloutCountdownLabel: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  knockoutCalloutCountdownValue: {
+    color: colors.gold,
+    fontSize: 34,
+    fontWeight: '900',
+    marginTop: 2,
+  },
+  knockoutCalloutCountdownHint: {
+    color: colors.soft,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  knockoutCalloutRules: {
+    width: '100%',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  knockoutCalloutRule: {
+    flex: 1,
+    minWidth: 180,
+    minHeight: 58,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: colors.panel2,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  knockoutCalloutRulePoints: {
+    color: colors.gold,
+    fontSize: 24,
+    fontWeight: '900',
+  },
+  knockoutCalloutRuleText: {
+    flex: 1,
+    color: colors.soft,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800',
   },
   confirmIcon: {
     width: 68,
@@ -3654,6 +3865,60 @@ const styles = StyleSheet.create({
   },
   rulesList: {
     gap: 8,
+  },
+  predictionsDailyPage: {
+    gap: 18,
+  },
+  predictionsDailyHeader: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: 14,
+  },
+  predictionsDailyCopy: {
+    flex: 1,
+    minWidth: 260,
+  },
+  predictionsDailyTitle: {
+    color: colors.text,
+    fontSize: 26,
+    fontWeight: '900',
+  },
+  predictionsDailySubtitle: {
+    maxWidth: 680,
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 3,
+  },
+  predictionsDailyTabs: {
+    flexDirection: 'row',
+    padding: 3,
+    borderRadius: 8,
+    backgroundColor: colors.panel,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  predictionsDailyTab: {
+    minHeight: 40,
+    paddingHorizontal: 14,
+    borderRadius: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+  },
+  predictionsDailyTabActive: {
+    backgroundColor: colors.amber,
+  },
+  predictionsDailyTabText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  predictionsDailyTabTextActive: {
+    color: colors.bg,
   },
   predictionNotice: {
     backgroundColor: 'rgba(229, 186, 82, 0.14)',

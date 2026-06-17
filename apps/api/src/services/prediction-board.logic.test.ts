@@ -168,4 +168,36 @@ describe('complete knockout bracket', () => {
   it('rejects incomplete submissions', () => {
     expect(() => materializeBracket([], new Map())).toThrow('32 jogos');
   });
+
+  it('materializes partial submissions when partial mode is enabled', () => {
+    const fixture = knockoutFixtureSeeds[0];
+    const roundOf32 = new Map([
+      [fixture.matchNumber, { homeTeamId: 'home-team', awayTeamId: 'away-team' }],
+    ]);
+
+    const result = materializeBracket(
+      [
+        {
+          matchNumber: fixture.matchNumber,
+          predictedHomeScore: 2,
+          predictedAwayScore: 1,
+          advancingTeamId: 'home-team',
+        },
+      ],
+      roundOf32,
+      knockoutFixtureSeeds,
+      { allowPartial: true },
+    );
+
+    expect(result).toEqual([
+      {
+        matchNumber: fixture.matchNumber,
+        homeTeamId: 'home-team',
+        awayTeamId: 'away-team',
+        predictedHomeScore: 2,
+        predictedAwayScore: 1,
+        advancingTeamId: 'home-team',
+      },
+    ]);
+  });
 });

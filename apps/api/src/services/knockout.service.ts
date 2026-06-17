@@ -6,7 +6,6 @@ import {
   ScoreType,
 } from '@prisma/client';
 import type { UpsertKnockoutBracketInput } from '@bolao/shared';
-import { calculatePredictionScore } from '@bolao/shared';
 import { knockoutFixtureSeeds, firstKnockoutStartsAt } from '../data/knockout-fixtures.js';
 import { AppError } from '../http/errors.js';
 import { prisma } from '../prisma.js';
@@ -25,6 +24,10 @@ import { matchPredictionState } from './prediction.service.js';
 import { getPredictionCloseMinutes, predictionCloseAt } from './prediction-settings.service.js';
 import { refreshRankingSnapshot } from './ranking.service.js';
 
+const PROVISIONAL_KNOCKOUT_CLOSES_AT = new Date('2026-06-18T16:00:00.000Z');
+
+type GroupScoreOverride = NonNullable<UpsertKnockoutBracketInput['groupScores']>[number];
+
 function jsonString(value: Prisma.JsonValue | null | undefined, key: string) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const result = (value as Record<string, unknown>)[key];
@@ -37,6 +40,16 @@ function groupForTeam(team: { metadata: Prisma.JsonValue | null }) {
 
 function firstKnockoutClosesAt(closeMinutes: number) {
   return predictionCloseAt(firstKnockoutStartsAt, closeMinutes);
+}
+
+function generationClosesAt(mode: KnockoutGenerationMode, closeMinutes: number) {
+  return mode === KnockoutGenerationMode.PROVISIONAL
+    ? PROVISIONAL_KNOCKOUT_CLOSES_AT
+    : firstKnockoutClosesAt(closeMinutes);
+}
+
+function generationStatusFor(closesAt: Date, now = new Date()) {
+  return closesAt > now ? KnockoutGenerationStatus.ACTIVE : KnockoutGenerationStatus.LOCKED;
 }
 
 export async function ensureKnockoutInfrastructure() {
@@ -65,63 +78,43 @@ export async function ensureKnockoutInfrastructure() {
     groupMatches.length >= 72 &&
     groupMatches.every((match) => match.status === MatchStatus.FINISHED);
   let active = await prisma.knockoutGeneration.findFirst({
-    where: { status: KnockoutGenerationStatus.ACTIVE },
+    where: { status: { not: KnockoutGenerationStatus.RESET } },
     orderBy: { sequence: 'desc' },
   });
 
   if (!active) {
     const latest = await prisma.knockoutGeneration.findFirst({ orderBy: { sequence: 'desc' } });
+    const mode = groupStageComplete
+      ? KnockoutGenerationMode.OFFICIAL
+      : KnockoutGenerationMode.PROVISIONAL;
+    const closesAt = generationClosesAt(mode, predictionCloseMinutes);
     active = await prisma.knockoutGeneration.create({
       data: {
         sequence: (latest?.sequence ?? 0) + 1,
-        mode: groupStageComplete
-          ? KnockoutGenerationMode.OFFICIAL
-          : KnockoutGenerationMode.PROVISIONAL,
-        closesAt: groupStageComplete ? firstKnockoutClosesAt(predictionCloseMinutes) : null,
+        mode,
+        closesAt,
+        status: generationStatusFor(closesAt),
       },
     });
   }
 
-  if (groupStageComplete && active.mode === KnockoutGenerationMode.PROVISIONAL) {
-    active = await prisma.$transaction(async (tx) => {
-      await tx.knockoutBracket.deleteMany({ where: { generationId: active!.id } });
-      await tx.knockoutGeneration.update({
-        where: { id: active!.id },
-        data: { status: KnockoutGenerationStatus.RESET, resetAt: new Date() },
-      });
-      return tx.knockoutGeneration.create({
-        data: {
-          sequence: active!.sequence + 1,
-          mode: KnockoutGenerationMode.OFFICIAL,
-          closesAt: firstKnockoutClosesAt(predictionCloseMinutes),
-        },
-      });
+  const closesAt = generationClosesAt(active.mode, predictionCloseMinutes);
+  const status = generationStatusFor(closesAt);
+  if (active.closesAt?.getTime() !== closesAt.getTime() || active.status !== status) {
+    active = await prisma.knockoutGeneration.update({
+      where: { id: active.id },
+      data: { closesAt, status },
     });
   }
 
-  if (active.mode === KnockoutGenerationMode.OFFICIAL) {
-    const now = new Date();
-    const closesAt = firstKnockoutClosesAt(predictionCloseMinutes);
-    const status =
-      firstKnockoutStartsAt > now && closesAt > now
-        ? KnockoutGenerationStatus.ACTIVE
-        : KnockoutGenerationStatus.LOCKED;
-    if (active.closesAt?.getTime() !== closesAt.getTime() || active.status !== status) {
-      active = await prisma.knockoutGeneration.update({
-        where: { id: active.id },
-        data: { closesAt, status },
-      });
-    }
-  }
-
-  if (active.mode === KnockoutGenerationMode.OFFICIAL) {
+  if (groupStageComplete || active.mode === KnockoutGenerationMode.OFFICIAL) {
     await syncOfficialKnockoutParticipants();
   }
 
   return { generation: active, groupStageComplete, predictionCloseMinutes };
 }
 
-async function loadProjectionGroups(userId: string | null) {
+async function loadProjectionGroups(userId: string | null, scoreOverrides: GroupScoreOverride[] = []) {
   const [teams, matches] = await Promise.all([
     prisma.team.findMany({ orderBy: { name: 'asc' } }),
     prisma.match.findMany({
@@ -150,6 +143,7 @@ async function loadProjectionGroups(userId: string | null) {
       },
     ]),
   );
+  const scoreOverrideByMatchId = new Map(scoreOverrides.map((score) => [score.matchId, score]));
   const groups = new Map<string, { teams: ProjectionTeam[]; matches: ProjectionMatch[] }>();
 
   for (const team of teams) {
@@ -165,6 +159,7 @@ async function loadProjectionGroups(userId: string | null) {
     if (group === 'Sem grupo') continue;
     const current = groups.get(group) ?? { teams: [], matches: [] };
     const prediction = match.predictions[0];
+    const scoreOverride = scoreOverrideByMatchId.get(match.id);
     current.matches.push({
       id: match.id,
       homeTeamId: match.homeTeamId,
@@ -174,8 +169,8 @@ async function loadProjectionGroups(userId: string | null) {
       awayScore: match.awayScore,
       finalHomeScore: match.finalHomeScore,
       finalAwayScore: match.finalAwayScore,
-      predictedHomeScore: prediction?.predictedHomeScore ?? null,
-      predictedAwayScore: prediction?.predictedAwayScore ?? null,
+      predictedHomeScore: scoreOverride?.predictedHomeScore ?? prediction?.predictedHomeScore ?? null,
+      predictedAwayScore: scoreOverride?.predictedAwayScore ?? prediction?.predictedAwayScore ?? null,
     });
     groups.set(group, current);
   }
@@ -191,9 +186,14 @@ async function loadProjectionGroups(userId: string | null) {
   return { teams, matches, qualifications };
 }
 
-async function roundOf32ForGeneration(mode: KnockoutGenerationMode, userId: string) {
+async function roundOf32ForGeneration(
+  mode: KnockoutGenerationMode,
+  userId: string,
+  scoreOverrides: GroupScoreOverride[] = [],
+) {
   const projection = await loadProjectionGroups(
     mode === KnockoutGenerationMode.PROVISIONAL ? userId : null,
+    mode === KnockoutGenerationMode.PROVISIONAL ? scoreOverrides : [],
   );
   const participants = buildRoundOf32Participants(projection.qualifications);
   if (!participants) {
@@ -229,6 +229,7 @@ export async function syncOfficialKnockoutParticipants() {
 
   const fixtures = await prisma.knockoutFixture.findMany({ orderBy: { matchNumber: 'asc' } });
   const byNumber = new Map(fixtures.map((fixture) => [fixture.matchNumber, fixture]));
+  const changedFixtureIds: string[] = [];
   for (const fixture of fixtures) {
     const seeded = roundOf32.get(fixture.matchNumber);
     const homeTeamId = seeded?.homeTeamId ?? sourceTeamId(fixture.homeSource, byNumber);
@@ -238,11 +239,19 @@ export async function syncOfficialKnockoutParticipants() {
       where: { id: fixture.id },
       data: { homeTeamId, awayTeamId },
     });
+    changedFixtureIds.push(updated.id);
     byNumber.set(updated.matchNumber, updated);
+  }
+
+  if (changedFixtureIds.length) {
+    for (const fixtureId of changedFixtureIds) {
+      await recalculateKnockoutScoresForFixture(fixtureId, { refreshRanking: false });
+    }
+    await refreshRankingSnapshot();
   }
 }
 
-export async function getPredictionBoard(userId: string) {
+export async function getPredictionBoard(userId: string, scoreOverrides: GroupScoreOverride[] = []) {
   const [
     { generation, groupStageComplete, predictionCloseMinutes },
     projection,
@@ -250,7 +259,7 @@ export async function getPredictionBoard(userId: string) {
     viewer,
   ] = await Promise.all([
     ensureKnockoutInfrastructure(),
-    loadProjectionGroups(userId),
+    loadProjectionGroups(userId, scoreOverrides),
     prisma.match.findMany({
       orderBy: { startsAt: 'asc' },
       include: {
@@ -386,10 +395,10 @@ export async function saveKnockoutBracket(userId: string, input: UpsertKnockoutB
     );
   }
 
-  const { participants } = await roundOf32ForGeneration(generation.mode, userId);
+  const { participants } = await roundOf32ForGeneration(generation.mode, userId, input.groupScores);
   let materialized;
   try {
-    materialized = materializeBracket(input.picks, participants);
+    materialized = materializeBracket(input.picks, participants, undefined, { allowPartial: true });
   } catch (error) {
     throw new AppError(
       400,
@@ -428,15 +437,12 @@ export async function saveKnockoutBracket(userId: string, input: UpsertKnockoutB
     generationId: generation.id,
     submittedAt: bracket.submittedAt.toISOString(),
   });
-  return getPredictionBoard(userId);
+  return getPredictionBoard(userId, input.groupScores);
 }
 
 export async function listPublicKnockoutBrackets() {
   const { generation } = await ensureKnockoutInfrastructure();
-  if (
-    generation.mode !== KnockoutGenerationMode.OFFICIAL ||
-    generation.status === KnockoutGenerationStatus.ACTIVE
-  ) {
+  if (generation.status === KnockoutGenerationStatus.ACTIVE) {
     throw new AppError(
       403,
       'As chaves oficiais serão publicadas após o encerramento do prazo.',
@@ -466,41 +472,30 @@ export async function recalculateKnockoutScoresForFixture(
     where: { id: fixtureId },
     include: {
       picks: {
-        where: { bracket: { generation: { mode: KnockoutGenerationMode.OFFICIAL } } },
+        where: { bracket: { generation: { status: { not: KnockoutGenerationStatus.RESET } } } },
         include: { bracket: true },
       },
     },
   });
   if (!fixture || !fixture.homeTeamId || !fixture.awayTeamId) return;
-  const actualHomeScore =
-    fixture.status === MatchStatus.FINISHED ? fixture.finalHomeScore : fixture.homeScore;
-  const actualAwayScore =
-    fixture.status === MatchStatus.FINISHED ? fixture.finalAwayScore : fixture.awayScore;
-  if (actualHomeScore == null || actualAwayScore == null) return;
 
   for (const pick of fixture.picks) {
-    const sameMatchup =
-      pick.homeTeamId === fixture.homeTeamId && pick.awayTeamId === fixture.awayTeamId;
-    const wrongTieWinner =
-      actualHomeScore === actualAwayScore &&
-      fixture.winnerTeamId &&
-      pick.advancingTeamId !== fixture.winnerTeamId;
+    const predictedTeams = new Set([pick.homeTeamId, pick.awayTeamId]);
+    const actualTeams = new Set([fixture.homeTeamId, fixture.awayTeamId]);
+    const matchedTeams = [...predictedTeams].filter((teamId) => actualTeams.has(teamId)).length;
     const score =
-      sameMatchup && !wrongTieWinner
-        ? calculatePredictionScore({
-            predictedHomeScore: pick.predictedHomeScore,
-            predictedAwayScore: pick.predictedAwayScore,
-            actualHomeScore,
-            actualAwayScore,
-          })
-        : { points: 0, scoreType: 'MISS' as const };
+      matchedTeams === 2
+        ? { points: 15, scoreType: 'EXACT_SCORE' as const }
+        : matchedTeams === 1
+          ? { points: 7, scoreType: 'ONE_TEAM_GOALS' as const }
+          : { points: 0, scoreType: 'MISS' as const };
 
     await prisma.knockoutPredictionScore.upsert({
       where: { pickId: pick.id },
       update: {
         points: score.points,
         scoreType: score.scoreType as ScoreType,
-        isFinal: fixture.status === MatchStatus.FINISHED,
+        isFinal: true,
         calculatedAt: new Date(),
       },
       create: {
@@ -509,7 +504,7 @@ export async function recalculateKnockoutScoresForFixture(
         userId: pick.bracket.userId,
         points: score.points,
         scoreType: score.scoreType as ScoreType,
-        isFinal: fixture.status === MatchStatus.FINISHED,
+        isFinal: true,
       },
     });
   }

@@ -40,8 +40,11 @@ export const knockoutPickInputSchema = z.object({
   advancingTeamId: z.string().cuid(),
 });
 
+export const knockoutGroupScoreInputSchema = predictionInputSchema;
+
 export const upsertKnockoutBracketSchema = z.object({
-  picks: z.array(knockoutPickInputSchema).length(32),
+  picks: z.array(knockoutPickInputSchema).min(1).max(32),
+  groupScores: z.array(knockoutGroupScoreInputSchema).optional(),
 });
 
 export type RegisterInput = z.infer<typeof registerSchema>;

@@ -306,15 +306,20 @@ export function materializeBracket(
   inputs: BracketPickInput[],
   roundOf32: Map<number, BracketParticipant>,
   fixtures: KnockoutFixtureSeed[] = knockoutFixtureSeeds,
+  options: { allowPartial?: boolean } = {},
 ) {
-  if (inputs.length !== fixtures.length) throw new Error('A chave completa deve conter 32 jogos.');
+  if (!options.allowPartial && inputs.length !== fixtures.length)
+    throw new Error('A chave completa deve conter 32 jogos.');
   const inputByMatch = new Map(inputs.map((input) => [input.matchNumber, input]));
-  if (inputByMatch.size !== fixtures.length) throw new Error('A chave contem jogos duplicados.');
+  if (inputByMatch.size !== inputs.length) throw new Error('A chave contem jogos duplicados.');
 
   const materialized = new Map<number, MaterializedBracketPick>();
   for (const fixture of [...fixtures].sort((a, b) => a.matchNumber - b.matchNumber)) {
     const input = inputByMatch.get(fixture.matchNumber);
-    if (!input) throw new Error(`Palpite ausente para o jogo ${fixture.matchNumber}.`);
+    if (!input) {
+      if (options.allowPartial) continue;
+      throw new Error(`Palpite ausente para o jogo ${fixture.matchNumber}.`);
+    }
     if (
       !Number.isInteger(input.predictedHomeScore) ||
       !Number.isInteger(input.predictedAwayScore) ||
