@@ -2770,7 +2770,12 @@ function RankingScreenLayout({
             {loading ? <ActivityIndicator color={colors.green} style={styles.loaderInline} /> : null}
 
             {filteredRanking.length > 0 ? (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.rankingTableScroller}
+                contentContainerStyle={styles.rankingTableScrollerContent}
+              >
                 <View style={styles.rankingTable}>
                   <View style={[styles.rankingTableRow, styles.rankingTableHeader]}>
                     <Text style={[styles.rankingCell, styles.rankColumn]}>#</Text>
@@ -2931,7 +2936,12 @@ function RankingScreen({ refreshVersion }: { refreshVersion: number }) {
       ) : null}
 
       {ranking.length > 0 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.rankingTableScroller}
+          contentContainerStyle={styles.rankingTableScrollerContent}
+        >
           <View style={styles.rankingTable}>
             <View style={[styles.rankingTableRow, styles.rankingTableHeader]}>
               <Text style={[styles.rankingCell, styles.rankColumn]}>#</Text>
@@ -4961,6 +4971,12 @@ const styles = StyleSheet.create({
   loaderInline: {
     marginVertical: 14,
   },
+  rankingTableScroller: {
+    width: '100%',
+  },
+  rankingTableScrollerContent: {
+    flexGrow: 1,
+  },
   rankingHighlights: {
     gap: 10,
   },
@@ -5019,6 +5035,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   rankingTable: {
+    width: '100%',
     minWidth: 860,
     borderColor: '#1a463b',
     borderWidth: 1,
