@@ -5,6 +5,7 @@ import {
   Easing,
   Image,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -23,6 +24,7 @@ import {
   CupOverview,
   CupStandingRow,
   MatchDay,
+  RankingAward,
   RankingPeriod,
   RankingRow,
   Team,
@@ -38,7 +40,7 @@ type Screen = 'days' | 'predictions' | 'knockout' | 'ranking' | 'cup' | 'teams' 
 type RankingStatusFilter = 'all' | 'live' | 'final';
 
 const competitionUiV2 = process.env.EXPO_PUBLIC_COMPETITION_UI_V2 === '1';
-const knockoutDeadline = new Date('2026-06-18T13:00:00-03:00').getTime();
+const knockoutDeadline = new Date('2026-06-18T23:59:59-03:00').getTime();
 
 const colors = {
   bg: '#071311',
@@ -572,7 +574,7 @@ function KnockoutCalloutModal({
             <Text style={styles.knockoutCalloutCountdownValue}>
               {countdownText(knockoutDeadline, now)}
             </Text>
-            <Text style={styles.knockoutCalloutCountdownHint}>18/06/2026 as 13h</Text>
+            <Text style={styles.knockoutCalloutCountdownHint}>18/06/2026 as 23h59</Text>
           </View>
           <View style={styles.knockoutCalloutRules}>
             <View style={styles.knockoutCalloutRule}>
@@ -2122,7 +2124,7 @@ function RankingStatCard({
   detail: string;
 }) {
   return (
-    <View style={styles.rankingStatCard}>
+    <View {...rankingGsapTarget('stat')} style={styles.rankingStatCard}>
       <Text style={styles.rankingStatLabel}>{label}</Text>
       <Text style={styles.rankingStatValue}>{value}</Text>
       <Text style={styles.rankingStatDetail}>{detail}</Text>
@@ -2174,6 +2176,241 @@ function RankingPodiumCard({
   );
 }
 
+const trophyStatusLabels: Record<RankingAward['status'], string> = {
+  locked: 'Conquistado',
+  live: 'Em disputa',
+  pending: 'Aguardando',
+  empty: 'Bloqueado',
+};
+
+function trophyFallbackText(status: RankingAward['status']) {
+  if (status === 'live') return 'apuracao em andamento';
+  if (status === 'empty') return 'sem jogos finalizados';
+  return 'sem pontuacao definida';
+}
+
+function trophyIconName(icon: string): keyof typeof Ionicons.glyphMap {
+  return icon in Ionicons.glyphMap ? (icon as keyof typeof Ionicons.glyphMap) : 'trophy-outline';
+}
+
+function rankingGsapTarget(name: string) {
+  return Platform.OS === 'web' ? ({ dataSet: { rankingGsap: name } } as never) : {};
+}
+
+function useRankingGsap(animationKey: string) {
+  useEffect(() => {
+    if (Platform.OS !== 'web') return undefined;
+    if (typeof document === 'undefined' || typeof window === 'undefined') return undefined;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return undefined;
+
+    let context: { revert: () => void } | undefined;
+    let cancelled = false;
+
+    void import('gsap').then((module) => {
+      if (cancelled) return;
+      const gsap = module.gsap;
+      const root = document.querySelector('[data-ranking-gsap="page"]');
+      if (!root) return;
+
+      context = gsap.context(() => {
+        const entranceTargets = [
+          '[data-ranking-gsap="head"]',
+          '[data-ranking-gsap="stat"]',
+          '[data-ranking-gsap="podium"]',
+          '[data-ranking-gsap="table"]',
+          '[data-ranking-gsap="side"]',
+        ];
+
+        gsap.from(entranceTargets, {
+          opacity: 0,
+          y: 12,
+          duration: 0.38,
+          stagger: 0.045,
+          ease: 'power2.out',
+          clearProps: 'opacity,transform',
+        });
+
+        gsap.from('[data-ranking-gsap="award"]', {
+          opacity: 0,
+          y: 10,
+          duration: 0.32,
+          stagger: 0.035,
+          delay: 0.08,
+          ease: 'power2.out',
+          clearProps: 'opacity,transform',
+        });
+
+        gsap.from('[data-ranking-gsap="row"]', {
+          opacity: 0,
+          y: 6,
+          duration: 0.26,
+          stagger: 0.018,
+          delay: 0.05,
+          ease: 'power2.out',
+          clearProps: 'opacity,transform',
+        });
+
+        gsap.to('[data-ranking-award-state="live"]', {
+          boxShadow: '0 0 0 1px rgba(47,191,122,0.55), 0 0 20px rgba(47,191,122,0.18)',
+          duration: 0.42,
+          yoyo: true,
+          repeat: 1,
+          ease: 'power2.out',
+          clearProps: 'boxShadow',
+        });
+      }, root);
+    });
+
+    return () => {
+      cancelled = true;
+      context?.revert();
+    };
+  }, [animationKey]);
+}
+
+function TrophyAwardCard({ award, featured = false }: { award: RankingAward; featured?: boolean }) {
+  const winner = award.winner;
+  const major = award.tier === 'major';
+  const iconSize = featured ? 34 : major ? 25 : 22;
+  const iconColor = award.status === 'empty' || award.status === 'pending' ? '#bbd0c6' : '#071311';
+
+  return (
+    <View
+      {...(Platform.OS === 'web'
+        ? ({ dataSet: { rankingGsap: 'award', rankingAwardState: award.status } } as never)
+        : {})}
+      style={[
+        styles.trophyAwardCard,
+        !featured && styles.trophyAwardGridItem,
+        featured && styles.trophyAwardCardFeatured,
+        major && !featured && styles.trophyAwardCardMajor,
+        award.status === 'locked' && styles.trophyAwardLocked,
+        award.status === 'live' && styles.trophyAwardLive,
+        award.status === 'pending' && styles.trophyAwardPending,
+        award.status === 'empty' && styles.trophyAwardEmpty,
+      ]}
+    >
+      <View style={styles.trophyAwardTop}>
+        <View
+          style={[
+            styles.trophyIcon,
+            featured && styles.trophyIconFeatured,
+            (award.status === 'pending' || award.status === 'empty') && styles.trophyIconMuted,
+          ]}
+        >
+          <Ionicons name={trophyIconName(award.icon)} size={iconSize} color={iconColor} />
+        </View>
+        <View style={styles.trophyAwardCopy}>
+          <Text style={styles.trophyAwardLabel} numberOfLines={featured ? 1 : 2}>
+            {featured ? 'Trofeu maximo' : award.subtitle}
+          </Text>
+          <Text
+            style={[styles.trophyAwardTitle, featured && styles.trophyAwardTitleFeatured]}
+            numberOfLines={2}
+          >
+            {award.title}
+          </Text>
+          {featured ? (
+            <Text style={styles.trophyAwardSubtitle} numberOfLines={1}>
+              {award.subtitle}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+
+      <View style={styles.trophyWinnerRow}>
+        {winner ? (
+          <>
+            <UserAvatar nickname={winner.nickname} avatarUrl={winner.avatarUrl} size={featured ? 42 : 30} />
+            <View style={styles.trophyWinnerCopy}>
+              <Text style={styles.trophyWinnerName} numberOfLines={1}>
+                {winner.nickname}
+              </Text>
+              <Text style={styles.trophyWinnerMeta} numberOfLines={featured ? 2 : 1}>
+                {winner.points} pts - {winner.exactScores} EX - {winner.resultHits} RES
+              </Text>
+            </View>
+          </>
+        ) : (
+          <>
+            <View style={[styles.userAvatarFallback, styles.trophyPlaceholderAvatar]}>
+              <Text style={styles.userAvatarText}>?</Text>
+            </View>
+            <View style={styles.trophyWinnerCopy}>
+              <Text style={styles.trophyWinnerName}>Aguardando</Text>
+              <Text style={styles.trophyWinnerMeta} numberOfLines={1}>
+                {trophyFallbackText(award.status)}
+              </Text>
+            </View>
+          </>
+        )}
+      </View>
+
+      <View
+        style={[
+          styles.trophyStatusBadge,
+          award.status === 'locked' && styles.trophyStatusBadgeLocked,
+          award.status === 'live' && styles.trophyStatusBadgeLive,
+          (award.status === 'pending' || award.status === 'empty') && styles.trophyStatusBadgeMuted,
+        ]}
+      >
+        <Text
+          style={[
+            styles.trophyStatusText,
+            award.status === 'locked' && styles.trophyStatusTextLocked,
+            award.status === 'live' && styles.trophyStatusTextLive,
+          ]}
+        >
+          {trophyStatusLabels[award.status]}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function TrophyShelf({
+  awards,
+  loading,
+  wide = false,
+}: {
+  awards: RankingAward[];
+  loading: boolean;
+  wide?: boolean;
+}) {
+  const featuredAward = awards.find((award) => award.tier === 'legendary') ?? awards[0];
+  const otherAwards = awards.filter((award) => award.key !== featuredAward?.key);
+  const lockedCount = awards.filter((award) => award.status === 'locked').length;
+  const totalCount = awards.length || 11;
+
+  return (
+    <View style={[styles.rankingSidePanel, styles.trophyShelfPanel, wide && styles.trophyShelfPanelWide]}>
+      <View style={styles.trophyShelfHeader}>
+        <View style={styles.trophyShelfTitleBlock}>
+          <Text style={styles.rankingSideTitle}>Estante de Trofeus</Text>
+          <Text style={styles.rankingSideText}>
+            Conquistas por rodada, eliminatorias e classificacao geral.
+          </Text>
+        </View>
+        <View style={styles.trophyShelfCounter}>
+          <Text style={styles.trophyShelfCounterText}>
+            {lockedCount}/{totalCount}
+          </Text>
+        </View>
+      </View>
+
+      {loading ? <ActivityIndicator color={colors.gold} style={styles.loaderInline} /> : null}
+
+      {featuredAward ? <TrophyAwardCard award={featuredAward} featured /> : null}
+
+      <View style={styles.trophyAwardGrid}>
+        {otherAwards.map((award) => (
+          <TrophyAwardCard key={award.key} award={award} />
+        ))}
+      </View>
+    </View>
+  );
+}
+
 function RankingScreenLayout({
   refreshVersion,
   currentUserId,
@@ -2184,6 +2421,7 @@ function RankingScreenLayout({
   const { width } = useWindowDimensions();
   const [ranking, setRanking] = useState<RankingRow[]>([]);
   const [overallRanking, setOverallRanking] = useState<RankingRow[]>([]);
+  const [awards, setAwards] = useState<RankingAward[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -2192,8 +2430,9 @@ function RankingScreenLayout({
   const [periodFilter, setPeriodFilter] = useState<RankingPeriod>('all');
   const pulse = useRef(new Animated.Value(1)).current;
 
-  const isCompact = width < 1100;
-  const stackTools = width < 880;
+  const isCompact = width < 760;
+  const stackTools = width < 980;
+  const sidebarBelow = width < 1180;
 
   const loadRanking = useCallback(
     async (mode: 'blocking' | 'quiet' | 'refresh' = 'blocking') => {
@@ -2202,14 +2441,16 @@ function RankingScreenLayout({
       if (mode !== 'quiet') setError('');
 
       try {
-        const [result, overallResult] = await Promise.all([
+        const [result, overallResult, awardsResult] = await Promise.all([
           mode === 'refresh'
             ? api.refreshRanking(periodFilter)
             : api.ranking(periodFilter),
           periodFilter === 'all' ? Promise.resolve(null) : api.ranking('all'),
+          api.rankingAwards(),
         ]);
         setRanking(result.ranking);
         setOverallRanking(overallResult?.ranking ?? result.ranking);
+        setAwards(awardsResult.awards);
         if (mode === 'quiet') setError('');
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Nao foi possivel carregar o ranking.');
@@ -2322,8 +2563,6 @@ function RankingScreenLayout({
         maximumFractionDigits: 1,
       }).format(ranking.reduce((sum, row) => sum + row.points, 0) / ranking.length)
     : '--';
-  const topFive = ranking.slice(0, 5);
-  const leaderPoints = Math.max(leader?.points ?? 0, 1);
   const scopeTitle =
     periodFilter === 'week'
       ? 'Ranking semanal'
@@ -2337,18 +2576,6 @@ function RankingScreenLayout({
         ? 'Compare quem mais pontuou hoje e acompanhe ajustes em tempo real das partidas do dia.'
         : 'Acompanhe lideranca, provisoes em tempo real e o desempenho recente de cada participante.';
   const scopeRefreshText = 'Atualizacao manual';
-  const scopeTopFiveTitle =
-    periodFilter === 'week'
-      ? 'Top 5 semanal'
-      : periodFilter === 'day'
-        ? 'Top 5 do dia'
-        : 'Top 5 geral';
-  const scopeTopFiveText =
-    periodFilter === 'week'
-      ? 'Comparativo rapido da lideranca considerando apenas a semana atual.'
-      : periodFilter === 'day'
-        ? 'Comparativo rapido da lideranca considerando apenas os jogos de hoje.'
-        : 'Comparativo rapido da lideranca considerando a pontuacao atual.';
   const scopeFooterText =
     periodFilter === 'week'
       ? 'Sem partidas ao vivo neste recorte. O ranking abaixo reflete apenas resultados consolidados da semana atual.'
@@ -2359,10 +2586,22 @@ function RankingScreenLayout({
     ranking.length === 0
       ? 'Ranking vazio por enquanto.'
       : 'Nenhum participante encontrado para o filtro aplicado.';
+  const rankingAnimationKey = [
+    periodFilter,
+    statusFilter,
+    search,
+    awards.length,
+    filteredRanking.map((row) => `${row.userId}:${row.rank}:${row.points}`).join('|'),
+  ].join('/');
+
+  useRankingGsap(rankingAnimationKey);
 
   return (
-    <View style={styles.rankingPage}>
-      <View style={[styles.rankingHead, isCompact && styles.rankingHeadCompact]}>
+    <View {...rankingGsapTarget('page')} style={styles.rankingPage}>
+      <View
+        {...rankingGsapTarget('head')}
+        style={[styles.rankingHead, stackTools && styles.rankingHeadCompact]}
+      >
         <View style={styles.rankingHeadCopy}>
           <Text style={styles.sectionTitle}>{scopeTitle}</Text>
           <Text style={styles.rankingHeadText}>{scopeDescription}</Text>
@@ -2499,10 +2738,13 @@ function RankingScreenLayout({
         />
       </View>
 
-      <View style={[styles.rankingMainGrid, isCompact && styles.rankingMainGridCompact]}>
+      <View style={[styles.rankingMainGrid, sidebarBelow && styles.rankingMainGridCompact]}>
         <View style={styles.rankingPrimaryColumn}>
           {podiumRows.length > 0 ? (
-            <View style={[styles.rankingPodiumGrid, isCompact && styles.rankingPodiumGridCompact]}>
+            <View
+              {...rankingGsapTarget('podium')}
+              style={[styles.rankingPodiumGrid, isCompact && styles.rankingPodiumGridCompact]}
+            >
               {podiumLayout.map(({ row, place }) => (
                 <RankingPodiumCard
                   key={row.userId}
@@ -2514,7 +2756,7 @@ function RankingScreenLayout({
             </View>
           ) : null}
 
-          <View style={styles.rankingTablePanel}>
+          <View {...rankingGsapTarget('table')} style={styles.rankingTablePanel}>
             <View style={styles.rankingTableHeaderRow}>
               <View>
                 <Text style={styles.rankingTableTitle}>Classificacao completa</Text>
@@ -2543,6 +2785,7 @@ function RankingScreenLayout({
                   </View>
                   {filteredRanking.map((row, index) => (
                     <View
+                      {...rankingGsapTarget('row')}
                       key={row.userId}
                       style={[
                         styles.rankingTableRow,
@@ -2605,8 +2848,11 @@ function RankingScreenLayout({
           </Text>
         </View>
 
-        <View style={styles.rankingSidebar}>
-          <View style={styles.rankingSidePanel}>
+        <View
+          {...rankingGsapTarget('side')}
+          style={[styles.rankingSidebar, sidebarBelow && styles.rankingSidebarBelow]}
+        >
+          <View style={[styles.rankingSidePanel, sidebarBelow && styles.rankingSidePanelBelow]}>
             <Text style={styles.rankingSideTitle}>Radar do ranking</Text>
             <Text style={styles.rankingSideText}>
               Veja quem abre a rodada em vantagem e quem ainda busca reagir.
@@ -2631,37 +2877,8 @@ function RankingScreenLayout({
             </View>
           </View>
 
-          <View style={styles.rankingSidePanel}>
-            <Text style={styles.rankingSideTitle}>{scopeTopFiveTitle}</Text>
-            <Text style={styles.rankingSideText}>{scopeTopFiveText}</Text>
-            <View style={styles.rankingSidebarList}>
-              {topFive.map((row) => (
-                <View key={row.userId} style={styles.rankingSidebarRow}>
-                  <View style={styles.rankingSidebarRowHeader}>
-                    <View style={styles.rankingSidebarRowCopy}>
-                      <Text style={styles.rankingSidebarRowName}>
-                        #{row.rank} {row.nickname}
-                      </Text>
-                      <Text style={styles.rankingSidebarRowMeta}>
-                        {row.exactScores} exato(s) · {row.resultHits} resultado(s)
-                      </Text>
-                    </View>
-                    <Text style={styles.rankingSidebarRowPoints}>{row.points}</Text>
-                  </View>
-                  <View style={styles.rankingSidebarMeterTrack}>
-                    <View
-                      style={[
-                        styles.rankingSidebarMeterFill,
-                        { width: `${Math.max(10, (row.points / leaderPoints) * 100)}%` },
-                      ]}
-                    />
-                  </View>
-                </View>
-              ))}
-            </View>
-          </View>
-
-          <View style={styles.rankingSidePanel}>
+          <TrophyShelf awards={awards} loading={loading && awards.length === 0} wide={sidebarBelow} />
+          <View style={[styles.rankingSidePanel, sidebarBelow && styles.rankingSidePanelBelow]}>
             <Text style={styles.rankingSideTitle}>Criterios da tabela</Text>
             <View style={styles.rankingCriteriaList}>
               <View style={styles.rankingCriteriaRow}>
@@ -3187,9 +3404,11 @@ export default function App() {
   const [booting, setBooting] = useState(true);
   const [nowTime, setNowTime] = useState(Date.now());
   const [knockoutCalloutDismissed, setKnockoutCalloutDismissed] = useState(false);
+  const { width: viewportWidth } = useWindowDimensions();
   const appScrollRef = useRef<ScrollView>(null);
   const appScrollY = useRef(0);
   const inactiveSince = useRef<number | null>(null);
+  const appScrollStyle = [styles.appScroll, viewportWidth < 760 && styles.appScrollCompact];
 
   const triggerRefresh = useCallback(() => {
     setRefreshVersion((current) => current + 1);
@@ -3335,7 +3554,7 @@ export default function App() {
       <ScrollView
         ref={appScrollRef}
         style={styles.appScrollView}
-        contentContainerStyle={styles.appScroll}
+        contentContainerStyle={appScrollStyle}
         onScroll={(event) => {
           appScrollY.current = event.nativeEvent.contentOffset.y;
         }}
@@ -3800,6 +4019,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingBottom: 32,
     flexGrow: 1,
+  },
+  appScrollCompact: {
+    paddingTop: 14,
+    paddingHorizontal: 12,
+    paddingBottom: 24,
   },
   screenTransition: {
     width: '100%',
@@ -4401,21 +4625,21 @@ const styles = StyleSheet.create({
   },
   rankingPage: {
     width: '100%',
-    maxWidth: 1280,
-    alignSelf: 'center',
-    borderColor: '#1c4a3c',
-    borderWidth: 1,
-    borderRadius: 15,
-    backgroundColor: 'rgba(12,42,34,0.92)' as never,
-    boxShadow: '0 18px 55px rgba(0,0,0,0.34)' as never,
-    padding: 18,
-    gap: 16,
+    alignSelf: 'stretch',
+    gap: 14,
   },
   rankingHead: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: 18,
+    borderColor: '#1c493c',
+    borderWidth: 1,
+    borderRadius: 14,
+    backgroundImage: 'linear-gradient(135deg, rgba(16,47,38,0.96), rgba(7,28,23,0.92))' as never,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    boxShadow: '0 16px 44px rgba(0,0,0,0.22)' as never,
   },
   rankingHeadCompact: {
     flexDirection: 'column',
@@ -4531,19 +4755,19 @@ const styles = StyleSheet.create({
   rankingStatsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: 10,
   },
   rankingStatCard: {
-    minWidth: 180,
+    minWidth: 156,
     flex: 1,
-    minHeight: 82,
+    minHeight: 76,
     borderColor: '#1c493c',
     borderWidth: 1,
     backgroundImage: 'linear-gradient(180deg, #103227, #0b261f)' as never,
-    borderRadius: 14,
+    borderRadius: 12,
     paddingHorizontal: 14,
-    paddingVertical: 13,
-    gap: 8,
+    paddingVertical: 12,
+    gap: 7,
   },
   rankingStatLabel: {
     color: '#99b9ac',
@@ -4565,7 +4789,8 @@ const styles = StyleSheet.create({
   rankingMainGrid: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 16,
+    gap: 14,
+    width: '100%',
   },
   rankingMainGridCompact: {
     flexDirection: 'column',
@@ -4576,7 +4801,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
     width: '100%',
     alignSelf: 'stretch',
-    gap: 14,
+    gap: 12,
   },
   rankingPodiumGrid: {
     flexDirection: 'row',
@@ -4591,18 +4816,18 @@ const styles = StyleSheet.create({
   rankingPodiumCard: {
     flex: 1,
     minWidth: 0,
-    minHeight: 136,
+    minHeight: 116,
     borderColor: '#2d5a48',
     borderWidth: 1,
     backgroundColor: '#0a211b',
-    borderRadius: 16,
-    padding: 14,
-    gap: 10,
+    borderRadius: 14,
+    padding: 13,
+    gap: 8,
     position: 'relative',
     overflow: 'hidden',
   },
   rankingPodiumCardFirst: {
-    minHeight: 158,
+    minHeight: 132,
     borderColor: '#9d842e',
     backgroundImage:
       'linear-gradient(135deg, rgba(227,185,68,0.2), rgba(16,47,38,0.92))' as never,
@@ -4705,15 +4930,15 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     borderColor: '#1a463b',
     borderWidth: 1,
-    borderRadius: 15,
+    borderRadius: 14,
     backgroundColor: '#071c17',
     padding: 0,
     overflow: 'hidden',
   },
   rankingTableHeaderRow: {
-    minHeight: 78,
+    minHeight: 66,
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 12,
     borderBottomColor: '#1c4a3e',
     borderBottomWidth: 1,
     backgroundColor: '#071913',
@@ -4794,7 +5019,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   rankingTable: {
-    minWidth: 980,
+    minWidth: 860,
     borderColor: '#1a463b',
     borderWidth: 1,
     borderRadius: 15,
@@ -4802,7 +5027,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#071c17',
   },
   rankingTableRow: {
-    minHeight: 48,
+    minHeight: 46,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#071c17',
@@ -4892,20 +5117,34 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   rankingSidebar: {
-    width: '100%',
+    width: 392,
     alignSelf: 'stretch',
-    minWidth: 280,
-    flexBasis: 360,
-    flexShrink: 1,
-    gap: 14,
+    minWidth: 340,
+    maxWidth: 420,
+    flexShrink: 0,
+    gap: 12,
+  },
+  rankingSidebarBelow: {
+    width: '100%',
+    maxWidth: '100%',
+    minWidth: 0,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'flex-start',
   },
   rankingSidePanel: {
     borderColor: '#1c493c',
     borderWidth: 1,
-    borderRadius: 15,
+    borderRadius: 14,
     backgroundImage: 'linear-gradient(180deg, #102f26, #0a241e)' as never,
-    padding: 14,
+    padding: 13,
     gap: 10,
+  },
+  rankingSidePanelBelow: {
+    flexGrow: 1,
+    flexBasis: 300,
+    minWidth: 280,
+    maxWidth: '100%',
   },
   rankingSideTitle: {
     color: colors.text,
@@ -4918,52 +5157,206 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 18,
   },
-  rankingSidebarList: {
-    gap: 9,
+  trophyShelfPanel: {
+    borderColor: 'rgba(229,186,82,0.34)' as never,
+    backgroundImage:
+      'linear-gradient(180deg, rgba(16,47,38,0.96), rgba(8,30,24,0.98))' as never,
   },
-  rankingSidebarRow: {
-    borderColor: '#1b4338',
-    borderWidth: 1,
-    backgroundColor: '#071f19',
-    borderRadius: 12,
-    padding: 10,
-    gap: 9,
+  trophyShelfPanelWide: {
+    flexGrow: 2,
+    flexBasis: 520,
+    minWidth: 320,
+    maxWidth: '100%',
   },
-  rankingSidebarRowHeader: {
+  trophyShelfHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    gap: 10,
+    gap: 12,
   },
-  rankingSidebarRowCopy: {
+  trophyShelfTitleBlock: {
     flex: 1,
+    minWidth: 0,
+    gap: 5,
   },
-  rankingSidebarRowName: {
+  trophyShelfCounter: {
+    minHeight: 32,
+    minWidth: 58,
+    borderRadius: 999,
+    borderColor: 'rgba(229,186,82,0.45)' as never,
+    borderWidth: 1,
+    backgroundColor: 'rgba(229,186,82,0.1)' as never,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  trophyShelfCounterText: {
+    color: '#f6d979',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  trophyAwardGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 9,
+    alignItems: 'flex-start',
+  },
+  trophyAwardCard: {
+    minWidth: 0,
+    minHeight: 122,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(47,191,122,0.22)' as never,
+    backgroundColor: '#071f19',
+    padding: 10,
+    gap: 8,
+    overflow: 'hidden',
+  },
+  trophyAwardGridItem: {
+    flexGrow: 1,
+    flexBasis: '48%',
+    minWidth: 150,
+  },
+  trophyAwardCardFeatured: {
+    alignSelf: 'stretch',
+    minHeight: 128,
+    borderColor: 'rgba(229,186,82,0.58)' as never,
+    backgroundImage:
+      'linear-gradient(135deg, rgba(229,186,82,0.26), rgba(47,191,122,0.08) 52%, rgba(7,19,17,0.82))' as never,
+    padding: 12,
+  },
+  trophyAwardCardMajor: {
+    flexBasis: '100%',
+    minHeight: 108,
+    backgroundImage:
+      'linear-gradient(120deg, rgba(229,186,82,0.13), rgba(9,37,31,0.94))' as never,
+  },
+  trophyAwardLocked: {
+    borderColor: 'rgba(229,186,82,0.42)' as never,
+  },
+  trophyAwardLive: {
+    borderColor: 'rgba(47,191,122,0.55)' as never,
+    backgroundImage:
+      'linear-gradient(160deg, rgba(47,191,122,0.13), rgba(7,31,25,0.96))' as never,
+  },
+  trophyAwardPending: {
+    borderColor: 'rgba(168,187,179,0.22)' as never,
+    backgroundColor: '#0a211b',
+  },
+  trophyAwardEmpty: {
+    borderColor: 'rgba(168,187,179,0.16)' as never,
+    backgroundColor: '#081b16',
+    opacity: 0.72,
+  },
+  trophyAwardTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 9,
+  },
+  trophyIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundImage: 'linear-gradient(145deg, #f6d979, #b98522)' as never,
+    boxShadow: '0 0 0 4px rgba(229,186,82,0.08)' as never,
+  },
+  trophyIconFeatured: {
+    width: 58,
+    height: 58,
+    borderRadius: 17,
+    boxShadow: '0 0 0 5px rgba(229,186,82,0.12), 0 16px 30px rgba(0,0,0,0.24)' as never,
+  },
+  trophyIconMuted: {
+    backgroundImage: 'linear-gradient(145deg, #526860, #233d35)' as never,
+    boxShadow: 'none' as never,
+  },
+  trophyAwardCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  trophyAwardLabel: {
+    color: '#f6d979',
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase' as never,
+    lineHeight: 12,
+  },
+  trophyAwardTitle: {
     color: colors.text,
     fontSize: 13,
     fontWeight: '900',
+    lineHeight: 16,
   },
-  rankingSidebarRowMeta: {
-    color: '#97b5a8',
-    fontSize: 11,
-    fontWeight: '700',
-    marginTop: 2,
-  },
-  rankingSidebarRowPoints: {
-    color: colors.gold,
+  trophyAwardTitleFeatured: {
+    color: '#f6d979',
     fontSize: 18,
+    lineHeight: 22,
+  },
+  trophyAwardSubtitle: {
+    color: '#d7e5de',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  trophyWinnerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minHeight: 30,
+  },
+  trophyWinnerCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  trophyWinnerName: {
+    color: colors.text,
+    fontSize: 12,
     fontWeight: '900',
   },
-  rankingSidebarMeterTrack: {
-    height: 8,
-    backgroundColor: '#0a1b16',
-    borderRadius: 999,
-    overflow: 'hidden',
+  trophyWinnerMeta: {
+    color: '#9dbbad',
+    fontSize: 10,
+    fontWeight: '800',
   },
-  rankingSidebarMeterFill: {
-    height: '100%',
+  trophyPlaceholderAvatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 14,
+  },
+  trophyStatusBadge: {
+    alignSelf: 'flex-start',
+    minHeight: 22,
     borderRadius: 999,
-    backgroundImage: 'linear-gradient(90deg, #2ed085, #f2c14e)' as never,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    justifyContent: 'center',
+  },
+  trophyStatusBadgeLocked: {
+    backgroundColor: colors.green,
+  },
+  trophyStatusBadgeLive: {
+    backgroundColor: 'rgba(229,186,82,0.16)' as never,
+    borderColor: 'rgba(229,186,82,0.35)' as never,
+    borderWidth: 1,
+  },
+  trophyStatusBadgeMuted: {
+    backgroundColor: 'rgba(168,187,179,0.14)' as never,
+  },
+  trophyStatusText: {
+    color: colors.muted,
+    fontSize: 9,
+    fontWeight: '900',
+    textTransform: 'uppercase' as never,
+  },
+  trophyStatusTextLocked: {
+    color: '#071311',
+  },
+  trophyStatusTextLive: {
+    color: '#f6d979',
   },
   rankingCriteriaList: {
     gap: 8,

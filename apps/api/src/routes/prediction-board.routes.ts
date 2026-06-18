@@ -1,11 +1,16 @@
 import { Router } from 'express';
-import { predictionInputSchema, upsertKnockoutBracketSchema } from '@bolao/shared';
+import {
+  predictionInputSchema,
+  upsertKnockoutBracketSchema,
+  upsertKnockoutSimulationSchema,
+} from '@bolao/shared';
 import { z } from 'zod';
 import { asyncHandler } from '../http/async-handler.js';
 import { requireAuth } from '../middleware/auth.js';
 import {
   getPredictionBoard,
   listPublicKnockoutBrackets,
+  saveGroupSimulationScores,
   saveKnockoutBracket,
 } from '../services/knockout.service.js';
 
@@ -28,6 +33,14 @@ predictionBoardRouter.post(
       .object({ groupScores: z.array(predictionInputSchema).optional() })
       .parse(req.body);
     res.json(await getPredictionBoard(req.session.user!.id, input.groupScores));
+  }),
+);
+
+predictionBoardRouter.put(
+  '/simulation',
+  asyncHandler(async (req, res) => {
+    const input = upsertKnockoutSimulationSchema.parse(req.body);
+    res.json(await saveGroupSimulationScores(req.session.user!.id, input));
   }),
 );
 

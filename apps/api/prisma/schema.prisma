@@ -75,21 +75,22 @@ enum AuditAction {
 }
 
 model User {
-  id               String                    @id @default(cuid())
-  username         String                    @unique
-  usernameLower    String                    @unique
+  id               String                         @id @default(cuid())
+  username         String                         @unique
+  usernameLower    String                         @unique
   nickname         String
   avatarUrl        String?
   passwordHash     String
-  role             UserRole                  @default(USER)
-  status           UserStatus                @default(ACTIVE)
-  createdAt        DateTime                  @default(now())
-  updatedAt        DateTime                  @updatedAt
+  role             UserRole                       @default(USER)
+  status           UserStatus                     @default(ACTIVE)
+  createdAt        DateTime                       @default(now())
+  updatedAt        DateTime                       @updatedAt
   predictions      Prediction[]
   scores           PredictionScore[]
-  auditLogs        AdminAuditLog[]           @relation("AdminAuditActor")
+  auditLogs        AdminAuditLog[]                @relation("AdminAuditActor")
   knockoutBrackets KnockoutBracket[]
   knockoutScores   KnockoutPredictionScore[]
+  groupSimulations KnockoutGroupSimulationScore[]
 
   @@index([role, status])
   @@index([nickname])
@@ -135,26 +136,27 @@ model MatchDay {
 }
 
 model Match {
-  id             String            @id @default(cuid())
-  externalId     String            @unique
-  matchDayId     String
-  homeTeamId     String
-  awayTeamId     String
-  startsAt       DateTime
-  status         MatchStatus       @default(SCHEDULED)
-  homeScore      Int?
-  awayScore      Int?
-  finalHomeScore Int?
-  finalAwayScore Int?
-  rawPayload     Json?
-  lastSyncedAt   DateTime?
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
-  matchDay       MatchDay          @relation(fields: [matchDayId], references: [id], onDelete: Cascade)
-  homeTeam       Team              @relation("HomeTeam", fields: [homeTeamId], references: [id])
-  awayTeam       Team              @relation("AwayTeam", fields: [awayTeamId], references: [id])
-  predictions    Prediction[]
-  scores         PredictionScore[]
+  id               String                         @id @default(cuid())
+  externalId       String                         @unique
+  matchDayId       String
+  homeTeamId       String
+  awayTeamId       String
+  startsAt         DateTime
+  status           MatchStatus                    @default(SCHEDULED)
+  homeScore        Int?
+  awayScore        Int?
+  finalHomeScore   Int?
+  finalAwayScore   Int?
+  rawPayload       Json?
+  lastSyncedAt     DateTime?
+  createdAt        DateTime                       @default(now())
+  updatedAt        DateTime                       @updatedAt
+  matchDay         MatchDay                       @relation(fields: [matchDayId], references: [id], onDelete: Cascade)
+  homeTeam         Team                           @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam         Team                           @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  predictions      Prediction[]
+  scores           PredictionScore[]
+  groupSimulations KnockoutGroupSimulationScore[]
 
   @@index([matchDayId, startsAt])
   @@index([status, startsAt])
@@ -229,15 +231,16 @@ model KnockoutFixture {
 }
 
 model KnockoutGeneration {
-  id        String                   @id @default(cuid())
-  sequence  Int                      @unique
-  mode      KnockoutGenerationMode
-  status    KnockoutGenerationStatus @default(ACTIVE)
-  closesAt  DateTime?
-  resetAt   DateTime?
-  createdAt DateTime                 @default(now())
-  updatedAt DateTime                 @updatedAt
-  brackets  KnockoutBracket[]
+  id               String                         @id @default(cuid())
+  sequence         Int                            @unique
+  mode             KnockoutGenerationMode
+  status           KnockoutGenerationStatus       @default(ACTIVE)
+  closesAt         DateTime?
+  resetAt          DateTime?
+  createdAt        DateTime                       @default(now())
+  updatedAt        DateTime                       @updatedAt
+  brackets         KnockoutBracket[]
+  groupSimulations KnockoutGroupSimulationScore[]
 
   @@index([mode, status])
   @@index([closesAt])
@@ -280,6 +283,25 @@ model KnockoutPick {
   @@unique([bracketId, fixtureId])
   @@index([fixtureId])
   @@index([advancingTeamId])
+}
+
+model KnockoutGroupSimulationScore {
+  id                 String             @id @default(cuid())
+  userId             String
+  generationId       String
+  matchId            String
+  predictedHomeScore Int
+  predictedAwayScore Int
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  generation         KnockoutGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
+  match              Match              @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, generationId, matchId])
+  @@index([generationId])
+  @@index([matchId])
+  @@index([userId])
 }
 
 model KnockoutPredictionScore {

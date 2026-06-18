@@ -469,27 +469,30 @@ function GroupModule({
 function SimulationMatchRow({
   match,
   draft,
+  canEdit,
   onChange,
 }: {
   match: PredictionBoardMatch;
   draft: ScoreDraft;
+  canEdit: boolean;
   onChange: (matchId: string, side: 'home' | 'away', value: string) => void;
 }) {
   const value = draft[match.id] ?? { home: '', away: '' };
   const lockedByReality = match.status === 'LIVE' || match.status === 'FINISHED';
+  const locked = lockedByReality || !canEdit;
   const official = scoreForMatch(match, draft);
   const displayHome = lockedByReality ? String(official?.home ?? '-') : value.home;
   const displayAway = lockedByReality ? String(official?.away ?? '-') : value.away;
 
   return (
-    <View style={[styles.simMatchRow, lockedByReality && styles.simMatchLocked]}>
+    <View style={[styles.simMatchRow, locked && styles.simMatchLocked]}>
       <View style={styles.simMatchTeams}>
         <TeamLabel team={match.homeTeam} compact tone="light" />
         <TeamLabel team={match.awayTeam} compact tone="light" />
       </View>
       <View style={styles.compactScoreInputs}>
         <TextInput
-          editable={!lockedByReality}
+          editable={!locked}
           keyboardType="number-pad"
           maxLength={2}
           value={displayHome}
@@ -497,12 +500,12 @@ function SimulationMatchRow({
           style={[
             styles.compactScoreInput,
             styles.simScoreInput,
-            lockedByReality && styles.simScoreLocked,
+            locked && styles.simScoreLocked,
           ]}
         />
         <Text style={styles.scoreSeparator}>x</Text>
         <TextInput
-          editable={!lockedByReality}
+          editable={!locked}
           keyboardType="number-pad"
           maxLength={2}
           value={displayAway}
@@ -510,12 +513,18 @@ function SimulationMatchRow({
           style={[
             styles.compactScoreInput,
             styles.simScoreInput,
-            lockedByReality && styles.simScoreLocked,
+            locked && styles.simScoreLocked,
           ]}
         />
       </View>
       <Text style={styles.simMatchState}>
-        {lockedByReality ? (match.status === 'LIVE' ? 'Ao vivo' : 'Real') : shortTime(match.startsAt)}
+        {lockedByReality
+          ? match.status === 'LIVE'
+            ? 'Ao vivo'
+            : 'Real'
+          : !canEdit
+            ? 'Fechado'
+            : shortTime(match.startsAt)}
       </Text>
     </View>
   );
@@ -524,10 +533,12 @@ function SimulationMatchRow({
 function GroupSimulationPanel({
   groups,
   draft,
+  canEdit,
   onChange,
 }: {
   groups: PredictionBoardGroup[];
   draft: ScoreDraft;
+  canEdit: boolean;
   onChange: (matchId: string, side: 'home' | 'away', value: string) => void;
 }) {
   return (
@@ -561,6 +572,7 @@ function GroupSimulationPanel({
                     key={match.id}
                     match={match}
                     draft={draft}
+                    canEdit={canEdit}
                     onChange={onChange}
                   />
                 ))}
@@ -1675,14 +1687,17 @@ export function PredictionBoardScreen({
       const values = { ...current };
       for (const match of next.groups.flatMap((group) => group.matches)) {
         if (values[match.id]) continue;
+        const savedScore = standaloneKnockout
+          ? match.simulationScore ?? match.ownPrediction
+          : match.ownPrediction;
         values[match.id] = {
-          home: match.ownPrediction ? String(match.ownPrediction.predictedHomeScore) : '',
-          away: match.ownPrediction ? String(match.ownPrediction.predictedAwayScore) : '',
+          home: savedScore ? String(savedScore.predictedHomeScore) : '',
+          away: savedScore ? String(savedScore.predictedAwayScore) : '',
         };
       }
       return values;
     });
-  }, []);
+  }, [standaloneKnockout]);
 
   const load = useCallback(
     async (quiet = false) => {
@@ -1736,15 +1751,16 @@ export function PredictionBoardScreen({
         .join('|'),
     [groupScorePayload],
   );
+  const simulationOpen = Boolean(board?.canPredict && board.knockout.generation.isOpen);
 
   useEffect(() => {
-    if (!standaloneKnockout || !board || loading) return undefined;
+    if (!standaloneKnockout || !simulationOpen || loading) return undefined;
     const requestId = previewRequestRef.current + 1;
     previewRequestRef.current = requestId;
     const timer = setTimeout(() => {
       setPreviewing(true);
       api
-        .previewPredictionBoard(groupScorePayload)
+        .savePredictionBoardSimulation(groupScorePayload)
         .then((next) => {
           if (previewRequestRef.current !== requestId) return;
           applyBoard(next);
@@ -1764,6 +1780,7 @@ export function PredictionBoardScreen({
     applyBoard,
     groupScoreSignature,
     loading,
+    simulationOpen,
     standaloneKnockout,
   ]);
 
@@ -1878,6 +1895,7 @@ export function PredictionBoardScreen({
           <GroupSimulationPanel
             groups={board.groups}
             draft={draft}
+            canEdit={simulationOpen}
             onChange={(matchId, side, value) =>
               setDraft((current) => ({
                 ...current,
@@ -1889,8 +1907,10 @@ export function PredictionBoardScreen({
             <Ionicons name="sync-outline" size={15} color="#5ee8a0" />
             <Text style={styles.previewStatusText}>
               {previewing
-                ? 'Atualizando chave simulada...'
-                : 'Chave sincronizada com a simulacao atual.'}
+                ? 'Salvando simulacao...'
+                : simulationOpen
+                  ? 'Chave sincronizada com a simulacao salva.'
+                  : 'Simulacao fechada para alteracoes.'}
             </Text>
           </View>
         </>

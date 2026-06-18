@@ -1,0 +1,220 @@
+Montei um protótipo visual da **Estante de Troféus** para substituir o bloco lateral “Top 5 geral”:
+
+[Baixar protótipo HTML da Estante de Troféus](sandbox:/mnt/data/prototipo-estante-trofeus-bolao.html)
+
+## 1. Conceito da nova lateral do ranking
+
+Substituir o bloco **Top 5 geral** por uma vitrine com o título:
+
+> **Estante de Troféus**
+> Conquistas por rodada, eliminatórias e classificação geral.
+
+A lateral deixa de ser apenas informativa e passa a criar **metas intermediárias**, mantendo o pessoal interessado mesmo quando já não está brigando diretamente pela liderança geral.
+
+## 2. Troféus sugeridos
+
+| Troféu                 |                                                   Critério | Peso visual   |
+| ---------------------- | ---------------------------------------------------------: | ------------- |
+| Campeão da 1ª rodada   |              Maior pontuação na rodada 1 da fase de grupos | Normal        |
+| Campeão da 2ª rodada   |              Maior pontuação na rodada 2 da fase de grupos | Normal        |
+| Campeão da 3ª rodada   |              Maior pontuação na rodada 3 da fase de grupos | Normal        |
+| Rei da Fase de Grupos  | Maior pontuação consolidada nos 72 jogos da fase de grupos | Especial      |
+| Mestre da Chave        |            Maior pontuação nas previsões das eliminatórias | Especial      |
+| Campeão dos 32 avos    |                        Maior pontuação na fase ROUND_OF_32 | Normal        |
+| Campeão das Oitavas    |                        Maior pontuação na fase ROUND_OF_16 | Normal        |
+| Campeão das Quartas    |                      Maior pontuação na fase QUARTER_FINAL | Normal        |
+| Campeão da Semifinal   |                         Maior pontuação na fase SEMI_FINAL | Normal        |
+| Dono do 3º Lugar       |                     Maior pontuação na disputa THIRD_PLACE | Normal        |
+| Dono da Final          |                                   Maior pontuação na FINAL | Especial      |
+| Campeão Geral do Bolão |                           Maior pontuação total do ranking | Troféu máximo |
+
+## 3. Hierarquia visual
+
+### Troféu máximo — Campeão Geral
+
+Deve ficar no topo da estante, com card maior, efeito dourado e avatar em destaque.
+
+Visual sugerido:
+
+```txt
+🏆 CAMPEÃO GERAL
+sérgio.c
+57 pts · 4 exatos · 6 resultados
+```
+
+### Troféus especiais
+
+Usar cards maiores ou horizontais:
+
+```txt
+👑 Rei da Fase de Grupos
+🧬 Mestre da Chave
+⭐ Dono da Final
+```
+
+### Troféus normais
+
+Usar cards menores em grade 2x2:
+
+```txt
+🥇 Rodada 1
+🥈 Rodada 2
+🥉 Rodada 3
+🏅 Oitavas
+```
+
+### Estados do troféu
+
+Cada card deve ter um estado:
+
+| Estado    | Exibição                                  |
+| --------- | ----------------------------------------- |
+| `pending` | “Aguardando” / card escurecido            |
+| `live`    | “Em disputa” / card com destaque verde    |
+| `locked`  | “Conquistado” / card dourado com vencedor |
+| `empty`   | “Sem jogos finalizados”                   |
+
+## 4. Critérios de desempate do ranking
+
+Hoje o serviço de ranking já utiliza os campos `points`, `exactScores`, `resultHits`, `oneGoalHits` e `misses` no retorno da API. Esses campos existem no tipo `RankingRow`.
+
+A ordenação atual, entretanto, desempata por **pontos**, depois por **placares exatos** e, em seguida, por **nome do participante**.
+
+A regra correta deve ficar assim:
+
+```ts
+function compareRankingRows(a: RankingRowBase, b: RankingRowBase) {
+  return (
+    b.points - a.points ||
+    b.exactScores - a.exactScores ||
+    b.resultHits - a.resultHits ||
+    b.oneGoalHits - a.oneGoalHits ||
+    a.misses - b.misses ||
+    a.nickname.localeCompare(b.nickname, 'pt-BR')
+  );
+}
+```
+
+Aplicação:
+
+```ts
+return rows
+  .sort(compareRankingRows)
+  .map((row, index) => ({ rank: index + 1, ...row }));
+```
+
+### Ordem final de desempate
+
+1. Maior pontuação;
+2. Maior número de placares exatos;
+3. Maior número de resultados acertados;
+4. Maior número de acertos de gols;
+5. Menor número de erros;
+6. Nome do participante apenas como critério técnico residual.
+
+## 5. Estrutura recomendada para a API de troféus
+
+Criar um endpoint próprio:
+
+```txt
+GET /api/ranking/awards
+```
+
+Retorno sugerido:
+
+```ts
+export interface RankingAward {
+  key: string;
+  title: string;
+  subtitle: string;
+  scope: 'GROUP_ROUND' | 'GROUP_STAGE' | 'KNOCKOUT_BRACKET' | 'KNOCKOUT_STAGE' | 'OVERALL';
+  tier: 'standard' | 'major' | 'legendary';
+  status: 'pending' | 'live' | 'locked';
+  icon: string;
+  winner?: {
+    userId: string;
+    nickname: string;
+    avatarUrl?: string | null;
+    points: number;
+    exactScores: number;
+    resultHits: number;
+    oneGoalHits: number;
+    misses: number;
+  };
+}
+```
+
+## 6. Componente visual sugerido
+
+Nome do componente:
+
+```txt
+TrophyShelf
+```
+
+Uso dentro da lateral do ranking:
+
+```tsx
+<View style={styles.rankingSidebar}>
+  <View style={styles.rankingSidePanel}>
+    <Text style={styles.rankingSideTitle}>Radar do ranking</Text>
+    ...
+  </View>
+
+  <TrophyShelf awards={awards} />
+
+  <View style={styles.rankingSidePanel}>
+    <Text style={styles.rankingSideTitle}>Critérios da tabela</Text>
+    ...
+  </View>
+</View>
+```
+
+O bloco **Top 5 geral** sai da lateral. O ranking completo continua na tabela principal.
+
+## 7. Observação técnica importante
+
+Para apurar corretamente os troféus da **1ª, 2ª e 3ª rodada da fase de grupos**, o ideal é gravar no banco um identificador objetivo, por exemplo:
+
+```ts
+groupRound: 1 | 2 | 3
+```
+
+Ou manter isso dentro do `rawPayload` do jogo:
+
+```json
+{
+  "group": "A",
+  "round": "1"
+}
+```
+
+Sem esse campo, a API teria que inferir rodada por data ou ordem dos jogos, o que é mais frágil e pode gerar erro em caso de adiamento, mudança de horário ou partida remarcada.
+
+## 8. Resultado esperado na tela
+
+A lateral direita ficaria assim:
+
+```txt
+Radar do ranking
+[Líder]
+[Lanterna]
+
+Estante de Troféus
+[🏆 Campeão Geral — sérgio.c]
+[🥇 Rodada 1 — Isaque.Silva]
+[🥈 Rodada 2 — amorzinho de Carlos]
+[🥉 Rodada 3 — Em disputa]
+[👑 Rei da Fase de Grupos — Aguardando]
+[🧬 Mestre da Chave — Aguardando]
+[🏅 32 avos — Bloqueado]
+[🏅 Oitavas — Bloqueado]
+[🏅 Quartas — Bloqueado]
+[🏅 Semi — Bloqueado]
+[⭐ Final — Bloqueado]
+
+Critérios da tabela
+EX, RES, GOL, ER
+```
+
+Isso preserva o estilo visual atual do bolão, mas troca uma área estática por uma mecânica de recompensa contínua.

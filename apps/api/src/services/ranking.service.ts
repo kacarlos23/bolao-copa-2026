@@ -1,9 +1,135 @@
-import type { ScoreType } from '@prisma/client';
+import type { KnockoutStage, Prisma, ScoreType } from '@prisma/client';
 import { calculatePredictionScore } from '@bolao/shared';
 import { prisma } from '../prisma.js';
 import { emitSse } from '../realtime/sse.js';
 
 export type RankingPeriod = 'all' | 'week' | 'day';
+
+export type RankingAwardScope =
+  | 'GROUP_ROUND'
+  | 'GROUP_STAGE'
+  | 'KNOCKOUT_BRACKET'
+  | 'KNOCKOUT_STAGE'
+  | 'OVERALL';
+export type RankingAwardTier = 'standard' | 'major' | 'legendary';
+export type RankingAwardStatus = 'pending' | 'live' | 'locked' | 'empty';
+
+export interface RankingAwardWinner {
+  userId: string;
+  nickname: string;
+  avatarUrl?: string | null;
+  points: number;
+  exactScores: number;
+  resultHits: number;
+  oneGoalHits: number;
+  misses: number;
+}
+
+export interface RankingAward {
+  key: string;
+  title: string;
+  subtitle: string;
+  scope: RankingAwardScope;
+  tier: RankingAwardTier;
+  status: RankingAwardStatus;
+  icon: string;
+  winner?: RankingAwardWinner;
+}
+
+export interface RankingRowBase {
+  nickname: string;
+  points: number;
+  exactScores: number;
+  resultHits: number;
+  oneGoalHits: number;
+  misses: number;
+}
+
+export interface RankingAwardScoreInput {
+  userId: string;
+  nickname: string;
+  avatarUrl?: string | null;
+  points: number;
+  isFinal: boolean;
+  scoreType: ScoreType;
+}
+
+type AwardWinnerAccumulator = RankingAwardWinner & {
+  played: number;
+  hasLiveData: boolean;
+};
+
+type ScopeItem = {
+  status: string;
+};
+
+const EXPECTED_GROUP_MATCHES = 72;
+const EXPECTED_KNOCKOUT_FIXTURES = 32;
+const EXPECTED_STAGE_FIXTURES: Record<KnockoutStage, number> = {
+  ROUND_OF_32: 16,
+  ROUND_OF_16: 8,
+  QUARTER_FINAL: 4,
+  SEMI_FINAL: 2,
+  THIRD_PLACE: 1,
+  FINAL: 1,
+};
+
+export function compareRankingRows(a: RankingRowBase, b: RankingRowBase) {
+  return (
+    b.points - a.points ||
+    b.exactScores - a.exactScores ||
+    b.resultHits - a.resultHits ||
+    b.oneGoalHits - a.oneGoalHits ||
+    a.misses - b.misses ||
+    a.nickname.localeCompare(b.nickname, 'pt-BR')
+  );
+}
+
+export function buildAwardWinner(scores: RankingAwardScoreInput[]) {
+  const byUser = new Map<string, AwardWinnerAccumulator>();
+
+  for (const score of scores) {
+    const row =
+      byUser.get(score.userId) ??
+      ({
+        userId: score.userId,
+        nickname: score.nickname,
+        avatarUrl: score.avatarUrl,
+        points: 0,
+        exactScores: 0,
+        resultHits: 0,
+        oneGoalHits: 0,
+        misses: 0,
+        played: 0,
+        hasLiveData: false,
+      } satisfies AwardWinnerAccumulator);
+
+    row.points += score.points;
+    row.played += 1;
+    row.hasLiveData = row.hasLiveData || !score.isFinal;
+
+    if (score.scoreType === 'EXACT_SCORE') row.exactScores += 1;
+    if (score.scoreType === 'RESULT') row.resultHits += 1;
+    if (score.scoreType === 'ONE_TEAM_GOALS') row.oneGoalHits += 1;
+    if (score.scoreType === 'MISS') row.misses += 1;
+
+    byUser.set(score.userId, row);
+  }
+
+  const winner = [...byUser.values()].sort(compareRankingRows)[0];
+  if (!winner) return undefined;
+
+  return {
+    userId: winner.userId,
+    nickname: winner.nickname,
+    avatarUrl: winner.avatarUrl,
+    points: winner.points,
+    exactScores: winner.exactScores,
+    resultHits: winner.resultHits,
+    oneGoalHits: winner.oneGoalHits,
+    misses: winner.misses,
+  } satisfies RankingAwardWinner;
+}
 
 export async function recalculateScoresForMatch(
   matchId: string,
@@ -106,6 +232,76 @@ function rankingWindow(period: RankingPeriod) {
   };
 }
 
+function jsonString(value: Prisma.JsonValue | null | undefined, key: string) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const raw = value[key];
+  return typeof raw === 'string' ? raw : null;
+}
+
+function groupRoundNumber(value: Prisma.JsonValue | null | undefined) {
+  const round = jsonString(value, 'round')?.trim().toLowerCase();
+  if (!round) return null;
+  if (round.startsWith('1') || round.includes('rodada 1')) return 1;
+  if (round.startsWith('2') || round.includes('rodada 2')) return 2;
+  if (round.startsWith('3') || round.includes('rodada 3')) return 3;
+  return null;
+}
+
+function buildAwardStatus(
+  items: ScopeItem[],
+  scores: RankingAwardScoreInput[],
+  expectedItems?: number,
+): RankingAwardStatus {
+  if (items.length === 0) return 'empty';
+
+  const scheduleComplete = expectedItems == null || items.length >= expectedItems;
+  const allFinished = scheduleComplete && items.every((item) => item.status === 'FINISHED');
+  const hasLiveItem = items.some((item) => item.status === 'LIVE');
+
+  if (scores.length === 0) return hasLiveItem ? 'live' : 'pending';
+  if (allFinished) return 'locked';
+  return 'live';
+}
+
+function buildOverallAwardStatus(
+  groupMatches: ScopeItem[],
+  knockoutFixtures: ScopeItem[],
+  scores: RankingAwardScoreInput[],
+): RankingAwardStatus {
+  const items = [...groupMatches, ...knockoutFixtures];
+  if (items.length === 0) return 'empty';
+  if (scores.length === 0) return items.some((item) => item.status === 'LIVE') ? 'live' : 'pending';
+
+  const scheduleComplete =
+    groupMatches.length >= EXPECTED_GROUP_MATCHES &&
+    knockoutFixtures.length >= EXPECTED_KNOCKOUT_FIXTURES;
+  const allFinished = scheduleComplete && items.every((item) => item.status === 'FINISHED');
+  return allFinished ? 'locked' : 'live';
+}
+
+function makeAward(input: {
+  key: string;
+  title: string;
+  subtitle: string;
+  scope: RankingAwardScope;
+  tier: RankingAwardTier;
+  status: RankingAwardStatus;
+  icon: string;
+  scores: RankingAwardScoreInput[];
+}): RankingAward {
+  const winner = buildAwardWinner(input.scores);
+  return {
+    key: input.key,
+    title: input.title,
+    subtitle: input.subtitle,
+    scope: input.scope,
+    tier: input.tier,
+    status: input.status,
+    icon: input.icon,
+    ...(winner ? { winner } : {}),
+  };
+}
+
 function buildRankingRows(
   users: Array<{
     id: string;
@@ -151,10 +347,7 @@ function buildRankingRows(
     .filter((row) => period === 'all' || row.played > 0);
 
   return rows
-    .sort(
-      (a, b) =>
-        b.points - a.points || b.exactScores - a.exactScores || a.nickname.localeCompare(b.nickname),
-    )
+    .sort(compareRankingRows)
     .map((row, index) => ({ rank: index + 1, ...row }));
 }
 
@@ -202,6 +395,217 @@ export async function getRanking(period: RankingPeriod = 'all') {
   });
 
   return buildRankingRows(users, period);
+}
+
+export async function getRankingAwards() {
+  const [overallRanking, users, groupMatches, knockoutFixtures] = await Promise.all([
+    getRanking('all'),
+    prisma.user.findMany({
+      where: { role: 'USER', status: 'ACTIVE' },
+      select: {
+        id: true,
+        nickname: true,
+        avatarUrl: true,
+        scores: {
+          select: {
+            points: true,
+            isFinal: true,
+            scoreType: true,
+            match: { select: { rawPayload: true, status: true } },
+          },
+        },
+        knockoutScores: {
+          select: {
+            points: true,
+            isFinal: true,
+            scoreType: true,
+            fixture: { select: { stage: true, status: true } },
+          },
+        },
+      },
+    }),
+    prisma.match.findMany({ select: { rawPayload: true, status: true } }),
+    prisma.knockoutFixture.findMany({ select: { stage: true, status: true } }),
+  ]);
+
+  const groupScoreRows = users.flatMap((user) =>
+    user.scores.map((score) => ({
+      userId: user.id,
+      nickname: user.nickname,
+      avatarUrl: user.avatarUrl,
+      points: score.points,
+      isFinal: score.isFinal,
+      scoreType: score.scoreType,
+      match: score.match,
+    })),
+  );
+
+  const knockoutScoreRows = users.flatMap((user) =>
+    user.knockoutScores.map((score) => ({
+      userId: user.id,
+      nickname: user.nickname,
+      avatarUrl: user.avatarUrl,
+      points: score.points,
+      isFinal: score.isFinal,
+      scoreType: score.scoreType,
+      fixture: score.fixture,
+    })),
+  );
+
+  const groupScores = groupScoreRows.map(({ match: _match, ...score }) => score);
+  const knockoutScores = knockoutScoreRows.map(({ fixture: _fixture, ...score }) => score);
+  const allScores = [...groupScores, ...knockoutScores];
+
+  const awards: RankingAward[] = [];
+  const leader = overallRanking[0];
+  awards.push({
+    key: 'overall_champion',
+    title: 'Campeao Geral',
+    subtitle: 'Trofeu maximo do bolao',
+    scope: 'OVERALL',
+    tier: 'legendary',
+    status: buildOverallAwardStatus(groupMatches, knockoutFixtures, allScores),
+    icon: 'trophy',
+    ...(leader
+      ? {
+          winner: {
+            userId: leader.userId,
+            nickname: leader.nickname,
+            avatarUrl: leader.avatarUrl,
+            points: leader.points,
+            exactScores: leader.exactScores,
+            resultHits: leader.resultHits,
+            oneGoalHits: leader.oneGoalHits,
+            misses: leader.misses,
+          },
+        }
+      : {}),
+  });
+
+  for (const round of [1, 2, 3] as const) {
+    const roundMatches = groupMatches.filter((match) => groupRoundNumber(match.rawPayload) === round);
+    const roundScores = groupScoreRows
+      .filter((score) => groupRoundNumber(score.match.rawPayload) === round)
+      .map(({ match: _match, ...score }) => score);
+
+    awards.push(
+      makeAward({
+        key: `group_round_${round}`,
+        title: `Campeao da ${round}a rodada`,
+        subtitle: `Maior pontuacao na rodada ${round} da fase de grupos`,
+        scope: 'GROUP_ROUND',
+        tier: 'standard',
+        status: buildAwardStatus(roundMatches, roundScores),
+        icon: round === 1 ? 'medal' : 'medal-outline',
+        scores: roundScores,
+      }),
+    );
+  }
+
+  awards.push(
+    makeAward({
+      key: 'group_stage_king',
+      title: 'Rei da Fase de Grupos',
+      subtitle: 'Melhor pontuacao nos 72 jogos',
+      scope: 'GROUP_STAGE',
+      tier: 'major',
+      status: buildAwardStatus(groupMatches, groupScores, EXPECTED_GROUP_MATCHES),
+      icon: 'ribbon',
+      scores: groupScores,
+    }),
+  );
+
+  awards.push(
+    makeAward({
+      key: 'knockout_master',
+      title: 'Mestre da Chave',
+      subtitle: 'Maior pontuacao nas eliminatorias',
+      scope: 'KNOCKOUT_BRACKET',
+      tier: 'major',
+      status: buildAwardStatus(knockoutFixtures, knockoutScores, EXPECTED_KNOCKOUT_FIXTURES),
+      icon: 'git-network-outline',
+      scores: knockoutScores,
+    }),
+  );
+
+  const stageAwards: Array<{
+    key: string;
+    title: string;
+    subtitle: string;
+    stages: KnockoutStage[];
+    tier: RankingAwardTier;
+    icon: string;
+    expectedItems: number;
+  }> = [
+    {
+      key: 'round_of_32',
+      title: 'Mata-mata inicial',
+      subtitle: 'Campeao dos 32 avos',
+      stages: ['ROUND_OF_32'],
+      tier: 'standard',
+      icon: 'shield-outline',
+      expectedItems: EXPECTED_STAGE_FIXTURES.ROUND_OF_32,
+    },
+    {
+      key: 'round_of_16',
+      title: 'Campeao das Oitavas',
+      subtitle: 'Maior pontuacao nas oitavas',
+      stages: ['ROUND_OF_16'],
+      tier: 'standard',
+      icon: 'shield-outline',
+      expectedItems: EXPECTED_STAGE_FIXTURES.ROUND_OF_16,
+    },
+    {
+      key: 'quarter_final',
+      title: 'Campeao das Quartas',
+      subtitle: 'Maior pontuacao nas quartas',
+      stages: ['QUARTER_FINAL'],
+      tier: 'standard',
+      icon: 'shield-outline',
+      expectedItems: EXPECTED_STAGE_FIXTURES.QUARTER_FINAL,
+    },
+    {
+      key: 'semi_final',
+      title: 'Campeao da Semi',
+      subtitle: 'Maior pontuacao na semifinal',
+      stages: ['SEMI_FINAL'],
+      tier: 'standard',
+      icon: 'shield-outline',
+      expectedItems: EXPECTED_STAGE_FIXTURES.SEMI_FINAL,
+    },
+    {
+      key: 'finals_owner',
+      title: 'Dono das Finais',
+      subtitle: 'Final e disputa de 3o lugar',
+      stages: ['THIRD_PLACE', 'FINAL'],
+      tier: 'major',
+      icon: 'star',
+      expectedItems: EXPECTED_STAGE_FIXTURES.THIRD_PLACE + EXPECTED_STAGE_FIXTURES.FINAL,
+    },
+  ];
+
+  for (const stageAward of stageAwards) {
+    const stageSet = new Set<KnockoutStage>(stageAward.stages);
+    const stageFixtures = knockoutFixtures.filter((fixture) => stageSet.has(fixture.stage));
+    const stageScores = knockoutScoreRows
+      .filter((score) => stageSet.has(score.fixture.stage))
+      .map(({ fixture: _fixture, ...score }) => score);
+
+    awards.push(
+      makeAward({
+        key: stageAward.key,
+        title: stageAward.title,
+        subtitle: stageAward.subtitle,
+        scope: 'KNOCKOUT_STAGE',
+        tier: stageAward.tier,
+        status: buildAwardStatus(stageFixtures, stageScores, stageAward.expectedItems),
+        icon: stageAward.icon,
+        scores: stageScores,
+      }),
+    );
+  }
+
+  return awards;
 }
 
 export async function refreshRankingSnapshot() {

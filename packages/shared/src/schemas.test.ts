@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { registerSchema } from './schemas.js';
+import { registerSchema, upsertKnockoutSimulationSchema } from './schemas.js';
 
 describe('registerSchema', () => {
   it('accepts a real name with spaces as username', () => {
@@ -20,5 +20,11 @@ describe('registerSchema', () => {
     });
 
     expect(result.success).toBe(false);
+  });
+});
+
+describe('upsertKnockoutSimulationSchema', () => {
+  it('defaults missing group scores to an empty list', () => {
+    expect(upsertKnockoutSimulationSchema.parse({})).toEqual({ groupScores: [] });
   });
 });

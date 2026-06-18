@@ -109,6 +109,26 @@ export interface RankingRow {
   hasLiveData: boolean;
 }
 
+export interface RankingAward {
+  key: string;
+  title: string;
+  subtitle: string;
+  scope: 'GROUP_ROUND' | 'GROUP_STAGE' | 'KNOCKOUT_BRACKET' | 'KNOCKOUT_STAGE' | 'OVERALL';
+  tier: 'standard' | 'major' | 'legendary';
+  status: 'pending' | 'live' | 'locked' | 'empty';
+  icon: string;
+  winner?: {
+    userId: string;
+    nickname: string;
+    avatarUrl?: string | null;
+    points: number;
+    exactScores: number;
+    resultHits: number;
+    oneGoalHits: number;
+    misses: number;
+  };
+}
+
 export type RankingPeriod = 'all' | 'week' | 'day';
 
 export interface RankingRefreshResponse {
@@ -205,6 +225,11 @@ export interface PredictionBoardMatch {
   awayTeam: Team;
   round?: string | null;
   ownPrediction?: Prediction | null;
+  simulationScore?: {
+    matchId: string;
+    predictedHomeScore: number;
+    predictedAwayScore: number;
+  } | null;
   publicPredictions: Prediction[];
 }
 
@@ -338,6 +363,7 @@ export const api = {
     }),
   ranking: (period: RankingPeriod = 'all') =>
     request<{ ranking: RankingRow[] }>(`/api/ranking?period=${period}`),
+  rankingAwards: () => request<{ awards: RankingAward[] }>('/api/ranking/awards'),
   refreshRanking: (period: RankingPeriod = 'all') =>
     request<RankingRefreshResponse>(`/api/ranking/refresh?period=${period}`, {
       method: 'POST',
@@ -353,6 +379,17 @@ export const api = {
   ) =>
     request<PredictionBoard>('/api/prediction-board/preview', {
       method: 'POST',
+      body: JSON.stringify({ groupScores }),
+    }),
+  savePredictionBoardSimulation: (
+    groupScores: Array<{
+      matchId: string;
+      predictedHomeScore: number;
+      predictedAwayScore: number;
+    }>,
+  ) =>
+    request<PredictionBoard>('/api/prediction-board/simulation', {
+      method: 'PUT',
       body: JSON.stringify({ groupScores }),
     }),
   saveKnockoutBracket: (

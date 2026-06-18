@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../http/async-handler.js';
 import { requireAuth } from '../middleware/auth.js';
-import { getRanking } from '../services/ranking.service.js';
+import { getRanking, getRankingAwards } from '../services/ranking.service.js';
 import { runGeScoreScrapeOnce } from '../services/ge-score-sync.service.js';
 
 export const rankingRouter = Router();
@@ -17,6 +17,14 @@ rankingRouter.get(
   asyncHandler(async (req, res) => {
     const { period } = rankingQuerySchema.parse(req.query);
     res.json({ ranking: await getRanking(period) });
+  }),
+);
+
+rankingRouter.get(
+  '/awards',
+  requireAuth,
+  asyncHandler(async (_req, res) => {
+    res.json({ awards: await getRankingAwards() });
   }),
 );
 

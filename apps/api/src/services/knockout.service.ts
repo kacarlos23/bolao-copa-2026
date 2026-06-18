@@ -5,7 +5,7 @@ import {
   Prisma,
   ScoreType,
 } from '@prisma/client';
-import type { UpsertKnockoutBracketInput } from '@bolao/shared';
+import type { UpsertKnockoutBracketInput, UpsertKnockoutSimulationInput } from '@bolao/shared';
 import { knockoutFixtureSeeds, firstKnockoutStartsAt } from '../data/knockout-fixtures.js';
 import { AppError } from '../http/errors.js';
 import { prisma } from '../prisma.js';
@@ -24,9 +24,62 @@ import { matchPredictionState } from './prediction.service.js';
 import { getPredictionCloseMinutes, predictionCloseAt } from './prediction-settings.service.js';
 import { refreshRankingSnapshot } from './ranking.service.js';
 
-const PROVISIONAL_KNOCKOUT_CLOSES_AT = new Date('2026-06-18T16:00:00.000Z');
+const PROVISIONAL_KNOCKOUT_CLOSES_AT = new Date('2026-06-19T02:59:59.000Z');
 
 type GroupScoreOverride = NonNullable<UpsertKnockoutBracketInput['groupScores']>[number];
+
+type EditableGeneration = {
+  id: string;
+  status: KnockoutGenerationStatus;
+  closesAt: Date | null;
+};
+
+function normalizeGroupScoreOverrides(scores: readonly GroupScoreOverride[] = []) {
+  const byMatchId = new Map<string, GroupScoreOverride>();
+  for (const score of scores) {
+    byMatchId.set(score.matchId, {
+      matchId: score.matchId,
+      predictedHomeScore: score.predictedHomeScore,
+      predictedAwayScore: score.predictedAwayScore,
+    });
+  }
+  return [...byMatchId.values()];
+}
+
+function mergeGroupScoreOverrides(
+  savedScores: readonly GroupScoreOverride[],
+  scoreOverrides?: readonly GroupScoreOverride[],
+) {
+  if (!scoreOverrides) return normalizeGroupScoreOverrides(savedScores);
+  return normalizeGroupScoreOverrides([...savedScores, ...scoreOverrides]);
+}
+
+function generationIsOpen(generation: EditableGeneration, now = new Date()) {
+  return (
+    generation.status === KnockoutGenerationStatus.ACTIVE &&
+    (!generation.closesAt || generation.closesAt > now)
+  );
+}
+
+function assertGenerationIsOpen(generation: EditableGeneration) {
+  if (!generationIsOpen(generation)) {
+    throw new AppError(
+      409,
+      'O prazo para salvar a chave foi encerrado.',
+      'KNOCKOUT_BRACKET_CLOSED',
+    );
+  }
+}
+
+async function assertCanSaveKnockout(userId: string) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { role: true, status: true },
+  });
+  if (!user || user.status !== 'ACTIVE' || user.role !== 'USER') {
+    throw new AppError(403, 'Usuario sem permissao para salvar a chave.', 'USER_NOT_ALLOWED');
+  }
+}
 
 function jsonString(value: Prisma.JsonValue | null | undefined, key: string) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -186,6 +239,76 @@ async function loadProjectionGroups(userId: string | null, scoreOverrides: Group
   return { teams, matches, qualifications };
 }
 
+async function loadSavedGroupSimulationScores(userId: string, generationId: string) {
+  const scores = await prisma.knockoutGroupSimulationScore.findMany({
+    where: { userId, generationId },
+    select: {
+      matchId: true,
+      predictedHomeScore: true,
+      predictedAwayScore: true,
+    },
+  });
+  return normalizeGroupScoreOverrides(scores);
+}
+
+async function replaceSavedGroupSimulationScores(
+  userId: string,
+  generationId: string,
+  scoreOverrides: readonly GroupScoreOverride[] = [],
+) {
+  const scores = normalizeGroupScoreOverrides(scoreOverrides);
+  const matchIds = scores.map((score) => score.matchId);
+
+  return prisma.$transaction(async (tx) => {
+    if (matchIds.length) {
+      const validMatches = await tx.match.findMany({
+        where: { id: { in: matchIds } },
+        select: { id: true },
+      });
+      if (validMatches.length !== matchIds.length) {
+        throw new AppError(
+          400,
+          'A simulacao contem partidas invalidas.',
+          'INVALID_GROUP_SIMULATION',
+        );
+      }
+    }
+
+    await tx.knockoutGroupSimulationScore.deleteMany({
+      where: {
+        userId,
+        generationId,
+        ...(matchIds.length ? { matchId: { notIn: matchIds } } : {}),
+      },
+    });
+
+    for (const score of scores) {
+      await tx.knockoutGroupSimulationScore.upsert({
+        where: {
+          userId_generationId_matchId: {
+            userId,
+            generationId,
+            matchId: score.matchId,
+          },
+        },
+        update: {
+          predictedHomeScore: score.predictedHomeScore,
+          predictedAwayScore: score.predictedAwayScore,
+        },
+        create: {
+          userId,
+          generationId,
+          matchId: score.matchId,
+          predictedHomeScore: score.predictedHomeScore,
+          predictedAwayScore: score.predictedAwayScore,
+        },
+      });
+    }
+
+    return scores;
+  });
+}
+
 async function roundOf32ForGeneration(
   mode: KnockoutGenerationMode,
   userId: string,
@@ -251,15 +374,11 @@ export async function syncOfficialKnockoutParticipants() {
   }
 }
 
-export async function getPredictionBoard(userId: string, scoreOverrides: GroupScoreOverride[] = []) {
-  const [
-    { generation, groupStageComplete, predictionCloseMinutes },
-    projection,
-    publicMatches,
-    viewer,
-  ] = await Promise.all([
-    ensureKnockoutInfrastructure(),
-    loadProjectionGroups(userId, scoreOverrides),
+export async function getPredictionBoard(userId: string, scoreOverrides?: GroupScoreOverride[]) {
+  const { generation, groupStageComplete, predictionCloseMinutes } =
+    await ensureKnockoutInfrastructure();
+  const [savedSimulationScores, publicMatches, viewer] = await Promise.all([
+    loadSavedGroupSimulationScores(userId, generation.id),
     prisma.match.findMany({
       orderBy: { startsAt: 'asc' },
       include: {
@@ -275,7 +394,12 @@ export async function getPredictionBoard(userId: string, scoreOverrides: GroupSc
     }),
     prisma.user.findUnique({ where: { id: userId }, select: { role: true, status: true } }),
   ]);
+  const groupScoreOverrides = mergeGroupScoreOverrides(savedSimulationScores, scoreOverrides);
+  const projection = await loadProjectionGroups(userId, groupScoreOverrides);
   const now = new Date();
+  const simulationScoreByMatchId = new Map(
+    groupScoreOverrides.map((score) => [score.matchId, score]),
+  );
   const qualificationByGroup = new Map(
     projection.qualifications.map((qualification) => [qualification.group, qualification]),
   );
@@ -310,6 +434,7 @@ export async function getPredictionBoard(userId: string, scoreOverrides: GroupSc
           awayTeam: match.awayTeam,
           round: jsonString(match.rawPayload, 'round'),
           ownPrediction,
+          simulationScore: simulationScoreByMatchId.get(match.id) ?? null,
           publicPredictions: predictionState.predictionsArePublic ? match.predictions : [],
         };
       }),
@@ -345,9 +470,7 @@ export async function getPredictionBoard(userId: string, scoreOverrides: GroupSc
         mode: generation.mode,
         status: generation.status,
         closesAt: generation.closesAt,
-        isOpen:
-          generation.status === KnockoutGenerationStatus.ACTIVE &&
-          (!generation.closesAt || generation.closesAt > now),
+        isOpen: generationIsOpen(generation, now),
       },
       fixtures,
       roundOf32: roundOf32
@@ -374,6 +497,21 @@ export async function getPredictionBoard(userId: string, scoreOverrides: GroupSc
   };
 }
 
+export async function saveGroupSimulationScores(
+  userId: string,
+  input: UpsertKnockoutSimulationInput,
+) {
+  await assertCanSaveKnockout(userId);
+  const { generation } = await ensureKnockoutInfrastructure();
+  assertGenerationIsOpen(generation);
+  const groupScores = await replaceSavedGroupSimulationScores(
+    userId,
+    generation.id,
+    input.groupScores,
+  );
+  return getPredictionBoard(userId, groupScores);
+}
+
 export async function saveKnockoutBracket(userId: string, input: UpsertKnockoutBracketInput) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -384,18 +522,12 @@ export async function saveKnockoutBracket(userId: string, input: UpsertKnockoutB
   }
 
   const { generation } = await ensureKnockoutInfrastructure();
-  if (
-    generation.status !== KnockoutGenerationStatus.ACTIVE ||
-    (generation.closesAt && generation.closesAt <= new Date())
-  ) {
-    throw new AppError(
-      409,
-      'O prazo para salvar a chave foi encerrado.',
-      'KNOCKOUT_BRACKET_CLOSED',
-    );
-  }
+  assertGenerationIsOpen(generation);
 
-  const { participants } = await roundOf32ForGeneration(generation.mode, userId, input.groupScores);
+  const groupScores = input.groupScores
+    ? await replaceSavedGroupSimulationScores(userId, generation.id, input.groupScores)
+    : await loadSavedGroupSimulationScores(userId, generation.id);
+  const { participants } = await roundOf32ForGeneration(generation.mode, userId, groupScores);
   let materialized;
   try {
     materialized = materializeBracket(input.picks, participants, undefined, { allowPartial: true });
@@ -437,7 +569,7 @@ export async function saveKnockoutBracket(userId: string, input: UpsertKnockoutB
     generationId: generation.id,
     submittedAt: bracket.submittedAt.toISOString(),
   });
-  return getPredictionBoard(userId, input.groupScores);
+  return getPredictionBoard(userId, groupScores);
 }
 
 export async function listPublicKnockoutBrackets() {

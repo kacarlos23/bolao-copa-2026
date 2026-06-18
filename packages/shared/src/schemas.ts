@@ -47,7 +47,12 @@ export const upsertKnockoutBracketSchema = z.object({
   groupScores: z.array(knockoutGroupScoreInputSchema).optional(),
 });
 
+export const upsertKnockoutSimulationSchema = z.object({
+  groupScores: z.array(knockoutGroupScoreInputSchema).default([]),
+});
+
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type UpsertMatchDayPredictionsInput = z.infer<typeof upsertMatchDayPredictionsSchema>;
 export type UpsertKnockoutBracketInput = z.infer<typeof upsertKnockoutBracketSchema>;
+export type UpsertKnockoutSimulationInput = z.infer<typeof upsertKnockoutSimulationSchema>;
