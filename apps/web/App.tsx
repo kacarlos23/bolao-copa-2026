@@ -43,23 +43,23 @@ const competitionUiV2 = process.env.EXPO_PUBLIC_COMPETITION_UI_V2 === '1';
 const knockoutDeadline = new Date('2026-06-18T23:59:59-03:00').getTime();
 
 const colors = {
-  bg: '#071311',
-  bg2: '#0d1c19',
-  panel: '#13251f',
-  panel2: '#193128',
-  panel3: '#0a241e',
-  border: '#2c4a40',
-  text: '#f3f8f5',
-  muted: '#a8bbb3',
-  soft: '#d9e6df',
-  green: '#2fbf7a',
-  greenDark: '#168457',
-  gold: '#e5ba52',
-  goldBorder: '#d8b64c',
-  blue: '#4ca9ff',
-  amber: '#f2c14e',
-  red: '#ef6b5a',
-  input: '#0b1815',
+  bg: '#00143a',
+  bg2: 'rgba(1, 30, 76, 0.78)',
+  panel: 'rgba(2, 30, 76, 0.74)',
+  panel2: 'rgba(2, 44, 96, 0.82)',
+  panel3: 'rgba(4, 42, 92, 0.62)',
+  border: 'rgba(98, 144, 210, 0.42)',
+  text: '#f8fbff',
+  muted: '#b8c6dd',
+  soft: '#dce8f7',
+  green: '#21d66f',
+  greenDark: '#008a4f',
+  gold: '#ffd315',
+  goldBorder: '#ffd315',
+  blue: '#28a7ff',
+  amber: '#ffc233',
+  red: '#ff6b59',
+  input: 'rgba(2, 18, 52, 0.84)',
 };
 
 function dateTime(value: string) {
@@ -380,6 +380,81 @@ function PrimaryButton({
       {icon ? <Ionicons name={icon} size={18} color={contentColor} /> : null}
       <Text style={[styles.buttonText, { color: contentColor }]}>{label}</Text>
     </Pressable>
+  );
+}
+
+function HeaderNav({
+  screen,
+  setScreen,
+  isAdmin,
+  onLogout,
+}: {
+  screen: Screen;
+  setScreen: (screen: Screen) => void;
+  isAdmin: boolean;
+  onLogout: () => void;
+}) {
+  const items: Array<{
+    key: Screen | 'logout';
+    label: string;
+    icon: keyof typeof Ionicons.glyphMap;
+    onPress: () => void;
+    active?: boolean;
+  }> = [
+    { key: 'days', label: 'Dias', icon: 'calendar-outline', onPress: () => setScreen('days'), active: screen === 'days' },
+    {
+      key: 'predictions',
+      label: 'Palpites',
+      icon: 'create-outline',
+      onPress: () => setScreen('predictions'),
+      active: screen === 'predictions',
+    },
+    {
+      key: 'knockout',
+      label: 'Eliminatorias',
+      icon: 'git-network-outline',
+      onPress: () => setScreen('knockout'),
+      active: screen === 'knockout',
+    },
+    { key: 'ranking', label: 'Ranking', icon: 'podium-outline', onPress: () => setScreen('ranking'), active: screen === 'ranking' },
+    { key: 'cup', label: 'Copa', icon: 'football-outline', onPress: () => setScreen('cup'), active: screen === 'cup' },
+    { key: 'teams', label: 'Times', icon: 'people-outline', onPress: () => setScreen('teams'), active: screen === 'teams' },
+  ];
+
+  if (isAdmin) {
+    items.push({
+      key: 'admin',
+      label: 'Admin',
+      icon: 'settings-outline',
+      onPress: () => setScreen('admin'),
+      active: screen === 'admin',
+    });
+  }
+
+  items.push({ key: 'logout', label: 'Sair', icon: 'log-out-outline', onPress: onLogout });
+
+  return (
+    <View style={styles.nav}>
+      {items.map((item, index) => {
+        const active = Boolean(item.active);
+        return (
+          <Pressable
+            key={item.key}
+            onPress={item.onPress}
+            style={[
+              styles.navItem,
+              active && styles.navItemActive,
+              index === 0 && styles.navItemFirst,
+              index === items.length - 1 && styles.navItemLast,
+              index < items.length - 1 && styles.navItemWithDivider,
+            ]}
+          >
+            <Ionicons name={item.icon} size={18} color={active ? colors.gold : colors.text} />
+            <Text style={[styles.navItemText, active && styles.navItemTextActive]}>{item.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
   );
 }
 
@@ -838,53 +913,14 @@ function HeaderLayout({
         horizontal
         showsHorizontalScrollIndicator={false}
         style={[styles.navScroll, wideHeader && styles.navScrollWide]}
-        contentContainerStyle={styles.nav}
+        contentContainerStyle={styles.navScrollContent}
       >
-        <PrimaryButton
-          label="Dias"
-          icon="calendar-outline"
-          tone={screen === 'days' ? 'primary' : 'secondary'}
-          onPress={() => setScreen('days')}
+        <HeaderNav
+          screen={screen}
+          setScreen={setScreen}
+          isAdmin={user.role === 'ADMIN'}
+          onLogout={onLogout}
         />
-        <PrimaryButton
-          label="Palpites"
-          icon="create-outline"
-          tone={screen === 'predictions' ? 'primary' : 'secondary'}
-          onPress={() => setScreen('predictions')}
-        />
-        <PrimaryButton
-          label="Eliminatorias"
-          icon="git-network-outline"
-          tone={screen === 'knockout' ? 'primary' : 'secondary'}
-          onPress={() => setScreen('knockout')}
-        />
-        <PrimaryButton
-          label="Ranking"
-          icon="podium-outline"
-          tone={screen === 'ranking' ? 'primary' : 'secondary'}
-          onPress={() => setScreen('ranking')}
-        />
-        <PrimaryButton
-          label="Copa"
-          icon="football-outline"
-          tone={screen === 'cup' ? 'primary' : 'secondary'}
-          onPress={() => setScreen('cup')}
-        />
-        <PrimaryButton
-          label="Times"
-          icon="people-outline"
-          tone={screen === 'teams' ? 'primary' : 'secondary'}
-          onPress={() => setScreen('teams')}
-        />
-        {user.role === 'ADMIN' ? (
-          <PrimaryButton
-            label="Admin"
-            icon="settings-outline"
-            tone={screen === 'admin' ? 'primary' : 'secondary'}
-            onPress={() => setScreen('admin')}
-          />
-        ) : null}
-        <PrimaryButton label="Sair" tone="secondary" icon="log-out-outline" onPress={onLogout} />
       </ScrollView>
     </View>
   );
@@ -994,52 +1030,13 @@ function Header({
         onCancel={() => setDeleteAvatarVisible(false)}
         onConfirm={resetAvatar}
       />
-      <View style={styles.nav}>
-        <PrimaryButton
-          label="Dias"
-          icon="calendar-outline"
-          tone={screen === 'days' ? 'primary' : 'secondary'}
-          onPress={() => setScreen('days')}
+      <View style={styles.navInline}>
+        <HeaderNav
+          screen={screen}
+          setScreen={setScreen}
+          isAdmin={user.role === 'ADMIN'}
+          onLogout={onLogout}
         />
-        <PrimaryButton
-          label="Palpites"
-          icon="create-outline"
-          tone={screen === 'predictions' ? 'primary' : 'secondary'}
-          onPress={() => setScreen('predictions')}
-        />
-        <PrimaryButton
-          label="Eliminatorias"
-          icon="git-network-outline"
-          tone={screen === 'knockout' ? 'primary' : 'secondary'}
-          onPress={() => setScreen('knockout')}
-        />
-        <PrimaryButton
-          label="Ranking"
-          icon="podium-outline"
-          tone={screen === 'ranking' ? 'primary' : 'secondary'}
-          onPress={() => setScreen('ranking')}
-        />
-        <PrimaryButton
-          label="Copa"
-          icon="football-outline"
-          tone={screen === 'cup' ? 'primary' : 'secondary'}
-          onPress={() => setScreen('cup')}
-        />
-        <PrimaryButton
-          label="Times"
-          icon="people-outline"
-          tone={screen === 'teams' ? 'primary' : 'secondary'}
-          onPress={() => setScreen('teams')}
-        />
-        {user.role === 'ADMIN' ? (
-          <PrimaryButton
-            label="Admin"
-            icon="settings-outline"
-            tone={screen === 'admin' ? 'primary' : 'secondary'}
-            onPress={() => setScreen('admin')}
-          />
-        ) : null}
-        <PrimaryButton label="Sair" tone="secondary" icon="log-out-outline" onPress={onLogout} />
       </View>
     </View>
   );
@@ -1263,13 +1260,11 @@ function PredictionsScreen({
   refreshVersion,
   onOpenTeam,
   onAdjustScroll,
-  onOpenKnockout,
 }: {
   currentUserId: string;
   refreshVersion: number;
   onOpenTeam: (team: Team) => void;
   onAdjustScroll: (delta: number) => void;
-  onOpenKnockout: () => void;
 }) {
   if (process.env.EXPO_PUBLIC_LEGACY_PREDICTIONS !== '1') {
     return (
@@ -1280,18 +1275,6 @@ function PredictionsScreen({
             <Text style={styles.predictionsDailySubtitle}>
               Agenda compacta para preencher os placares de cada dia.
             </Text>
-          </View>
-          <View style={styles.predictionsDailyTabs}>
-            <View style={[styles.predictionsDailyTab, styles.predictionsDailyTabActive]}>
-              <Ionicons name="grid-outline" size={16} color={colors.bg} />
-              <Text style={[styles.predictionsDailyTabText, styles.predictionsDailyTabTextActive]}>
-                Jogos por dia
-              </Text>
-            </View>
-            <Pressable style={styles.predictionsDailyTab} onPress={onOpenKnockout}>
-              <Ionicons name="git-network-outline" size={16} color={colors.text} />
-              <Text style={styles.predictionsDailyTabText}>Eliminatorias</Text>
-            </Pressable>
           </View>
         </View>
         <DailyPredictionsV2 currentUserId={currentUserId} refreshVersion={refreshVersion} />
@@ -1778,20 +1761,28 @@ function AdminScreen({
   const [settingSaving, setSettingSaving] = useState(false);
   const [settingMessage, setSettingMessage] = useState('');
   const [settingError, setSettingError] = useState('');
+  const [scoreSyncEnabled, setScoreSyncEnabled] = useState(true);
+  const [scoreSyncUpdatedAt, setScoreSyncUpdatedAt] = useState<string | null>(null);
+  const [scoreSyncSaving, setScoreSyncSaving] = useState(false);
+  const [scoreSyncMessage, setScoreSyncMessage] = useState('');
+  const [scoreSyncError, setScoreSyncError] = useState('');
 
   async function loadAdminData() {
     setLoading(true);
     try {
-      const [teamsResult, usersResult, predictionSettings] = await Promise.all([
+      const [teamsResult, usersResult, predictionSettings, scoreSyncSettings] = await Promise.all([
         api.adminTeams(),
         api.adminUsers(),
         api.adminPredictionSettings(),
+        api.adminScoreSyncSettings(),
       ]);
       setTeams(teamsResult.teams);
       setUsers(usersResult.users);
       setHomeTeamCode((current) => current || teamsResult.teams[0]?.code || '');
       setAwayTeamCode((current) => current || teamsResult.teams[1]?.code || '');
       setPredictionCloseMinutes(String(predictionSettings.predictionCloseMinutes));
+      setScoreSyncEnabled(scoreSyncSettings.enabled);
+      setScoreSyncUpdatedAt(scoreSyncSettings.updatedAt ?? null);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Não foi possível carregar dados administrativos.',
@@ -1857,6 +1848,28 @@ function AdminScreen({
       setSettingError(err instanceof Error ? err.message : 'Não foi possível atualizar o prazo.');
     } finally {
       setSettingSaving(false);
+    }
+  }
+
+  async function toggleScoreSync(enabled: boolean) {
+    setScoreSyncSaving(true);
+    setScoreSyncError('');
+    setScoreSyncMessage('');
+    try {
+      const result = await api.updateAdminScoreSyncSettings(enabled);
+      setScoreSyncEnabled(result.enabled);
+      setScoreSyncUpdatedAt(result.updatedAt ?? null);
+      setScoreSyncMessage(
+        result.enabled
+          ? 'Atualização automática ativada. O coletor voltará a consultar o GE no próximo ciclo.'
+          : 'Atualização automática desativada. O coletor continuará aberto, mas não fará novas raspagens.',
+      );
+    } catch (err) {
+      setScoreSyncError(
+        err instanceof Error ? err.message : 'Não foi possível alterar a atualização automática.',
+      );
+    } finally {
+      setScoreSyncSaving(false);
     }
   }
 
@@ -1967,6 +1980,52 @@ function AdminScreen({
         />
         {settingMessage ? <Text style={styles.successText}>{settingMessage}</Text> : null}
         {settingError ? <Text style={styles.errorText}>{settingError}</Text> : null}
+      </View>
+
+      <View style={styles.panel}>
+        <View style={styles.panelHeader}>
+          <Text style={styles.sectionTitle}>Atualização dos dados</Text>
+          <Text style={styles.muted}>
+            Controla a raspagem automática dos placares e da artilharia no GE. Quando estiver
+            desativada, o script pode continuar rodando, mas ficará em pausa.
+          </Text>
+        </View>
+        <View style={styles.rowBetween}>
+          <View style={styles.statusSummary}>
+            <Pill
+              label={scoreSyncEnabled ? 'Atualização ativa' : 'Atualização pausada'}
+              tone={scoreSyncEnabled ? 'ok' : 'warn'}
+            />
+            <Text style={styles.muted}>
+              {scoreSyncUpdatedAt ? `Última alteração: ${dateTime(scoreSyncUpdatedAt)}` : 'Sem alteração registrada.'}
+            </Text>
+          </View>
+          <PrimaryButton
+            label={
+              scoreSyncSaving
+                ? 'Atualizando...'
+                : scoreSyncEnabled
+                  ? 'Desativar atualização'
+                  : 'Ativar atualização'
+            }
+            icon={scoreSyncEnabled ? 'pause-circle-outline' : 'play-circle-outline'}
+            tone={scoreSyncEnabled ? 'danger' : 'primary'}
+            onPress={() => toggleScoreSync(!scoreSyncEnabled)}
+            disabled={scoreSyncSaving}
+          />
+        </View>
+        <PrimaryButton
+          label="Rodar uma vez pelo terminal"
+          icon="terminal-outline"
+          tone="secondary"
+          onPress={() =>
+            setScoreSyncMessage(
+              'Use o arquivo scripts\\\\rodar-atualizacao-ge-uma-vez.bat ou o comando npm run scrape:ge-scores:once.',
+            )
+          }
+        />
+        {scoreSyncMessage ? <Text style={styles.successText}>{scoreSyncMessage}</Text> : null}
+        {scoreSyncError ? <Text style={styles.errorText}>{scoreSyncError}</Text> : null}
       </View>
 
       <View style={styles.panel}>
@@ -3593,7 +3652,12 @@ const styles = StyleSheet.create({
     minHeight: '100%',
     backgroundColor: colors.bg,
     backgroundImage:
-      'radial-gradient(1200px 420px at 55% 0%, rgba(43,160,107,0.14), transparent 60%)' as never,
+      [
+        'radial-gradient(950px 520px at 8% 92%, rgba(0, 170, 89, 0.35), transparent 62%)',
+        'radial-gradient(900px 520px at 94% 96%, rgba(255, 211, 21, 0.34), transparent 58%)',
+        'radial-gradient(1100px 620px at 58% 8%, rgba(39, 133, 214, 0.22), transparent 60%)',
+        'linear-gradient(135deg, #001033 0%, #00275f 42%, #00133d 100%)',
+      ].join(', ') as never,
   },
   authScroll: {
     minHeight: '100%',
@@ -3636,9 +3700,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.panel,
     borderColor: colors.goldBorder,
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 16,
     padding: 18,
     gap: 16,
+    boxShadow: '0 22px 70px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.08)' as never,
   },
   segment: {
     flexDirection: 'row',
@@ -3673,9 +3738,9 @@ const styles = StyleSheet.create({
   },
   input: {
     backgroundColor: colors.input,
-    borderColor: colors.goldBorder,
+    borderColor: colors.border,
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: 9,
     color: colors.text,
     fontSize: 17,
     paddingHorizontal: 14,
@@ -3705,7 +3770,7 @@ const styles = StyleSheet.create({
   },
   teamOptionActive: {
     borderColor: colors.goldBorder,
-    backgroundColor: '#17372c',
+    backgroundColor: 'rgba(5, 43, 95, 0.88)' as never,
   },
   teamFlag: {
     width: 32,
@@ -3909,17 +3974,17 @@ const styles = StyleSheet.create({
   },
   button: {
     minHeight: 42,
-    borderRadius: 10,
-    backgroundColor: colors.green,
+    borderRadius: 9,
+    backgroundColor: colors.gold,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     gap: 8,
     paddingHorizontal: 15,
-    boxShadow: 'inset 0 -1px 0 rgba(255,255,255,0.06)' as never,
+    boxShadow: '0 10px 26px rgba(255, 211, 21, 0.18), inset 0 -2px 0 rgba(145,101,0,0.22)' as never,
   },
   buttonSecondary: {
-    backgroundColor: colors.panel2,
+    backgroundColor: 'rgba(2, 28, 70, 0.7)' as never,
     borderColor: colors.border,
     borderWidth: 1,
   },
@@ -3934,15 +3999,16 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   header: {
-    minHeight: 122,
+    minHeight: 146,
     paddingTop: 18,
     paddingHorizontal: 24,
-    paddingBottom: 14,
-    borderBottomColor: 'rgba(227,185,68,0.6)' as never,
-    borderBottomWidth: 2,
-    backgroundColor: '#071b17',
+    paddingBottom: 12,
+    backgroundColor: 'rgba(0, 18, 58, 0.78)' as never,
+    backgroundImage:
+      'radial-gradient(circle at 20% 0%, rgba(0, 156, 59, 0.16), transparent 34%), radial-gradient(circle at 80% 0%, rgba(0, 77, 153, 0.28), transparent 36%), linear-gradient(180deg, #02172d, #031226)' as never,
     gap: 14,
     position: 'relative',
+    boxShadow: '0 12px 40px rgba(0, 0, 0, 0.26)' as never,
   },
   headerWide: {
     paddingBottom: 0,
@@ -3956,13 +4022,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   headerAvatarShell: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     padding: 2,
-    backgroundImage: 'linear-gradient(135deg, #2e5f51, #1b362e)' as never,
-    borderColor: '#2c5a4b',
+    backgroundImage: 'linear-gradient(135deg, #ffd315, #21d66f)' as never,
+    borderColor: colors.gold,
     borderWidth: 2,
+    boxShadow: '0 0 18px rgba(255,211,21,0.26)' as never,
   },
   headerUserText: {
     flex: 1,
@@ -3982,14 +4049,15 @@ const styles = StyleSheet.create({
     paddingTop: 4,
   },
   avatarActionButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 9,
-    borderColor: '#20493f',
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    borderColor: 'rgba(98, 164, 255, 0.26)' as never,
     borderWidth: 1,
-    backgroundColor: '#0d281f',
+    backgroundColor: 'rgba(5, 28, 62, 0.72)' as never,
     alignItems: 'center',
     justifyContent: 'center',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)' as never,
   },
   userAvatarFallback: {
     borderColor: colors.goldBorder,
@@ -4009,24 +4077,86 @@ const styles = StyleSheet.create({
   },
   navScroll: {
     marginTop: 4,
+    flexGrow: 0,
   },
   navScrollWide: {
     position: 'absolute',
     left: 24,
-    top: 76,
-    right: 170,
+    top: 88,
+    right: 620,
     marginTop: 0,
+  },
+  navScrollContent: {
+    paddingBottom: 0,
+  },
+  navInline: {
+    alignSelf: 'flex-start',
   },
   nav: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 0,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(4, 24, 54, 0.78)' as never,
+    backdropFilter: 'blur(14px)' as never,
+    boxShadow:
+      '0 8px 28px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.06)' as never,
+  },
+  navItem: {
+    height: 56,
+    minWidth: 118,
+    paddingHorizontal: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    borderBottomWidth: 4,
+    borderBottomColor: 'transparent',
+    backgroundColor: 'rgba(5, 25, 52, 0.62)' as never,
+    backgroundImage:
+      'linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.015))' as never,
+    transitionProperty: 'background-color, box-shadow, color, transform' as never,
+    transitionDuration: '160ms' as never,
+    transitionTimingFunction: 'ease' as never,
+  },
+  navItemWithDivider: {
+    borderRightWidth: 1,
+    borderRightColor: 'rgba(255,255,255,0.06)' as never,
+  },
+  navItemFirst: {
+    borderTopLeftRadius: 16,
+  },
+  navItemLast: {
+    borderTopRightRadius: 16,
+  },
+  navItemActive: {
+    backgroundColor: 'rgba(15, 127, 72, 0.88)' as never,
+    backgroundImage:
+      'linear-gradient(180deg, rgba(18, 168, 91, 0.95), rgba(8, 90, 63, 0.82))' as never,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    borderBottomColor: '#ffd21f',
+    boxShadow:
+      '0 0 0 1px rgba(255, 210, 31, 0.35), 0 8px 24px rgba(18, 168, 91, 0.22), inset 0 -4px 0 #ffd21f, inset 0 1px 0 rgba(255,255,255,0.12)' as never,
+  },
+  navItemText: {
+    color: '#eef5ff',
+    fontWeight: '800',
+    fontSize: 15,
+  },
+  navItemTextActive: {
+    color: '#ffffff',
+    fontWeight: '900',
   },
   appScrollView: {
     flex: 1,
   },
   appScroll: {
-    paddingTop: 18,
-    paddingHorizontal: 24,
+    paddingTop: 0,
+    paddingHorizontal: 8,
     paddingBottom: 32,
     flexGrow: 1,
   },
@@ -4037,6 +4167,13 @@ const styles = StyleSheet.create({
   },
   screenTransition: {
     width: '100%',
+    borderWidth: 1,
+    borderColor: 'rgba(98, 144, 210, 0.58)' as never,
+    borderRadius: 10,
+    padding: 16,
+    backgroundColor: 'rgba(0, 25, 78, 0.34)' as never,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 18px 50px rgba(0,0,0,0.18)' as never,
+    overflow: 'hidden',
   },
   contentGrid: {
     gap: 18,
@@ -4251,7 +4388,7 @@ const styles = StyleSheet.create({
     width: '13.4%',
     minWidth: 42,
     minHeight: 66,
-    borderRadius: 10,
+    borderRadius: 8,
     borderColor: colors.border,
     borderWidth: 1,
     backgroundColor: colors.bg2,
@@ -4273,8 +4410,8 @@ const styles = StyleSheet.create({
     opacity: 0.38,
   },
   calendarDayHasGames: {
-    borderColor: colors.goldBorder,
-    backgroundColor: '#17372c',
+    borderColor: 'rgba(255, 211, 21, 0.72)' as never,
+    backgroundColor: 'rgba(0, 77, 82, 0.46)' as never,
   },
   calendarDayToday: {
     borderColor: colors.gold,
@@ -4284,6 +4421,8 @@ const styles = StyleSheet.create({
   calendarDaySelected: {
     borderColor: colors.green,
     borderWidth: 2,
+    backgroundColor: 'rgba(5, 43, 95, 0.78)' as never,
+    boxShadow: '0 0 22px rgba(33, 214, 111, 0.18)' as never,
   },
   calendarDayNumber: {
     color: colors.text,
@@ -4306,10 +4445,10 @@ const styles = StyleSheet.create({
     lineHeight: 13,
   },
   calendarMatchRow: {
-    backgroundColor: colors.bg2,
+    backgroundColor: 'rgba(1, 25, 65, 0.72)' as never,
     borderColor: colors.border,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 10,
     padding: 12,
     gap: 10,
   },
@@ -4323,9 +4462,12 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     color: colors.text,
-    fontSize: 25,
+    fontSize: 28,
     fontWeight: '900',
     letterSpacing: 0,
+    textShadowColor: 'rgba(0,0,0,0.35)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
   },
   muted: {
     color: colors.muted,
@@ -4334,10 +4476,10 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   emptyCard: {
-    backgroundColor: colors.panel,
+    backgroundColor: 'rgba(2, 25, 66, 0.68)' as never,
     borderColor: colors.border,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 10,
     padding: 18,
     gap: 8,
   },
@@ -4366,22 +4508,28 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   dayCard: {
-    backgroundColor: colors.panel,
+    backgroundColor: 'rgba(2, 29, 76, 0.72)' as never,
     borderColor: colors.border,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 9,
     padding: 14,
     gap: 8,
   },
   dayCardActive: {
     borderColor: colors.green,
-    backgroundColor: '#17372c',
+    backgroundColor: 'rgba(5, 43, 95, 0.78)' as never,
+    boxShadow: '0 0 20px rgba(33, 214, 111, 0.16)' as never,
   },
   rowBetween: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 10,
+  },
+  statusSummary: {
+    flex: 1,
+    minWidth: 220,
+    gap: 8,
   },
   dayTitle: {
     color: colors.text,
@@ -4397,9 +4545,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.panel,
     borderColor: colors.border,
     borderWidth: 1,
-    borderRadius: 14,
-    padding: 16,
+    borderRadius: 13,
+    padding: 18,
     gap: 14,
+    boxShadow:
+      '0 20px 70px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255,255,255,0.08)' as never,
+    backgroundImage:
+      'linear-gradient(145deg, rgba(3, 39, 94, 0.72), rgba(0, 26, 70, 0.78) 62%, rgba(0, 73, 64, 0.20))' as never,
   },
   panelHeader: {
     gap: 10,
@@ -4411,11 +4563,11 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderColor: colors.border,
     borderWidth: 1,
-    backgroundColor: colors.panel2,
+    backgroundColor: 'rgba(3, 31, 75, 0.82)' as never,
   },
   pillOk: {
     borderColor: colors.green,
-    backgroundColor: 'rgba(47, 191, 122, 0.18)',
+    backgroundColor: 'rgba(33, 214, 111, 0.18)',
   },
   pillWarn: {
     borderColor: colors.gold,
@@ -4431,10 +4583,10 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   matchCard: {
-    backgroundColor: colors.bg2,
+    backgroundColor: 'rgba(1, 25, 65, 0.78)' as never,
     borderColor: colors.border,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 10,
     padding: 14,
     gap: 12,
   },
@@ -4475,7 +4627,7 @@ const styles = StyleSheet.create({
   },
   matchScoreBoard: {
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(229, 186, 82, 0.13)',
+    backgroundColor: 'rgba(255, 211, 21, 0.12)',
     borderColor: colors.goldBorder,
     borderWidth: 1,
     borderRadius: 10,
@@ -4502,7 +4654,7 @@ const styles = StyleSheet.create({
   scoreInput: {
     width: 64,
     height: 48,
-    borderRadius: 10,
+    borderRadius: 8,
     borderColor: colors.border,
     borderWidth: 1,
     backgroundColor: colors.input,
@@ -4643,10 +4795,11 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: 18,
-    borderColor: '#1c493c',
+    borderColor: 'rgba(98, 164, 255, 0.26)' as never,
     borderWidth: 1,
     borderRadius: 14,
-    backgroundImage: 'linear-gradient(135deg, rgba(16,47,38,0.96), rgba(7,28,23,0.92))' as never,
+    backgroundImage:
+      'linear-gradient(135deg, rgba(5, 33, 78, 0.92), rgba(2, 20, 50, 0.94))' as never,
     paddingHorizontal: 16,
     paddingVertical: 14,
     boxShadow: '0 16px 44px rgba(0,0,0,0.22)' as never,
@@ -4659,7 +4812,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   rankingHeadText: {
-    color: '#9bb9ac',
+    color: '#b8c7d9',
     fontSize: 14,
     fontWeight: '700',
     lineHeight: 20,
@@ -4691,12 +4844,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   rankingContextBadgePositive: {
-    borderColor: '#2e9c72',
-    backgroundColor: '#144a39',
+    borderColor: 'rgba(33, 214, 111, 0.45)' as never,
+    backgroundColor: 'rgba(18, 168, 91, 0.18)' as never,
   },
   rankingContextBadgeNeutral: {
-    borderColor: '#1e4a3e',
-    backgroundColor: '#0f271f',
+    borderColor: 'rgba(98, 164, 255, 0.22)' as never,
+    backgroundColor: 'rgba(5, 28, 62, 0.72)' as never,
   },
   rankingContextBadgeText: {
     color: '#6cffb1',
@@ -4716,8 +4869,8 @@ const styles = StyleSheet.create({
   },
   rankingSegmentedControl: {
     flexDirection: 'row',
-    backgroundColor: '#061a15',
-    borderColor: '#1e4a3e',
+    backgroundColor: 'rgba(3, 22, 50, 0.82)' as never,
+    borderColor: 'rgba(98, 164, 255, 0.26)' as never,
     borderWidth: 1,
     borderRadius: 12,
     padding: 4,
@@ -4735,7 +4888,7 @@ const styles = StyleSheet.create({
     boxShadow: '0 8px 20px rgba(50,210,139,0.25)' as never,
   },
   rankingSegmentedText: {
-    color: '#bbd7cb',
+    color: '#c2d4ea',
     fontSize: 13,
     fontWeight: '900',
   },
@@ -4749,15 +4902,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     borderRadius: 12,
-    borderColor: '#1e4a3e',
+    borderColor: 'rgba(98, 164, 255, 0.26)' as never,
     borderWidth: 1,
-    backgroundColor: '#09221c',
+    backgroundColor: 'rgba(5, 28, 62, 0.72)' as never,
     paddingHorizontal: 12,
   },
   rankingSearchInput: {
     flex: 1,
     minWidth: 120,
-    color: '#eafff6',
+    color: '#eaf3ff',
     fontSize: 14,
     fontWeight: '800',
     outlineStyle: 'none' as never,
@@ -4771,16 +4924,16 @@ const styles = StyleSheet.create({
     minWidth: 156,
     flex: 1,
     minHeight: 76,
-    borderColor: '#1c493c',
+    borderColor: 'rgba(98, 164, 255, 0.24)' as never,
     borderWidth: 1,
-    backgroundImage: 'linear-gradient(180deg, #103227, #0b261f)' as never,
+    backgroundImage: 'linear-gradient(180deg, rgba(5, 35, 82, 0.9), rgba(2, 22, 55, 0.94))' as never,
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
     gap: 7,
   },
   rankingStatLabel: {
-    color: '#99b9ac',
+    color: '#9fb4d0',
     fontSize: 12,
     fontWeight: '900',
     textTransform: 'uppercase',
@@ -4827,10 +4980,10 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     minHeight: 116,
-    borderColor: '#2d5a48',
+    borderColor: colors.border,
     borderWidth: 1,
-    backgroundColor: '#0a211b',
-    borderRadius: 14,
+    backgroundColor: 'rgba(2, 31, 78, 0.75)' as never,
+    borderRadius: 10,
     padding: 13,
     gap: 8,
     position: 'relative',
@@ -4838,19 +4991,19 @@ const styles = StyleSheet.create({
   },
   rankingPodiumCardFirst: {
     minHeight: 132,
-    borderColor: '#9d842e',
+    borderColor: colors.gold,
     backgroundImage:
-      'linear-gradient(135deg, rgba(227,185,68,0.2), rgba(16,47,38,0.92))' as never,
+      'linear-gradient(135deg, rgba(255,211,21,0.18), rgba(7,52,112,0.66), rgba(2,31,78,0.94))' as never,
   },
   rankingPodiumCardSecond: {
-    borderColor: '#537064',
+    borderColor: 'rgba(160, 188, 224, 0.32)' as never,
     backgroundImage:
-      'linear-gradient(135deg, rgba(185,205,196,0.12), rgba(16,47,38,0.9))' as never,
+      'linear-gradient(135deg, rgba(185,205,226,0.12), rgba(4,36,86,0.9))' as never,
   },
   rankingPodiumCardThird: {
     borderColor: '#9c6b36',
     backgroundImage:
-      'linear-gradient(135deg, rgba(227,139,68,0.14), rgba(16,47,38,0.9))' as never,
+      'linear-gradient(135deg, rgba(227,139,68,0.14), rgba(4,36,86,0.9))' as never,
   },
   rankingPodiumGhostRank: {
     position: 'absolute',
@@ -4882,7 +5035,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   rankingPodiumMeta: {
-    color: '#a7c4b9',
+    color: '#adc3de',
     fontSize: 12,
     fontWeight: '800',
   },
@@ -4938,10 +5091,10 @@ const styles = StyleSheet.create({
   rankingTablePanel: {
     width: '100%',
     alignSelf: 'stretch',
-    borderColor: '#1a463b',
+    borderColor: colors.border,
     borderWidth: 1,
-    borderRadius: 14,
-    backgroundColor: '#071c17',
+    borderRadius: 12,
+    backgroundColor: colors.panel,
     padding: 0,
     overflow: 'hidden',
   },
@@ -4949,9 +5102,9 @@ const styles = StyleSheet.create({
     minHeight: 66,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderBottomColor: '#1c4a3e',
+    borderBottomColor: colors.border,
     borderBottomWidth: 1,
-    backgroundColor: '#071913',
+    backgroundColor: 'rgba(2, 31, 78, 0.78)' as never,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -4984,7 +5137,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   rankingHighlightCard: {
-    borderColor: '#1c493c',
+    borderColor: 'rgba(98, 164, 255, 0.24)' as never,
     borderWidth: 1,
     borderRadius: 15,
     padding: 12,
@@ -4993,10 +5146,10 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   leaderCard: {
-    backgroundImage: 'linear-gradient(180deg, #102f26, #0a241e)' as never,
+    backgroundImage: 'linear-gradient(180deg, rgba(5, 38, 88, 0.9), rgba(2, 22, 55, 0.94))' as never,
   },
   lastCard: {
-    backgroundColor: '#0c231d',
+    backgroundColor: 'rgba(4, 24, 54, 0.86)' as never,
   },
   rankingHighlightAvatar: {
     position: 'relative',
@@ -5037,36 +5190,36 @@ const styles = StyleSheet.create({
   rankingTable: {
     width: '100%',
     minWidth: 860,
-    borderColor: '#1a463b',
+    borderColor: colors.border,
     borderWidth: 1,
-    borderRadius: 15,
+    borderRadius: 10,
     overflow: 'hidden',
-    backgroundColor: '#071c17',
+    backgroundColor: 'rgba(1, 24, 64, 0.84)' as never,
   },
   rankingTableRow: {
     minHeight: 46,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#071c17',
-    borderBottomColor: '#17382f',
+    backgroundColor: 'rgba(1, 24, 64, 0.84)' as never,
+    borderBottomColor: 'rgba(98, 144, 210, 0.24)' as never,
     borderBottomWidth: 1,
   },
   rankingTableRowAlt: {
-    backgroundColor: '#082019',
+    backgroundColor: 'rgba(3, 34, 82, 0.82)' as never,
   },
   rankingTableRowCurrentUser: {
     borderLeftColor: colors.green,
     borderLeftWidth: 3,
     boxShadow: 'inset 0 0 0 1px rgba(50,210,139,0.45)' as never,
     backgroundImage:
-      'linear-gradient(90deg, rgba(50,210,139,0.16), rgba(8,32,25,0.2))' as never,
+      'linear-gradient(90deg, rgba(50,210,139,0.12), rgba(5,34,82,0.34))' as never,
   },
   rankingTableHeader: {
     minHeight: 42,
-    backgroundColor: '#071913',
+    backgroundColor: 'rgba(4, 76, 112, 0.62)' as never,
   },
   rankingCell: {
-    color: '#cce6dc',
+    color: '#dce8f7',
     fontSize: 12,
     fontWeight: '900',
     paddingHorizontal: 12,
@@ -5150,10 +5303,10 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   rankingSidePanel: {
-    borderColor: '#1c493c',
+    borderColor: 'rgba(98, 164, 255, 0.24)' as never,
     borderWidth: 1,
     borderRadius: 14,
-    backgroundImage: 'linear-gradient(180deg, #102f26, #0a241e)' as never,
+    backgroundImage: 'linear-gradient(180deg, rgba(5, 35, 82, 0.9), rgba(2, 22, 55, 0.94))' as never,
     padding: 13,
     gap: 10,
   },
@@ -5177,7 +5330,7 @@ const styles = StyleSheet.create({
   trophyShelfPanel: {
     borderColor: 'rgba(229,186,82,0.34)' as never,
     backgroundImage:
-      'linear-gradient(180deg, rgba(16,47,38,0.96), rgba(8,30,24,0.98))' as never,
+      'linear-gradient(180deg, rgba(5,35,82,0.96), rgba(2,22,55,0.98))' as never,
   },
   trophyShelfPanelWide: {
     flexGrow: 2,
@@ -5223,8 +5376,8 @@ const styles = StyleSheet.create({
     minHeight: 122,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(47,191,122,0.22)' as never,
-    backgroundColor: '#071f19',
+    borderColor: 'rgba(98,164,255,0.22)' as never,
+    backgroundColor: 'rgba(4, 24, 54, 0.86)' as never,
     padding: 10,
     gap: 8,
     overflow: 'hidden',
@@ -5239,14 +5392,14 @@ const styles = StyleSheet.create({
     minHeight: 128,
     borderColor: 'rgba(229,186,82,0.58)' as never,
     backgroundImage:
-      'linear-gradient(135deg, rgba(229,186,82,0.26), rgba(47,191,122,0.08) 52%, rgba(7,19,17,0.82))' as never,
+      'linear-gradient(135deg, rgba(229,186,82,0.24), rgba(40,167,255,0.10) 52%, rgba(2,22,55,0.86))' as never,
     padding: 12,
   },
   trophyAwardCardMajor: {
     flexBasis: '100%',
     minHeight: 108,
     backgroundImage:
-      'linear-gradient(120deg, rgba(229,186,82,0.13), rgba(9,37,31,0.94))' as never,
+      'linear-gradient(120deg, rgba(229,186,82,0.13), rgba(5,35,82,0.94))' as never,
   },
   trophyAwardLocked: {
     borderColor: 'rgba(229,186,82,0.42)' as never,
@@ -5254,15 +5407,15 @@ const styles = StyleSheet.create({
   trophyAwardLive: {
     borderColor: 'rgba(47,191,122,0.55)' as never,
     backgroundImage:
-      'linear-gradient(160deg, rgba(47,191,122,0.13), rgba(7,31,25,0.96))' as never,
+      'linear-gradient(160deg, rgba(47,191,122,0.10), rgba(5,35,82,0.96))' as never,
   },
   trophyAwardPending: {
     borderColor: 'rgba(168,187,179,0.22)' as never,
-    backgroundColor: '#0a211b',
+    backgroundColor: 'rgba(4, 24, 54, 0.76)' as never,
   },
   trophyAwardEmpty: {
     borderColor: 'rgba(168,187,179,0.16)' as never,
-    backgroundColor: '#081b16',
+    backgroundColor: 'rgba(3, 20, 46, 0.72)' as never,
     opacity: 0.72,
   },
   trophyAwardTop: {
@@ -5465,18 +5618,19 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderWidth: 1,
     borderRadius: 10,
+    boxShadow: '0 14px 45px rgba(0,0,0,0.24)' as never,
   },
   cupTableRow: {
     minHeight: 42,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.input,
-    borderBottomColor: colors.border,
+    backgroundColor: 'rgba(1, 24, 64, 0.82)' as never,
+    borderBottomColor: 'rgba(98, 144, 210, 0.28)' as never,
     borderBottomWidth: 1,
   },
   cupTableHeader: {
     minHeight: 34,
-    backgroundColor: colors.bg,
+    backgroundColor: 'rgba(4, 76, 112, 0.62)' as never,
   },
   cupCell: {
     color: colors.text,
@@ -5537,10 +5691,10 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   cupMatchRow: {
-    backgroundColor: colors.bg2,
+    backgroundColor: 'rgba(1, 25, 65, 0.78)' as never,
     borderColor: colors.border,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 10,
     padding: 12,
     flexDirection: 'row',
     alignItems: 'center',
@@ -5564,8 +5718,8 @@ const styles = StyleSheet.create({
     minHeight: 52,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.bg2,
-    borderBottomColor: colors.border,
+    backgroundColor: 'rgba(1, 25, 65, 0.78)' as never,
+    borderBottomColor: 'rgba(98, 144, 210, 0.26)' as never,
     borderBottomWidth: 1,
     paddingHorizontal: 10,
     gap: 10,
@@ -5625,7 +5779,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   catalogTeamButtonActive: {
-    backgroundColor: '#17372c',
+    backgroundColor: 'rgba(5, 43, 95, 0.88)' as never,
   },
   catalogTeamIdentity: {
     flexDirection: 'row',

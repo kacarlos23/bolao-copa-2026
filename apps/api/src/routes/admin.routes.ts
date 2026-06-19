@@ -15,6 +15,10 @@ import {
   getPredictionCloseSetting,
   updatePredictionCloseMinutes,
 } from '../services/prediction-settings.service.js';
+import {
+  getScoreSyncSetting,
+  updateScoreSyncSetting,
+} from '../services/score-sync-settings.service.js';
 
 export const adminRouter = Router();
 
@@ -38,6 +42,25 @@ adminRouter.patch(
       .object({ predictionCloseMinutes: z.number().int().min(1).max(120) })
       .parse(req.body);
     res.json(await updatePredictionCloseMinutes(req.session.user!.id, body.predictionCloseMinutes));
+  }),
+);
+
+adminRouter.get(
+  '/settings/score-sync',
+  asyncHandler(async (_req, res) => {
+    const setting = await getScoreSyncSetting();
+    res.json({
+      enabled: setting.enabled,
+      updatedAt: setting.updatedAt?.toISOString() ?? null,
+    });
+  }),
+);
+
+adminRouter.patch(
+  '/settings/score-sync',
+  asyncHandler(async (req, res) => {
+    const body = z.object({ enabled: z.boolean() }).parse(req.body);
+    res.json(await updateScoreSyncSetting(req.session.user!.id, body.enabled));
   }),
 );
 

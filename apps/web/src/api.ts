@@ -307,6 +307,12 @@ export interface AdminPredictionSettings {
   updatedAt?: string | null;
 }
 
+export interface AdminScoreSyncSettings {
+  enabled: boolean;
+  previousEnabled?: boolean;
+  updatedAt?: string | null;
+}
+
 export interface PublicKnockoutBracket {
   id: string;
   submittedAt: string;
@@ -438,6 +444,13 @@ export const api = {
     request<AdminPredictionSettings>('/api/admin/settings/predictions', {
       method: 'PATCH',
       body: JSON.stringify({ predictionCloseMinutes }),
+    }),
+  adminScoreSyncSettings: () =>
+    request<AdminScoreSyncSettings>('/api/admin/settings/score-sync'),
+  updateAdminScoreSyncSettings: (enabled: boolean) =>
+    request<AdminScoreSyncSettings>('/api/admin/settings/score-sync', {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled }),
     }),
 };
 
