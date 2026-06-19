@@ -446,11 +446,11 @@ function HeaderNav({
               active && styles.navItemActive,
               index === 0 && styles.navItemFirst,
               index === items.length - 1 && styles.navItemLast,
-              index < items.length - 1 && styles.navItemWithDivider,
             ]}
           >
             <Ionicons name={item.icon} size={18} color={active ? colors.gold : colors.text} />
             <Text style={[styles.navItemText, active && styles.navItemTextActive]}>{item.label}</Text>
+            {index < items.length - 1 ? <View style={styles.navItemDivider} /> : null}
           </Pressable>
         );
       })}
@@ -3649,7 +3649,7 @@ export default function App() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    minHeight: '100%',
+    minHeight: '100vh',
     backgroundColor: colors.bg,
     backgroundImage:
       [
@@ -3658,6 +3658,9 @@ const styles = StyleSheet.create({
         'radial-gradient(1100px 620px at 58% 8%, rgba(39, 133, 214, 0.22), transparent 60%)',
         'linear-gradient(135deg, #001033 0%, #00275f 42%, #00133d 100%)',
       ].join(', ') as never,
+    backgroundAttachment: 'fixed' as never,
+    backgroundRepeat: 'no-repeat' as never,
+    backgroundSize: 'cover' as never,
   },
   authScroll: {
     minHeight: '100%',
@@ -3999,13 +4002,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   header: {
-    minHeight: 146,
+    minHeight: 135,
     paddingTop: 18,
     paddingHorizontal: 24,
     paddingBottom: 12,
-    backgroundColor: 'rgba(0, 18, 58, 0.78)' as never,
+    backgroundColor: 'rgba(0, 18, 58, 0.32)' as never,
     backgroundImage:
-      'radial-gradient(circle at 20% 0%, rgba(0, 156, 59, 0.16), transparent 34%), radial-gradient(circle at 80% 0%, rgba(0, 77, 153, 0.28), transparent 36%), linear-gradient(180deg, #02172d, #031226)' as never,
+      'linear-gradient(180deg, rgba(2, 23, 45, 0.54), rgba(3, 18, 38, 0.18))' as never,
     gap: 14,
     position: 'relative',
     boxShadow: '0 12px 40px rgba(0, 0, 0, 0.26)' as never,
@@ -4097,8 +4100,8 @@ const styles = StyleSheet.create({
     gap: 0,
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
+    borderBottomLeftRadius: 18,
+    borderBottomRightRadius: 18,
     overflow: 'hidden',
     backgroundColor: 'rgba(4, 24, 54, 0.78)' as never,
     backdropFilter: 'blur(14px)' as never,
@@ -4106,14 +4109,14 @@ const styles = StyleSheet.create({
       '0 8px 28px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.06)' as never,
   },
   navItem: {
-    height: 56,
+    height: 45,
     minWidth: 118,
     paddingHorizontal: 24,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    borderBottomWidth: 4,
+    borderBottomWidth: 2,
     borderBottomColor: 'transparent',
     backgroundColor: 'rgba(5, 25, 52, 0.62)' as never,
     backgroundImage:
@@ -4121,16 +4124,24 @@ const styles = StyleSheet.create({
     transitionProperty: 'background-color, box-shadow, color, transform' as never,
     transitionDuration: '160ms' as never,
     transitionTimingFunction: 'ease' as never,
+    position: 'relative',
   },
-  navItemWithDivider: {
-    borderRightWidth: 1,
-    borderRightColor: 'rgba(255,255,255,0.06)' as never,
+  navItemDivider: {
+    position: 'absolute',
+    right: 0,
+    top: '10%',
+    width: 1,
+    height: '80%',
+    backgroundImage:
+      'linear-gradient(180deg, transparent, rgba(188, 212, 244, 0.18) 22%, rgba(188, 212, 244, 0.24) 50%, rgba(188, 212, 244, 0.18) 78%, transparent)' as never,
   },
   navItemFirst: {
     borderTopLeftRadius: 16,
+    borderBottomLeftRadius: 16,
   },
   navItemLast: {
     borderTopRightRadius: 16,
+    borderBottomRightRadius: 16,
   },
   navItemActive: {
     backgroundColor: 'rgba(15, 127, 72, 0.88)' as never,
@@ -4138,9 +4149,11 @@ const styles = StyleSheet.create({
       'linear-gradient(180deg, rgba(18, 168, 91, 0.95), rgba(8, 90, 63, 0.82))' as never,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 16,
     borderBottomColor: '#ffd21f',
     boxShadow:
-      '0 0 0 1px rgba(255, 210, 31, 0.35), 0 8px 24px rgba(18, 168, 91, 0.22), inset 0 -4px 0 #ffd21f, inset 0 1px 0 rgba(255,255,255,0.12)' as never,
+      '0 0 0 1px rgba(255, 210, 31, 0.35), 0 8px 24px rgba(18, 168, 91, 0.22), inset 0 -2px 0 #ffd21f, inset 0 1px 0 rgba(255,255,255,0.12)' as never,
   },
   navItemText: {
     color: '#eef5ff',
@@ -4167,12 +4180,10 @@ const styles = StyleSheet.create({
   },
   screenTransition: {
     width: '100%',
-    borderWidth: 1,
-    borderColor: 'rgba(98, 144, 210, 0.58)' as never,
     borderRadius: 10,
     padding: 16,
-    backgroundColor: 'rgba(0, 25, 78, 0.34)' as never,
-    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 18px 50px rgba(0,0,0,0.18)' as never,
+    backgroundColor: 'rgba(0, 25, 78, 0.12)' as never,
+    boxShadow: 'none' as never,
     overflow: 'hidden',
   },
   contentGrid: {

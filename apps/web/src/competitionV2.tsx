@@ -782,7 +782,7 @@ export function CupOverviewV2({ refreshVersion }: { refreshVersion: number }) {
           ['groups', 'people-outline', 'Fase de grupos'],
           ['knockout', 'git-network-outline', 'Eliminatórias'],
           ['scorers', 'football-outline', 'Artilharia'],
-        ].map(([value, icon, label]) => (
+        ].map(([value, icon, label], index, tabs) => (
           <Pressable
             key={value}
             onPress={() => setTab(value as CupTab)}
@@ -796,6 +796,7 @@ export function CupOverviewV2({ refreshVersion }: { refreshVersion: number }) {
             <Text style={[styles.cupTabText, tab === value && styles.cupTabTextActive]}>
               {label}
             </Text>
+            {index < tabs.length - 1 ? <View style={styles.cupTabDivider} /> : null}
           </Pressable>
         ))}
       </View>
@@ -1394,6 +1395,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 7,
     paddingHorizontal: 18,
+    position: 'relative',
+  },
+  cupTabDivider: {
+    position: 'absolute',
+    right: 0,
+    top: '10%',
+    width: 1,
+    height: '80%',
+    backgroundImage:
+      'linear-gradient(180deg, transparent, rgba(188, 212, 244, 0.18) 22%, rgba(188, 212, 244, 0.24) 50%, rgba(188, 212, 244, 0.18) 78%, transparent)' as never,
   },
   cupTabActive: { backgroundColor: c.gold },
   cupTabText: { color: c.text, fontSize: 13, fontWeight: '800' },
