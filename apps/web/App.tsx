@@ -288,6 +288,7 @@ function LastFive({
   matches?: Array<{ score: number; match?: any }>;
 }) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+
   const padded = [...values.slice(-5)];
   while (padded.length < 5) padded.unshift(-1);
 
@@ -321,11 +322,13 @@ function LastFive({
             {isHovered && match && match.match && (
               <View style={styles.lastFiveTooltip}>
                 <View style={styles.lastFiveTooltipContent}>
-                  <View style={styles.lastFiveTooltipTeams}>
-                    <TeamFlag team={match.match.homeTeam} size={14} />
-                    <Text style={styles.lastFiveTooltipVs}>vs</Text>
-                    <TeamFlag team={match.match.awayTeam} size={14} />
-                  </View>
+                  {match.match.homeTeam && match.match.awayTeam && (
+                    <View style={styles.lastFiveTooltipTeams}>
+                      <TeamFlag team={match.match.homeTeam} size={14} />
+                      <Text style={styles.lastFiveTooltipVs}>vs</Text>
+                      <TeamFlag team={match.match.awayTeam} size={14} />
+                    </View>
+                  )}
                   <View style={styles.lastFiveTooltipScore}>
                     <Text style={styles.lastFiveTooltipScoreText}>
                       {match.match.finalHomeScore ?? match.match.homeScore ?? '-'}-
@@ -5726,17 +5729,19 @@ const styles = StyleSheet.create({
   },
   lastFiveTooltip: {
     position: 'absolute',
-    bottom: '100%',
-    left: '50%',
-    marginBottom: 8,
-    transform: [{ translateX: -50 }],
+    bottom: 28,
+    left: -57,
+    width: 130,
     backgroundColor: colors.panel2,
     borderColor: colors.border,
     borderWidth: 1,
     borderRadius: 6,
     padding: 8,
-    minWidth: 130,
     zIndex: 1000,
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 8,
   },
   lastFiveTooltipContent: {
     gap: 6,

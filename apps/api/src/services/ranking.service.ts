@@ -405,6 +405,7 @@ export async function getRanking(period: RankingPeriod = 'all') {
           calculatedAt: true,
           match: {
             select: {
+              id: true,
               homeTeam: {
                 select: {
                   id: true,
@@ -451,6 +452,7 @@ export async function getRanking(period: RankingPeriod = 'all') {
           calculatedAt: true,
           fixture: {
             select: {
+              id: true,
               homeTeam: {
                 select: {
                   id: true,
@@ -479,7 +481,8 @@ export async function getRanking(period: RankingPeriod = 'all') {
     },
   });
 
-  return buildRankingRows(users, period);
+  const result = buildRankingRows(users, period);
+  return result;
 }
 
 export async function getRankingAwards() {
