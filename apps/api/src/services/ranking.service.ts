@@ -307,25 +307,49 @@ function buildRankingRows(
     id: string;
     nickname: string;
     avatarUrl: string | null;
-    scores: Array<{ points: number; isFinal: boolean; scoreType: ScoreType; calculatedAt: Date }>;
+    scores: Array<{
+      points: number;
+      isFinal: boolean;
+      scoreType: ScoreType;
+      calculatedAt: Date;
+      match?: {
+        homeTeam: { id: string; name: string; code?: string | null; metadata?: any } | null;
+        awayTeam: { id: string; name: string; code?: string | null; metadata?: any } | null;
+        homeScore?: number | null;
+        awayScore?: number | null;
+        finalHomeScore?: number | null;
+        finalAwayScore?: number | null;
+        status: string;
+      };
+    }>;
     knockoutScores: Array<{
       points: number;
       isFinal: boolean;
       scoreType: ScoreType;
       calculatedAt: Date;
+      fixture?: {
+        homeTeam: { id: string; name: string; code?: string | null; metadata?: any } | null;
+        awayTeam: { id: string; name: string; code?: string | null; metadata?: any } | null;
+        homeScore?: number | null;
+        awayScore?: number | null;
+        finalHomeScore?: number | null;
+        finalAwayScore?: number | null;
+        status: string;
+      };
     }>;
   }>,
   period: RankingPeriod,
 ) {
   const rows = users
     .map((user) => {
-      const scores = [...user.scores, ...user.knockoutScores].sort(
-        (a, b) => b.calculatedAt.getTime() - a.calculatedAt.getTime(),
+      const scores = [...(user.scores as any[]), ...(user.knockoutScores as any[])].sort(
+        (a: any, b: any) => b.calculatedAt.getTime() - a.calculatedAt.getTime(),
       );
       const points = scores.reduce((sum, score) => sum + score.points, 0);
       const finalPoints = scores
         .filter((score) => score.isFinal)
         .reduce((sum, score) => sum + score.points, 0);
+      const lastFiveScores = scores.slice(0, 5).reverse();
       return {
         userId: user.id,
         nickname: user.nickname,
@@ -337,10 +361,11 @@ function buildRankingRows(
         resultHits: scores.filter((score) => score.scoreType === 'RESULT').length,
         oneGoalHits: scores.filter((score) => score.scoreType === 'ONE_TEAM_GOALS').length,
         misses: scores.filter((score) => score.scoreType === 'MISS').length,
-        lastFive: scores
-          .slice(0, 5)
-          .reverse()
-          .map((score) => score.points),
+        lastFive: lastFiveScores.map((score) => score.points),
+        lastFiveMatches: lastFiveScores.map((score) => ({
+          score: score.points,
+          match: score.match || score.fixture,
+        })),
         hasLiveData: scores.some((score) => !score.isFinal),
       };
     })
@@ -373,7 +398,37 @@ export async function getRanking(period: RankingPeriod = 'all') {
             }
           : {}),
         orderBy: { calculatedAt: 'desc' },
-        select: { points: true, isFinal: true, scoreType: true, calculatedAt: true },
+        select: {
+          points: true,
+          isFinal: true,
+          scoreType: true,
+          calculatedAt: true,
+          match: {
+            select: {
+              homeTeam: {
+                select: {
+                  id: true,
+                  name: true,
+                  code: true,
+                  metadata: true,
+                },
+              },
+              awayTeam: {
+                select: {
+                  id: true,
+                  name: true,
+                  code: true,
+                  metadata: true,
+                },
+              },
+              homeScore: true,
+              awayScore: true,
+              finalHomeScore: true,
+              finalAwayScore: true,
+              status: true,
+            },
+          },
+        },
       },
       knockoutScores: {
         ...(window
@@ -389,7 +444,37 @@ export async function getRanking(period: RankingPeriod = 'all') {
             }
           : {}),
         orderBy: { calculatedAt: 'desc' },
-        select: { points: true, isFinal: true, scoreType: true, calculatedAt: true },
+        select: {
+          points: true,
+          isFinal: true,
+          scoreType: true,
+          calculatedAt: true,
+          fixture: {
+            select: {
+              homeTeam: {
+                select: {
+                  id: true,
+                  name: true,
+                  code: true,
+                  metadata: true,
+                },
+              },
+              awayTeam: {
+                select: {
+                  id: true,
+                  name: true,
+                  code: true,
+                  metadata: true,
+                },
+              },
+              homeScore: true,
+              awayScore: true,
+              finalHomeScore: true,
+              finalAwayScore: true,
+              status: true,
+            },
+          },
+        },
       },
     },
   });

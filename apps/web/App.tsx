@@ -280,27 +280,67 @@ function RankingMovementBadge({
   );
 }
 
-function LastFive({ values }: { values: number[] }) {
+function LastFive({
+  values,
+  matches,
+}: {
+  values: number[];
+  matches?: Array<{ score: number; match?: any }>;
+}) {
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const padded = [...values.slice(-5)];
   while (padded.length < 5) padded.unshift(-1);
 
+  const paddedMatches = matches ? [...matches.slice(-5)] : [];
+  while (paddedMatches.length < 5) paddedMatches.unshift(undefined as any);
+
   return (
-    <View style={styles.lastFiveList}>
-      {padded.map((value, index) => (
-        <View
-          key={`${index}-${value}`}
-          style={[
-            styles.lastFiveBadge,
-            value === 7 && styles.lastFiveExact,
-            value === 3 && styles.lastFiveResult,
-            value === 1 && styles.lastFiveGoal,
-            value === 0 && styles.lastFiveMiss,
-            value < 0 && styles.lastFiveEmpty,
-          ]}
-        >
-          <Text style={styles.lastFiveText}>{value >= 0 ? value : '-'}</Text>
-        </View>
-      ))}
+    <View style={[styles.lastFiveList, { position: 'relative' }]}>
+      {padded.map((value, index) => {
+        const realIndex = values.length - 5 + index;
+        const match = paddedMatches[index];
+        const isHovered = hoveredIndex === index;
+
+        return (
+          <View key={`${index}-${value}`} style={{ position: 'relative' }}>
+            <Pressable
+              onMouseEnter={() => setHoveredIndex(index)}
+              onMouseLeave={() => setHoveredIndex(null)}
+              style={[
+                styles.lastFiveBadge,
+                value === 7 && styles.lastFiveExact,
+                value === 3 && styles.lastFiveResult,
+                value === 1 && styles.lastFiveGoal,
+                value === 0 && styles.lastFiveMiss,
+                value < 0 && styles.lastFiveEmpty,
+              ]}
+            >
+              <Text style={styles.lastFiveText}>{value >= 0 ? value : '-'}</Text>
+            </Pressable>
+
+            {isHovered && match && match.match && (
+              <View style={styles.lastFiveTooltip}>
+                <View style={styles.lastFiveTooltipContent}>
+                  <View style={styles.lastFiveTooltipTeams}>
+                    <TeamFlag team={match.match.homeTeam} size={14} />
+                    <Text style={styles.lastFiveTooltipVs}>vs</Text>
+                    <TeamFlag team={match.match.awayTeam} size={14} />
+                  </View>
+                  <View style={styles.lastFiveTooltipScore}>
+                    <Text style={styles.lastFiveTooltipScoreText}>
+                      {match.match.finalHomeScore ?? match.match.homeScore ?? '-'}-
+                      {match.match.finalAwayScore ?? match.match.awayScore ?? '-'}
+                    </Text>
+                  </View>
+                  <View style={styles.lastFiveTooltipPoints}>
+                    <Text style={styles.lastFiveTooltipPointsText}>{match.score} pts</Text>
+                  </View>
+                </View>
+              </View>
+            )}
+          </View>
+        );
+      })}
     </View>
   );
 }
@@ -330,14 +370,35 @@ function TeamFlag({ team, size = 18 }: { team: Team; size?: number }) {
   );
 }
 
-function TeamNameButton({ team, onOpenTeam }: { team: Team; onOpenTeam?: (team: Team) => void }) {
+function TeamNameButton({
+  team,
+  onOpenTeam,
+  singleLine = false,
+}: {
+  team: Team;
+  onOpenTeam?: (team: Team) => void;
+  singleLine?: boolean;
+}) {
   if (!onOpenTeam) {
-    return <Text style={styles.matchTitle}>{team.name}</Text>;
+    return <Text numberOfLines={singleLine ? 1 : undefined} style={styles.matchTitle}>{team.name}</Text>;
   }
 
   return (
-    <Pressable onPress={() => onOpenTeam(team)} hitSlop={6}>
-      <Text style={[styles.matchTitle, styles.teamNameLink]}>{team.name}</Text>
+    <Pressable
+      onPress={() => onOpenTeam(team)}
+      hitSlop={6}
+      style={singleLine ? styles.teamNameButtonSingleLine : undefined}
+    >
+      <Text
+        numberOfLines={singleLine ? 1 : undefined}
+        style={[
+          styles.matchTitle,
+          styles.teamNameLink,
+          singleLine && styles.teamNameSingleLine,
+        ]}
+      >
+        {team.name}
+      </Text>
     </Pressable>
   );
 }
@@ -2230,7 +2291,7 @@ function RankingPodiumCard({
       </View>
       <RankingMovementBadge delta={movement ?? null} />
       <Text style={styles.rankingPodiumPoints}>{row.points} pts</Text>
-      <LastFive values={row.lastFive} />
+      <LastFive values={row.lastFive} matches={row.lastFiveMatches} />
     </View>
   );
 }
@@ -2889,7 +2950,7 @@ function RankingScreenLayout({
                       <Text style={[styles.rankingCell, styles.numericColumn]}>{row.oneGoalHits}</Text>
                       <Text style={[styles.rankingCell, styles.numericColumn]}>{row.misses}</Text>
                       <View style={[styles.rankingCellBox, styles.formColumn]}>
-                        <LastFive values={row.lastFive} />
+                        <LastFive values={row.lastFive} matches={row.lastFiveMatches} />
                       </View>
                       <Text
                         style={[styles.rankingCell, styles.pointsColumn, styles.rankingPointsText]}
@@ -3043,7 +3104,7 @@ function RankingScreen({ refreshVersion }: { refreshVersion: number }) {
                 <Text style={[styles.rankingCell, styles.numericColumn]}>{row.oneGoalHits}</Text>
                 <Text style={[styles.rankingCell, styles.numericColumn]}>{row.misses}</Text>
                 <View style={[styles.rankingCellBox, styles.formColumn]}>
-                  <LastFive values={row.lastFive} />
+                  <LastFive values={row.lastFive} matches={row.lastFiveMatches} />
                 </View>
                 <Text style={[styles.rankingCell, styles.pointsColumn, styles.rankingPointsText]}>
                   {row.points}
@@ -3092,19 +3153,35 @@ function CupStandingTable({
   title,
   rows,
   onOpenTeam,
+  fullWidth = false,
+  highlightTopEight = false,
+  showGroup = false,
+  wideTable = false,
 }: {
   title: string;
   rows: CupStandingRow[];
   onOpenTeam: (team: Team) => void;
+  fullWidth?: boolean;
+  highlightTopEight?: boolean;
+  showGroup?: boolean;
+  wideTable?: boolean;
 }) {
   return (
-    <View style={styles.cupGroupBlock}>
+    <View style={[styles.cupGroupBlock, fullWidth && styles.cupGroupBlockFull]}>
       <Text style={styles.cupGroupTitle}>{title}</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        <View style={styles.cupTable}>
+        <View style={[styles.cupTable, wideTable && styles.cupTableWide]}>
           <View style={[styles.cupTableRow, styles.cupTableHeader]}>
             <Text style={[styles.cupCell, styles.cupRankColumn]}>#</Text>
-            <Text style={[styles.cupCell, styles.cupTeamColumn]}>Time</Text>
+            <Text
+              style={[
+                styles.cupCell,
+                styles.cupTeamColumn,
+                fullWidth && styles.cupTeamColumnFull,
+              ]}
+            >
+              Time
+            </Text>
             <Text style={[styles.cupCell, styles.cupStatColumn]}>P</Text>
             <Text style={[styles.cupCell, styles.cupStatColumn]}>V</Text>
             <Text style={[styles.cupCell, styles.cupStatColumn]}>E</Text>
@@ -3114,14 +3191,33 @@ function CupStandingTable({
             <Text style={[styles.cupCell, styles.cupFormColumn]}>Últimos 5</Text>
             <Text style={[styles.cupCell, styles.cupPointsColumn]}>PTS</Text>
           </View>
-          {rows.map((row) => (
-            <View key={`${row.group}-${row.team.id}`} style={styles.cupTableRow}>
-              <Text style={[styles.cupCell, styles.cupRankColumn, styles.cupRankText]}>
+          {rows.map((row, index) => (
+            <View
+              key={`${row.group}-${row.team.id}`}
+              style={[
+                styles.cupTableRow,
+                highlightTopEight && index < 8 && styles.cupThirdQualifiedRow,
+              ]}
+            >
+              <Text
+                numberOfLines={1}
+                style={[styles.cupCell, styles.cupRankColumn, styles.cupRankText]}
+              >
                 {row.rank}
               </Text>
-              <View style={[styles.cupCellBox, styles.cupTeamColumn, styles.cupTeamCell]}>
+              <View
+                style={[
+                  styles.cupCellBox,
+                  styles.cupTeamColumn,
+                  styles.cupTeamCell,
+                  fullWidth && styles.cupTeamColumnFull,
+                ]}
+              >
                 <TeamFlag team={row.team} />
-                <TeamNameButton team={row.team} onOpenTeam={onOpenTeam} />
+                <View style={styles.cupThirdTeamCopy}>
+                  <TeamNameButton team={row.team} onOpenTeam={onOpenTeam} singleLine />
+                  {showGroup ? <Text style={styles.cupThirdGroup}>Grupo {row.group}</Text> : null}
+                </View>
               </View>
               <Text style={[styles.cupCell, styles.cupStatColumn]}>{row.played}</Text>
               <Text style={[styles.cupCell, styles.cupStatColumn]}>{row.wins}</Text>
@@ -3194,6 +3290,7 @@ function CupOverviewScreen({
   refreshVersion: number;
   onOpenTeam: (team: Team) => void;
 }) {
+  const { width } = useWindowDimensions();
   const [overview, setOverview] = useState<CupOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -3222,10 +3319,22 @@ function CupOverviewScreen({
     overview?.matches
       .filter((match) => match.homeScore == null || match.awayScore == null)
       .slice(0, 24) ?? [];
+  const thirdPlaced =
+    overview?.standingsByGroup
+      .map((group) => group.rows[2])
+      .filter((row): row is CupStandingRow => Boolean(row))
+      .sort(
+        (rowA, rowB) =>
+          rowB.points - rowA.points ||
+          rowB.goalDifference - rowA.goalDifference ||
+          rowB.goalsFor - rowA.goalsFor ||
+          rowA.team.name.localeCompare(rowB.team.name, 'pt-BR'),
+      )
+      .map((row, index) => ({ ...row, rank: index + 1 })) ?? [];
 
   return (
     <View style={styles.contentGrid}>
-      <View style={styles.panel}>
+      <View style={[styles.panel, styles.cupPanel]}>
         <View style={styles.panelHeader}>
           <Text style={styles.sectionTitle}>Copa do Mundo 2026</Text>
           <Text style={styles.muted}>Classificação por grupos, resultados e artilharia.</Text>
@@ -3249,28 +3358,49 @@ function CupOverviewScreen({
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
       </View>
 
-      <View style={styles.panel}>
+      <View style={[styles.panel, styles.cupPanel]}>
         <View style={styles.panelHeader}>
           <Text style={styles.sectionTitle}>Classificação</Text>
           <Text style={styles.muted}>A tabela considera apenas partidas encerradas.</Text>
         </View>
         {overview?.standingsByGroup.length ? (
-          <View style={styles.cupGroupsList}>
+          <View style={[styles.cupGroupsList, width < 900 && styles.cupGroupsListSingle]}>
             {overview.standingsByGroup.map((group) => (
               <CupStandingTable
                 key={group.group}
                 title={group.group === 'Sem grupo' ? group.group : `Grupo ${group.group}`}
                 rows={group.rows}
                 onOpenTeam={onOpenTeam}
+                fullWidth={width < 900}
               />
             ))}
           </View>
         ) : (
           <Text style={styles.muted}>Nenhum grupo cadastrado ainda.</Text>
         )}
+        {thirdPlaced.length ? (
+          <View style={styles.cupThirdPlacedWrapper}>
+            <View style={styles.cupThirdPlacedHeading}>
+              <Ionicons name="trophy-outline" size={22} color={colors.gold} />
+              <View style={styles.cupThirdPlacedHeadingCopy}>
+                <Text style={styles.sectionTitle}>Equipes terceiras colocadas</Text>
+                <Text style={styles.muted}>As oito melhores avançam para a fase eliminatória.</Text>
+              </View>
+            </View>
+            <CupStandingTable
+              title="Classificação geral"
+              rows={thirdPlaced}
+              onOpenTeam={onOpenTeam}
+              fullWidth
+              highlightTopEight
+              showGroup
+              wideTable={width >= 900}
+            />
+          </View>
+        ) : null}
       </View>
 
-      <View style={styles.panel}>
+      <View style={[styles.panel, styles.cupPanel]}>
         <View style={styles.panelHeader}>
           <Text style={styles.sectionTitle}>Resultados</Text>
           <Text style={styles.muted}>
@@ -3290,7 +3420,7 @@ function CupOverviewScreen({
         ) : null}
       </View>
 
-      <View style={styles.panel}>
+      <View style={[styles.panel, styles.cupPanel]}>
         <View style={styles.panelHeader}>
           <Text style={styles.sectionTitle}>Artilharia</Text>
           <Text style={styles.muted}>Lista de goleadores da competição.</Text>
@@ -4613,6 +4743,8 @@ const styles = StyleSheet.create({
     color: colors.gold,
     textDecorationLine: 'underline',
   },
+  teamNameButtonSingleLine: { minWidth: 0, flexShrink: 1 },
+  teamNameSingleLine: { fontSize: 14 },
   matchTeamsLine: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -5592,6 +5724,54 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '900',
   },
+  lastFiveTooltip: {
+    position: 'absolute',
+    bottom: '100%',
+    left: '50%',
+    marginBottom: 8,
+    transform: [{ translateX: -50 }],
+    backgroundColor: colors.panel2,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: 6,
+    padding: 8,
+    minWidth: 130,
+    zIndex: 1000,
+  },
+  lastFiveTooltipContent: {
+    gap: 6,
+    alignItems: 'center',
+  },
+  lastFiveTooltipTeams: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  lastFiveTooltipVs: {
+    color: colors.muted,
+    fontSize: 9,
+    fontWeight: '600',
+  },
+  lastFiveTooltipScore: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lastFiveTooltipScoreText: {
+    color: colors.gold,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  lastFiveTooltipPoints: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lastFiveTooltipPointsText: {
+    color: colors.green,
+    fontSize: 10,
+    fontWeight: '600',
+  },
   cupSummaryRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -5603,34 +5783,44 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg2,
     borderColor: colors.border,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 6,
     padding: 12,
     gap: 4,
   },
   cupGroupsList: {
+    width: '95%',
+    alignSelf: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'stretch',
     gap: 12,
   },
+  cupPanel: { borderRadius: 6 },
+  cupGroupsListSingle: { width: '100%', flexDirection: 'column' },
   cupGroupBlock: {
-    backgroundColor: colors.bg2,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
+    width: '49%',
+    minWidth: 0,
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    borderRadius: 0,
+    padding: 0,
     gap: 10,
   },
+  cupGroupBlockFull: { width: '100%' },
   cupGroupTitle: {
     color: colors.gold,
     fontSize: 16,
     fontWeight: '900',
   },
   cupTable: {
-    minWidth: 780,
+    minWidth: 620,
     overflow: 'hidden',
     borderColor: colors.border,
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: 4,
     boxShadow: '0 14px 45px rgba(0,0,0,0.24)' as never,
   },
+  cupTableWide: { minWidth: 1280 },
   cupTableRow: {
     minHeight: 42,
     flexDirection: 'row',
@@ -5654,25 +5844,36 @@ const styles = StyleSheet.create({
     paddingHorizontal: 7,
   },
   cupRankColumn: {
-    width: 42,
+    width: 40,
   },
   cupTeamColumn: {
-    width: 250,
+    width: 220,
   },
+  cupTeamColumnFull: { width: 'auto', minWidth: 180, flex: 1 },
   cupStatColumn: {
-    width: 48,
+    width: 34,
   },
   cupFormColumn: {
-    width: 130,
+    width: 115,
   },
   cupPointsColumn: {
-    width: 58,
+    width: 40,
   },
   cupTeamCell: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
+  cupThirdPlacedWrapper: { marginTop: 16, gap: 10 },
+  cupThirdPlacedHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  cupThirdPlacedHeadingCopy: { flex: 1, gap: 2 },
+  cupThirdQualifiedRow: { borderLeftWidth: 4, borderLeftColor: colors.green },
+  cupThirdTeamCopy: { minWidth: 0, flex: 1 },
+  cupThirdGroup: { color: colors.muted, fontSize: 9, marginTop: 1 },
   cupRankText: {
     color: colors.gold,
     fontSize: 15,
@@ -5683,9 +5884,9 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   cupFormBadge: {
-    width: 22,
-    height: 22,
-    borderRadius: 5,
+    width: 18,
+    height: 18,
+    borderRadius: 4,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -5705,7 +5906,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(1, 25, 65, 0.78)' as never,
     borderColor: colors.border,
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: 5,
     padding: 12,
     flexDirection: 'row',
     alignItems: 'center',

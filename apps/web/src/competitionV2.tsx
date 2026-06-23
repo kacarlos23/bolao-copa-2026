@@ -18,6 +18,7 @@ import {
   type CupMatchResult,
   type CupOverview,
   type CupStandingGroup,
+  type CupStandingRow,
   type KnockoutFixture,
   type Match,
   type MatchDay,
@@ -710,6 +711,102 @@ function GroupModule({
   );
 }
 
+function ThirdPlacedForm({ values }: { values: CupStandingRow['lastFive'] }) {
+  const recent = [...Array(Math.max(0, 5 - values.length)).fill('-'), ...values.slice(-5)];
+  return (
+    <View style={styles.thirdForm}>
+      {recent.map((value, index) => (
+        <View
+          key={`${value}-${index}`}
+          style={[
+            styles.thirdFormBadge,
+            value === 'W' && styles.thirdFormWin,
+            value === 'D' && styles.thirdFormDraw,
+            value === 'L' && styles.thirdFormLoss,
+          ]}
+        >
+          <Text style={styles.thirdFormText}>
+            {value === 'W' ? 'V' : value === 'D' ? 'E' : value === 'L' ? 'D' : '-'}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function ThirdPlacedTable({ groups }: { groups: CupStandingGroup[] }) {
+  const thirdPlaced = groups
+    .map((group) => group.rows[2])
+    .filter((row): row is CupStandingRow => Boolean(row))
+    .sort(
+      (rowA, rowB) =>
+        rowB.points - rowA.points ||
+        rowB.goalDifference - rowA.goalDifference ||
+        rowB.goalsFor - rowA.goalsFor ||
+        rowA.team.name.localeCompare(rowB.team.name, 'pt-BR'),
+    );
+
+  return (
+    <View style={styles.thirdPlacedSection}>
+      <View style={styles.thirdPlacedTitleRow}>
+        <Ionicons name="trophy-outline" size={21} color={c.gold} />
+        <View style={styles.thirdPlacedTitleCopy}>
+          <Text style={styles.thirdPlacedTitle}>Equipes terceiras colocadas</Text>
+          <Text style={styles.muted}>As oito melhores avançam para a fase eliminatória.</Text>
+        </View>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator>
+        <View style={styles.thirdPlacedTable}>
+          <View style={[styles.thirdPlacedRow, styles.thirdPlacedHeader]}>
+            <Text style={[styles.thirdPlacedCell, styles.thirdRankColumn]}>#</Text>
+            <Text style={[styles.thirdPlacedCell, styles.thirdTeamColumn]}>Seleção</Text>
+            <Text style={styles.thirdPlacedCell}>J</Text>
+            <Text style={styles.thirdPlacedCell}>V</Text>
+            <Text style={styles.thirdPlacedCell}>E</Text>
+            <Text style={styles.thirdPlacedCell}>D</Text>
+            <Text style={styles.thirdPlacedCell}>SG</Text>
+            <Text style={styles.thirdPlacedCell}>GP</Text>
+            <Text style={[styles.thirdPlacedCell, styles.thirdFormColumn]}>Últimos 5</Text>
+            <Text style={[styles.thirdPlacedCell, styles.thirdPointsColumn]}>PTS</Text>
+          </View>
+          {thirdPlaced.map((row, index) => {
+            const qualified = index < 8;
+            return (
+              <View
+                key={`${row.group}-${row.team.id}`}
+                style={[styles.thirdPlacedRow, qualified && styles.thirdPlacedQualifiedRow]}
+              >
+                <View style={[styles.thirdRank, qualified && styles.thirdRankQualified]}>
+                  <Text style={[styles.thirdRankText, qualified && styles.thirdRankTextQualified]}>
+                    {index + 1}
+                  </Text>
+                </View>
+                <View style={[styles.thirdTeamColumn, styles.thirdTeam]}>
+                  <TeamFlag team={row.team} size={18} />
+                  <View style={styles.thirdTeamCopy}>
+                    <Text style={styles.thirdTeamName} numberOfLines={1}>{row.team.name}</Text>
+                    <Text style={styles.thirdGroupLabel}>Grupo {row.group}</Text>
+                  </View>
+                </View>
+                <Text style={styles.thirdPlacedCell}>{row.played}</Text>
+                <Text style={styles.thirdPlacedCell}>{row.wins}</Text>
+                <Text style={styles.thirdPlacedCell}>{row.draws}</Text>
+                <Text style={styles.thirdPlacedCell}>{row.losses}</Text>
+                <Text style={styles.thirdPlacedCell}>
+                  {row.goalDifference > 0 ? `+${row.goalDifference}` : row.goalDifference}
+                </Text>
+                <Text style={styles.thirdPlacedCell}>{row.goalsFor}</Text>
+                <View style={styles.thirdFormColumn}><ThirdPlacedForm values={row.lastFive} /></View>
+                <Text style={[styles.thirdPlacedCell, styles.thirdPointsColumn]}>{row.points}</Text>
+              </View>
+            );
+          })}
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
 const stageLabels: Record<KnockoutFixture['stage'], string> = {
   ROUND_OF_32: '32 avos',
   ROUND_OF_16: 'Oitavas',
@@ -860,18 +957,19 @@ export function CupOverviewV2({ refreshVersion }: { refreshVersion: number }) {
                 ))}
               </ScrollView>
             </View>
-            <View style={[styles.groupsGrid, width < 1000 && styles.groupsGridSingle]}>
+            <View style={[styles.groupsGrid, width < 820 && styles.groupsGridSingle]}>
               {visibleGroups.map((group) => (
                 <GroupModule
                   key={group.group}
                   group={group}
-                  compact={width < 1000}
+                  compact={width < 820}
                   matches={overview.matches.filter(
                     (match) => match.group === group.group && matchPassesFilter(match, filter),
                   )}
                 />
               ))}
             </View>
+            <ThirdPlacedTable groups={overview.standingsByGroup} />
           </>
         ) : null}
 
@@ -1444,24 +1542,29 @@ const styles = StyleSheet.create({
   },
   groupFilterButtonActive: { borderColor: c.gold, backgroundColor: '#2d2a16' },
   groupFilterText: { color: c.text, fontSize: 12, fontWeight: '800' },
-  groupsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
-  groupsGridSingle: { flexDirection: 'column' },
+  groupsGrid: {
+    width: '95%',
+    alignSelf: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'stretch',
+    gap: 14,
+  },
+  groupsGridSingle: { width: '100%', flexDirection: 'column' },
   groupModule: {
     width: '49%',
     minWidth: 0,
-    borderWidth: 1,
-    borderColor: c.line,
-    borderRadius: 10,
+    borderWidth: 0,
+    borderRadius: 0,
     overflow: 'hidden',
-    backgroundColor: c.panel,
-    boxShadow: '0 16px 48px rgba(0,0,0,0.24)' as never,
+    backgroundColor: 'transparent',
   },
   groupModuleFull: { width: '100%' },
   groupTitle: {
     color: c.gold,
     fontSize: 17,
     fontWeight: '900',
-    paddingHorizontal: 12,
+    paddingHorizontal: 0,
     paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: c.line,
@@ -1487,6 +1590,71 @@ const styles = StyleSheet.create({
   standingTeamName: { flexShrink: 1, color: c.text, fontSize: 11, fontWeight: '800' },
   pointsCell: { fontWeight: '900' },
   groupMatches: { flex: 1 },
+  thirdPlacedSection: {
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: c.line,
+    borderRadius: 10,
+    overflow: 'hidden',
+    backgroundColor: c.panel,
+    boxShadow: '0 16px 48px rgba(0,0,0,0.24)' as never,
+  },
+  thirdPlacedTitleRow: {
+    minHeight: 66,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 0,
+    backgroundColor: 'transparent',
+  },
+  thirdPlacedTitleCopy: { flex: 1, gap: 2 },
+  thirdPlacedTitle: { color: c.text, fontSize: 18, fontWeight: '900' },
+  thirdPlacedTable: { minWidth: 820, width: '100%' },
+  thirdPlacedRow: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    borderBottomWidth: 0,
+  },
+  thirdPlacedHeader: { minHeight: 38, backgroundColor: 'rgba(1, 18, 55, 0.72)' as never },
+  thirdPlacedQualifiedRow: { borderLeftWidth: 3, borderLeftColor: c.green },
+  thirdPlacedCell: { width: 48, color: c.text, fontSize: 11, textAlign: 'center' },
+  thirdRankColumn: { width: 40 },
+  thirdTeamColumn: { width: 240, minWidth: 240 },
+  thirdTeam: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  thirdTeamCopy: { minWidth: 0, flex: 1 },
+  thirdTeamName: { color: c.text, fontSize: 12, fontWeight: '900' },
+  thirdGroupLabel: { color: c.muted, fontSize: 9, marginTop: 1 },
+  thirdRank: {
+    width: 24,
+    height: 24,
+    marginHorizontal: 8,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(184, 198, 221, 0.14)' as never,
+  },
+  thirdRankQualified: { backgroundColor: c.green },
+  thirdRankText: { color: c.text, fontSize: 11, fontWeight: '900' },
+  thirdRankTextQualified: { color: c.bg },
+  thirdFormColumn: { width: 160, alignItems: 'center', justifyContent: 'center' },
+  thirdPointsColumn: { width: 56, color: c.gold, fontWeight: '900' },
+  thirdForm: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  thirdFormBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(184, 198, 221, 0.12)' as never,
+  },
+  thirdFormWin: { backgroundColor: c.green },
+  thirdFormDraw: { backgroundColor: c.gold },
+  thirdFormLoss: { backgroundColor: c.red },
+  thirdFormText: { color: c.bg, fontSize: 10, fontWeight: '900' },
   cupMatchLine: {
     minHeight: 42,
     flexDirection: 'row',

@@ -106,6 +106,18 @@ export interface RankingRow {
   oneGoalHits: number;
   misses: number;
   lastFive: number[];
+  lastFiveMatches?: Array<{
+    score: number;
+    match?: {
+      homeTeam: Team;
+      awayTeam: Team;
+      homeScore?: number | null;
+      awayScore?: number | null;
+      finalHomeScore?: number | null;
+      finalAwayScore?: number | null;
+      status: string;
+    };
+  }>;
   hasLiveData: boolean;
 }
 
