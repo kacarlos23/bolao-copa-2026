@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { calculatePredictionScore } from './scoring.js';
 
 describe('calculatePredictionScore', () => {
-  it('gives 7 points for exact score', () => {
+  it('gives 15 points for exact score', () => {
     expect(
       calculatePredictionScore({
         predictedHomeScore: 2,
@@ -10,7 +10,7 @@ describe('calculatePredictionScore', () => {
         actualHomeScore: 2,
         actualAwayScore: 1,
       }),
-    ).toEqual({ points: 7, scoreType: 'EXACT_SCORE' });
+    ).toEqual({ points: 15, scoreType: 'EXACT_SCORE' });
   });
 
   it('gives 3 points for correct winner with wrong score', () => {

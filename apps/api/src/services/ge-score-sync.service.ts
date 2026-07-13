@@ -17,6 +17,8 @@ const GE_COPA_URL = 'https://ge.globo.com/futebol/copa-do-mundo/';
 const GE_URLS = ['https://ge.globo.com/', GE_COPA_URL];
 export const GE_SCORE_SCRAPE_POLL_MS = 5 * 60_000;
 const TOP_SCORERS_SETTING_KEY = 'cup.topScorers';
+const SCORE_LOOKBACK_MS = 72 * 60 * 60_000;
+const SCORE_LOOKAHEAD_MS = 36 * 60 * 60_000;
 
 interface ScrapedScore {
   sourceUrl?: string;
@@ -37,6 +39,22 @@ interface ScrapedTopScorer {
   imageUrl: string | null;
   teamFlagUrl: string | null;
   goals: number;
+}
+
+interface GeScheduleMatch {
+  data_realizacao?: string;
+  equipes?: {
+    mandante?: { nome_popular?: string };
+    visitante?: { nome_popular?: string };
+  };
+  jogo_ja_comecou?: boolean;
+  placar_oficial_mandante?: number | null;
+  placar_oficial_visitante?: number | null;
+  transmissao?: {
+    broadcast?: { id?: string; label?: string };
+    label?: string;
+    url?: string;
+  };
 }
 
 export interface GeScoreSyncResult {
@@ -147,6 +165,56 @@ function extractObjectsAfterProperty(html: string, property: string) {
   return objects;
 }
 
+function extractArraysAfterProperty(html: string, property: string) {
+  const arrays: unknown[][] = [];
+  let searchFrom = 0;
+
+  while (searchFrom < html.length) {
+    const propertyIndex = html.indexOf(property, searchFrom);
+    if (propertyIndex === -1) break;
+
+    const bracketStart = html.indexOf('[', propertyIndex + property.length);
+    if (bracketStart === -1) break;
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    let parsed = false;
+
+    for (let index = bracketStart; index < html.length; index += 1) {
+      const char = html[index];
+
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (char === '\\') escaped = true;
+        else if (char === '"') inString = false;
+        continue;
+      }
+
+      if (char === '"') inString = true;
+      else if (char === '[') depth += 1;
+      else if (char === ']') {
+        depth -= 1;
+        if (depth !== 0) continue;
+
+        try {
+          const candidate = JSON.parse(html.slice(bracketStart, index + 1));
+          if (Array.isArray(candidate)) arrays.push(candidate);
+        } catch {
+          // Some unrelated page fragments are not valid JSON.
+        }
+        searchFrom = index + 1;
+        parsed = true;
+        break;
+      }
+    }
+
+    if (!parsed) searchFrom = propertyIndex + property.length;
+  }
+
+  return arrays;
+}
+
 function toNumber(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
@@ -201,6 +269,49 @@ function scoreFromMatchObject(match: any): ScrapedScore | null {
   };
 }
 
+function dateFromGeSchedule(value?: string) {
+  if (!value) return undefined;
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
+  const normalized = value.length === 16 ? `${value}:00` : value;
+  const date = new Date(hasTimezone ? normalized : `${normalized}-03:00`);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+function scoreFromGeScheduleMatch(match: GeScheduleMatch): ScrapedScore | null {
+  const homeTeam = match.equipes?.mandante?.nome_popular;
+  const awayTeam = match.equipes?.visitante?.nome_popular;
+  const homeScore = toNumber(match.placar_oficial_mandante);
+  const awayScore = toNumber(match.placar_oficial_visitante);
+  if (!homeTeam || !awayTeam || homeScore == null || awayScore == null) return null;
+
+  const broadcastStatus = normalizeName(
+    `${match.transmissao?.broadcast?.id ?? ''} ${match.transmissao?.broadcast?.label ?? ''} ${match.transmissao?.label ?? ''}`,
+  );
+  const status = broadcastStatus.includes('encerrad')
+    ? 'encerrado'
+    : match.jogo_ja_comecou
+      ? 'ao vivo'
+      : 'agendado';
+
+  return {
+    homeTeam,
+    awayTeam,
+    homeScore,
+    awayScore,
+    status,
+    startsAt: dateFromGeSchedule(match.data_realizacao),
+    sourceUrl: match.transmissao?.url,
+    winnerTeam: homeScore > awayScore ? homeTeam : awayScore > homeScore ? awayTeam : undefined,
+  };
+}
+
+export function parseGeScheduleScores(html: string) {
+  return extractArraysAfterProperty(html, '"lista_jogos"')
+    .flat()
+    .map((match) => scoreFromGeScheduleMatch(match as GeScheduleMatch))
+    .filter((score): score is ScrapedScore => Boolean(score));
+}
+
 async function scrapeGeScores() {
   const scores = new Map<string, ScrapedScore>();
 
@@ -210,12 +321,15 @@ async function scrapeGeScores() {
 
     const html = await response.text();
     const matchObjects = extractObjectsAfterProperty(html, '"match"');
+    const scheduleScores = parseGeScheduleScores(html);
 
-    for (const matchObject of matchObjects) {
-      const score = scoreFromMatchObject(matchObject);
+    for (const score of [
+      ...matchObjects.map((matchObject) => scoreFromMatchObject(matchObject)),
+      ...scheduleScores,
+    ]) {
       if (!score) continue;
       scores.set(
-        `${normalizeName(score.homeTeam)}:${normalizeName(score.awayTeam)}:${score.homeScore}:${score.awayScore}`,
+        `${normalizeName(score.homeTeam)}:${normalizeName(score.awayTeam)}`,
         {
           ...score,
           sourceUrl: score.sourceUrl || url,
@@ -294,8 +408,8 @@ async function saveTopScorers(topScorers: ScrapedTopScorer[]) {
 
 async function listCandidateMatches() {
   const now = Date.now();
-  const windowStart = new Date(now - 12 * 60 * 60 * 1000);
-  const windowEnd = new Date(now + 36 * 60 * 60 * 1000);
+  const windowStart = new Date(now - SCORE_LOOKBACK_MS);
+  const windowEnd = new Date(now + SCORE_LOOKAHEAD_MS);
 
   return prisma.match.findMany({
     where: {
@@ -389,8 +503,8 @@ async function applyKnockoutScore(score: ScrapedScore) {
     prisma.knockoutFixture.findMany({
       where: {
         startsAt: {
-          gte: new Date(now - 12 * 60 * 60 * 1000),
-          lte: new Date(now + 36 * 60 * 60 * 1000),
+          gte: new Date(now - SCORE_LOOKBACK_MS),
+          lte: new Date(now + SCORE_LOOKAHEAD_MS),
         },
         status: { notIn: [MatchStatus.CANCELLED, MatchStatus.POSTPONED] },
       },
@@ -451,7 +565,7 @@ async function applyKnockoutScore(score: ScrapedScore) {
       homeTeamId: homeTeam.id,
       awayTeamId: awayTeam.id,
       winnerTeamId:
-        status === MatchStatus.FINISHED ? (winnerTeam?.id ?? null) : fixture.winnerTeamId,
+        status === MatchStatus.FINISHED ? (winnerTeam?.id ?? fixture.winnerTeamId) : fixture.winnerTeamId,
       homeScore: score.homeScore,
       awayScore: score.awayScore,
       finalHomeScore: status === MatchStatus.FINISHED ? score.homeScore : fixture.finalHomeScore,

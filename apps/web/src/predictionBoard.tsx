@@ -613,7 +613,7 @@ function KnockoutGuide() {
 }
 
 const stageLabels: Record<KnockoutFixture['stage'], string> = {
-  ROUND_OF_32: '32 avos',
+  ROUND_OF_32: '16 avos',
   ROUND_OF_16: 'Oitavas',
   QUARTER_FINAL: 'Quartas',
   SEMI_FINAL: 'Semifinais',
@@ -639,29 +639,33 @@ const bracketStageRanges: Record<KnockoutFixture['stage'], string> = {
   FINAL: '19/07',
 };
 
-const BRACKET_CARD_WIDTH = 132;
-const BRACKET_CARD_HEIGHT = 52;
-const BRACKET_CANVAS_WIDTH = 1292;
-const BRACKET_CANVAS_HEIGHT = 550;
+const BRACKET_X_SCALE = 1.2;
+const BRACKET_CARD_WIDTH = 158;
+const BRACKET_CARD_HEIGHT = 74;
+const BRACKET_CANVAS_WIDTH = 1550;
+const BRACKET_CANVAS_HEIGHT = 730;
 
 type BracketPosition = { x: number; y: number };
 
 const bracketPositions = new Map<number, BracketPosition>();
+const bracketX = (value: number) => Math.round(value * BRACKET_X_SCALE);
 
 function assignBracketPositions(numbers: number[], x: number, firstY: number, gap: number) {
-  numbers.forEach((number, index) => bracketPositions.set(number, { x, y: firstY + index * gap }));
+  numbers.forEach((number, index) =>
+    bracketPositions.set(number, { x: bracketX(x), y: firstY + index * gap }),
+  );
 }
 
-assignBracketPositions([74, 77, 73, 75, 83, 84, 81, 82], 4, 36, 64);
-assignBracketPositions([89, 90, 93, 94], 148, 68, 128);
-assignBracketPositions([97, 98], 292, 132, 256);
-assignBracketPositions([101], 436, 260, 0);
-assignBracketPositions([104], 580, 202, 0);
-assignBracketPositions([103], 580, 388, 0);
-assignBracketPositions([102], 724, 260, 0);
-assignBracketPositions([99, 100], 868, 132, 256);
-assignBracketPositions([91, 92, 95, 96], 1012, 68, 128);
-assignBracketPositions([76, 78, 79, 80, 86, 88, 85, 87], 1156, 36, 64);
+assignBracketPositions([74, 77, 73, 75, 83, 84, 81, 82], 4, 36, 84);
+assignBracketPositions([89, 90, 93, 94], 148, 78, 168);
+assignBracketPositions([97, 98], 292, 162, 336);
+assignBracketPositions([101], 436, 330, 0);
+assignBracketPositions([104], 580, 248, 0);
+assignBracketPositions([103], 580, 470, 0);
+assignBracketPositions([102], 724, 330, 0);
+assignBracketPositions([99, 100], 868, 162, 336);
+assignBracketPositions([91, 92, 95, 96], 1012, 78, 168);
+assignBracketPositions([76, 78, 79, 80, 86, 88, 85, 87], 1156, 36, 84);
 
 const bracketPairs = [
   { sources: [74, 77], target: 89, side: 'right' },
@@ -815,27 +819,68 @@ function resolvedAdvancingTeam(
     : null;
 }
 
-function sourceMatchNumber(source: string) {
-  const sourceNumber = Number(source.slice(1));
-  return Number.isInteger(sourceNumber) ? sourceNumber : null;
+function knockoutFixtureIsEditable(fixture: KnockoutFixture) {
+  return fixture.status === 'SCHEDULED' && new Date(fixture.startsAt).getTime() > Date.now();
 }
 
-function dependentKnockoutMatches(fixtures: KnockoutFixture[], matchNumber: number) {
-  const affected = new Set([matchNumber]);
-  const dependents: number[] = [];
-  for (const fixture of [...fixtures].sort((a, b) => a.matchNumber - b.matchNumber)) {
-    if (fixture.matchNumber === matchNumber) continue;
-    const homeSource = sourceMatchNumber(fixture.homeSource);
-    const awaySource = sourceMatchNumber(fixture.awaySource);
-    if (
-      (homeSource != null && affected.has(homeSource)) ||
-      (awaySource != null && affected.has(awaySource))
-    ) {
-      affected.add(fixture.matchNumber);
-      dependents.push(fixture.matchNumber);
-    }
+function knockoutTeamKey(team?: Team | null) {
+  if (!team?.name) return null;
+  return `name:${team.name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()}`;
+}
+
+function knockoutActualWinnerId(fixture: KnockoutFixture) {
+  if (fixture.winnerTeam?.id) return fixture.winnerTeam.id;
+  const homeScore = fixture.finalHomeScore ?? fixture.homeScore;
+  const awayScore = fixture.finalAwayScore ?? fixture.awayScore;
+  if (homeScore == null || awayScore == null || homeScore === awayScore) return null;
+  return homeScore > awayScore ? fixture.homeTeam?.id ?? null : fixture.awayTeam?.id ?? null;
+}
+
+function knockoutStageWinnerIds(fixtures: KnockoutFixture[]) {
+  const ids = new Map<KnockoutFixture['stage'], Set<string>>();
+  for (const fixture of fixtures) {
+    if (fixture.status !== 'FINISHED') continue;
+    const winnerId = knockoutActualWinnerId(fixture);
+    if (!winnerId) continue;
+    const current = ids.get(fixture.stage) ?? new Set<string>();
+    current.add(winnerId);
+    const winnerTeam =
+      fixture.winnerTeam ??
+      (winnerId === fixture.homeTeam?.id
+        ? fixture.homeTeam
+        : winnerId === fixture.awayTeam?.id
+          ? fixture.awayTeam
+          : null);
+    const winnerKey = knockoutTeamKey(winnerTeam);
+    if (winnerKey) current.add(winnerKey);
+    ids.set(fixture.stage, current);
   }
-  return dependents;
+  return ids;
+}
+
+function knockoutPickTone(
+  fixture: KnockoutFixture,
+  value: KnockoutDraft[number],
+  winnersByStage?: Map<KnockoutFixture['stage'], Set<string>>,
+  teamsById?: Map<string, Team>,
+) {
+  if (fixture.status !== 'FINISHED' || !value?.advancingTeamId) return null;
+  const actualWinnerId = knockoutActualWinnerId(fixture);
+  const advancingKey = knockoutTeamKey(teamsById?.get(value.advancingTeamId));
+  const stageWinners = winnersByStage?.get(fixture.stage);
+  if (
+    actualWinnerId === value.advancingTeamId ||
+    stageWinners?.has(value.advancingTeamId) ||
+    (advancingKey && stageWinners?.has(advancingKey))
+  ) {
+    return 'correct';
+  }
+  if (!actualWinnerId && !stageWinners?.size) return null;
+  return 'wrong';
 }
 
 function materializeClientParticipants(board: PredictionBoard, draft: KnockoutDraft) {
@@ -848,6 +893,13 @@ function materializeClientParticipants(board: PredictionBoard, draft: KnockoutDr
   for (const fixture of [...board.knockout.fixtures].sort(
     (a, b) => a.matchNumber - b.matchNumber,
   )) {
+    if (fixture.homeTeam?.id && fixture.awayTeam?.id) {
+      participants.set(fixture.matchNumber, {
+        homeTeamId: fixture.homeTeam.id,
+        awayTeamId: fixture.awayTeam.id,
+      });
+      continue;
+    }
     if (participants.has(fixture.matchNumber)) continue;
     const homeTeamId = sourceParticipant(fixture.homeSource, participants, draft);
     const awayTeamId = sourceParticipant(fixture.awaySource, participants, draft);
@@ -862,6 +914,7 @@ function KnockoutMatchCard({
   participants,
   value,
   open,
+  winnersByStage,
   onChangeScore,
   onChoose,
 }: {
@@ -870,6 +923,7 @@ function KnockoutMatchCard({
   participants?: { homeTeamId: string | null; awayTeamId: string | null };
   value: KnockoutDraft[number];
   open: boolean;
+  winnersByStage?: Map<KnockoutFixture['stage'], Set<string>>;
   onChangeScore: (side: 'home' | 'away', value: string) => void;
   onChoose: (teamId: string) => void;
 }) {
@@ -877,12 +931,25 @@ function KnockoutMatchCard({
   const awayTeam = participants?.awayTeamId ? teams.get(participants.awayTeamId) : null;
   const matchupReady = Boolean(participants?.homeTeamId && participants.awayTeamId);
   const tied = value.home !== '' && value.home === value.away;
+  const tone = knockoutPickTone(fixture, value, winnersByStage, teams);
   return (
-    <View style={styles.knockoutCard}>
+    <View
+      style={[
+        styles.knockoutCard,
+        !open && styles.knockoutCardLocked,
+      ]}
+    >
       <View style={styles.knockoutCardHeader}>
         <Text style={styles.knockoutMatchNumber}>Jogo {fixture.matchNumber}</Text>
         <Text style={styles.knockoutDate}>{compactDateTime(fixture.startsAt)}</Text>
       </View>
+      <View
+        style={[
+          styles.knockoutScorePairBox,
+          tone === 'correct' && styles.knockoutScorePairCorrect,
+          tone === 'wrong' && styles.knockoutScorePairWrong,
+        ]}
+      >
       {[
         { team: homeTeam, side: 'home' as const },
         { team: awayTeam, side: 'away' as const },
@@ -894,7 +961,7 @@ function KnockoutMatchCard({
             key={side}
             disabled={!open || !matchupReady || !teamId || !tied}
             onPress={() => teamId && onChoose(teamId)}
-            style={[styles.knockoutTeamRow, selected && styles.knockoutTeamSelected]}
+            style={[styles.knockoutTeamRow, selected && tied && styles.knockoutTeamSelected]}
           >
             <TeamLabel team={team} dense tone="light" />
             <View style={styles.knockoutScoreArea}>
@@ -904,10 +971,15 @@ function KnockoutMatchCard({
                 maxLength={2}
                 value={side === 'home' ? value.home : value.away}
                 onChangeText={(text) => onChangeScore(side, text.replace(/\D/g, ''))}
-                style={styles.knockoutScoreInput}
+                style={[
+                  styles.knockoutScoreInput,
+                  tone === 'correct' && styles.knockoutScoreInputCorrect,
+                  tone === 'wrong' && styles.knockoutScoreInputWrong,
+                  !open && styles.knockoutScoreInputLocked,
+                ]}
               />
               <View style={styles.knockoutAdvanceMarker}>
-                {tied && selected ? (
+                {selected ? (
                   <Ionicons name="checkmark-circle" size={10} color="#6cffb1" />
                 ) : null}
               </View>
@@ -915,6 +987,30 @@ function KnockoutMatchCard({
           </Pressable>
         );
       })}
+      </View>
+      {tied ? (
+        <View style={styles.penaltyAdvanceRow}>
+          <Text style={styles.penaltyAdvanceLabel}>Pênaltis</Text>
+          {[
+            { team: homeTeam, teamId: participants?.homeTeamId },
+            { team: awayTeam, teamId: participants?.awayTeamId },
+          ].map(({ team, teamId }) => {
+            const selected = teamId && value.advancingTeamId === teamId;
+            return (
+              <Pressable
+                key={teamId ?? team?.name ?? 'empty'}
+                disabled={!open || !matchupReady || !teamId}
+                onPress={() => teamId && onChoose(teamId)}
+                style={[styles.penaltyAdvanceButton, selected && styles.penaltyAdvanceButtonActive]}
+              >
+                <Text style={styles.penaltyAdvanceButtonText} numberOfLines={1}>
+                  {team?.code ?? team?.name ?? '--'}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -936,6 +1032,24 @@ function PublicBracketsModal({
     if (!visible) setSelectedId(null);
   }, [brackets, visible]);
   const selected = brackets.find((bracket) => bracket.id === selectedId) ?? null;
+  const publicWinnersByStage = useMemo(
+    () => knockoutStageWinnerIds(selected?.picks.map((pick) => pick.fixture) ?? []),
+    [selected?.picks],
+  );
+  const publicTeamsById = useMemo(() => {
+    const entries =
+      selected?.picks.flatMap((pick) => [
+        [pick.homeTeam.id, pick.homeTeam] as const,
+        [pick.awayTeam.id, pick.awayTeam] as const,
+        [pick.advancingTeam.id, pick.advancingTeam] as const,
+        ...(pick.fixture.homeTeam ? ([[pick.fixture.homeTeam.id, pick.fixture.homeTeam] as const] as const) : []),
+        ...(pick.fixture.awayTeam ? ([[pick.fixture.awayTeam.id, pick.fixture.awayTeam] as const] as const) : []),
+        ...(pick.fixture.winnerTeam
+          ? ([[pick.fixture.winnerTeam.id, pick.fixture.winnerTeam] as const] as const)
+          : []),
+      ]) ?? [];
+    return new Map(entries);
+  }, [selected?.picks]);
   return (
     <Modal transparent animationType="fade" visible={visible} onRequestClose={onClose}>
       <View style={styles.modalBackdrop}>
@@ -968,18 +1082,37 @@ function PublicBracketsModal({
                 ))}
               </ScrollView>
               <ScrollView contentContainerStyle={styles.publicBracketPicks}>
-                {selected?.picks.map((pick) => (
-                  <View key={pick.id} style={styles.publicBracketPick}>
-                    <Text style={styles.knockoutMatchNumber}>Jogo {pick.fixture.matchNumber}</Text>
-                    <Text style={styles.publicBracketTeams} numberOfLines={1}>
-                      {pick.homeTeam.name} {pick.predictedHomeScore} x {pick.predictedAwayScore}{' '}
-                      {pick.awayTeam.name}
-                    </Text>
-                    <Text style={styles.publicBracketWinner}>
-                      Avanca: {pick.advancingTeam.name}
-                    </Text>
-                  </View>
-                )) ?? <Text style={styles.modalSubtitle}>Nenhuma chave publicada.</Text>}
+                {selected?.picks.map((pick) => {
+                  const tone = knockoutPickTone(
+                    pick.fixture,
+                    {
+                      home: String(pick.predictedHomeScore),
+                      away: String(pick.predictedAwayScore),
+                      advancingTeamId: pick.advancingTeam.id,
+                    },
+                    publicWinnersByStage,
+                    publicTeamsById,
+                  );
+                  return (
+                    <View
+                      key={pick.id}
+                      style={[
+                        styles.publicBracketPick,
+                        tone === 'correct' && styles.publicBracketPickCorrect,
+                        tone === 'wrong' && styles.publicBracketPickWrong,
+                      ]}
+                    >
+                      <Text style={styles.knockoutMatchNumber}>Jogo {pick.fixture.matchNumber}</Text>
+                      <Text style={styles.publicBracketTeams} numberOfLines={1}>
+                        {pick.homeTeam.name} {pick.predictedHomeScore} x {pick.predictedAwayScore}{' '}
+                        {pick.awayTeam.name}
+                      </Text>
+                      <Text style={styles.publicBracketWinner}>
+                        Avança: {pick.advancingTeam.name}
+                      </Text>
+                    </View>
+                  );
+                }) ?? <Text style={styles.modalSubtitle}>Nenhuma chave publicada.</Text>}
               </ScrollView>
             </View>
           )}
@@ -1175,14 +1308,6 @@ function KnockoutBoard({
   const bracketScrollRef = useRef<ScrollView>(null);
   const draftKey = `bolao-knockout-draft-v1:${board.knockout.generation.id}`;
   const [draft, setDraft] = useState<KnockoutDraft>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const stored = JSON.parse(window.localStorage.getItem(draftKey) ?? '{}') as KnockoutDraft;
-        if (Object.keys(stored).length) return stored;
-      } catch {
-        // Ignore corrupted local drafts and fall back to the saved bracket.
-      }
-    }
     const saved = board.knockout.savedBracket?.picks ?? [];
     if (saved.length) {
       return Object.fromEntries(
@@ -1195,6 +1320,14 @@ function KnockoutBoard({
           },
         ]),
       );
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = JSON.parse(window.localStorage.getItem(draftKey) ?? '{}') as KnockoutDraft;
+        if (Object.keys(stored).length) return stored;
+      } catch {
+        // Ignore corrupted local drafts and fall back to an empty bracket.
+      }
     }
     return {};
   });
@@ -1218,6 +1351,10 @@ function KnockoutBoard({
     [board.groups],
   );
   const participants = useMemo(() => materializeClientParticipants(board, draft), [board, draft]);
+  const winnersByStage = useMemo(
+    () => knockoutStageWinnerIds(board.knockout.fixtures),
+    [board.knockout.fixtures],
+  );
   const classifiedSlots = useMemo(
     () =>
       board.knockout.roundOf32.reduce(
@@ -1227,7 +1364,11 @@ function KnockoutBoard({
       ),
     [board.knockout.roundOf32],
   );
-  const canEdit = board.canPredict && board.knockout.generation.isOpen;
+  const editableFixtures = useMemo(
+    () => board.knockout.fixtures.filter((fixture) => knockoutFixtureIsEditable(fixture)),
+    [board.knockout.fixtures],
+  );
+  const canEdit = board.canPredict && editableFixtures.length > 0;
 
   useEffect(() => {
     if (typeof window !== 'undefined') window.localStorage.setItem(draftKey, JSON.stringify(draft));
@@ -1245,7 +1386,6 @@ function KnockoutBoard({
     setDraft((current) => {
       const next = { ...current };
       const matchParticipants = participants.get(matchNumber);
-      const previousAdvancingTeamId = resolvedAdvancingTeam(next[matchNumber], matchParticipants);
       const value = {
         home: '',
         away: '',
@@ -1268,25 +1408,13 @@ function KnockoutBoard({
         value.advancingTeamId = null;
       }
       next[matchNumber] = value;
-      if (previousAdvancingTeamId !== resolvedAdvancingTeam(value, matchParticipants)) {
-        for (const dependentMatchNumber of dependentKnockoutMatches(
-          board.knockout.fixtures,
-          matchNumber,
-        )) {
-          if (next[dependentMatchNumber]) {
-            next[dependentMatchNumber] = { home: '', away: '', advancingTeamId: null };
-          }
-        }
-      }
       return next;
     });
   }
 
   function chooseAdvancingTeam(matchNumber: number, teamId: string) {
     setDraft((current) => {
-      const matchParticipants = participants.get(matchNumber);
-      const previousAdvancingTeamId = resolvedAdvancingTeam(current[matchNumber], matchParticipants);
-      const next = {
+      return {
         ...current,
         [matchNumber]: {
           home: '',
@@ -1295,17 +1423,6 @@ function KnockoutBoard({
           advancingTeamId: teamId,
         },
       };
-      if (previousAdvancingTeamId !== resolvedAdvancingTeam(next[matchNumber], matchParticipants)) {
-        for (const dependentMatchNumber of dependentKnockoutMatches(
-          board.knockout.fixtures,
-          matchNumber,
-        )) {
-          if (next[dependentMatchNumber]) {
-            next[dependentMatchNumber] = { home: '', away: '', advancingTeamId: null };
-          }
-        }
-      }
-      return next;
     });
   }
 
@@ -1340,16 +1457,24 @@ function KnockoutBoard({
     [board.knockout.fixtures, draft, participants],
   );
   const complete = filledPicks.length === board.knockout.fixtures.length;
-  const missingCount = board.knockout.fixtures.length - filledPicks.length;
+  const editableMatchNumbers = useMemo(
+    () => new Set(editableFixtures.map((fixture) => fixture.matchNumber)),
+    [editableFixtures],
+  );
+  const editableFilledPicks = useMemo(
+    () => filledPicks.filter((pick) => editableMatchNumbers.has(pick.matchNumber)),
+    [editableMatchNumbers, filledPicks],
+  );
+  const missingEditableCount = editableFixtures.length - editableFilledPicks.length;
 
   async function save() {
-    if (!filledPicks.length) {
-      setError('Preencha pelo menos um confronto para salvar a chave.');
+    if (!editableFilledPicks.length) {
+      setError('Preencha pelo menos um confronto futuro para salvar a chave.');
       return;
     }
-    if (missingCount > 0 && typeof window !== 'undefined') {
+    if (missingEditableCount > 0 && typeof window !== 'undefined') {
       window.alert(
-        `Ainda faltam ${missingCount} jogo(s) no chaveamento. Vamos salvar os ${filledPicks.length} jogo(s) preenchidos agora e voce pode completar depois.`,
+        `Ainda faltam ${missingEditableCount} jogo(s) futuro(s) no chaveamento. Vamos salvar os ${editableFilledPicks.length} jogo(s) futuro(s) preenchidos agora e voce pode completar depois.`,
       );
     }
 
@@ -1357,7 +1482,7 @@ function KnockoutBoard({
     setError('');
     try {
       const next = await api.saveKnockoutBracket(
-        filledPicks.map((pick) => ({
+        editableFilledPicks.map((pick) => ({
           matchNumber: pick.matchNumber,
           predictedHomeScore: pick.predictedHomeScore,
           predictedAwayScore: pick.predictedAwayScore,
@@ -1367,7 +1492,7 @@ function KnockoutBoard({
       );
       if (typeof window !== 'undefined') window.localStorage.removeItem(draftKey);
       onSaved(next);
-      setSavedPickCount(filledPicks.length);
+      setSavedPickCount(next.knockout.savedBracket?.picks.length ?? filledPicks.length);
       setShareReady(true);
       setSuccess(true);
     } catch (caught) {
@@ -1446,12 +1571,12 @@ function KnockoutBoard({
 
   function focusStage(stage: KnockoutFixture['stage']) {
     const stageCenters: Record<KnockoutFixture['stage'], number> = {
-      ROUND_OF_32: 4 + BRACKET_CARD_WIDTH / 2,
-      ROUND_OF_16: 148 + BRACKET_CARD_WIDTH / 2,
-      QUARTER_FINAL: 292 + BRACKET_CARD_WIDTH / 2,
-      SEMI_FINAL: 436 + BRACKET_CARD_WIDTH / 2,
-      THIRD_PLACE: 580 + BRACKET_CARD_WIDTH / 2,
-      FINAL: 580 + BRACKET_CARD_WIDTH / 2,
+      ROUND_OF_32: bracketX(4) + BRACKET_CARD_WIDTH / 2,
+      ROUND_OF_16: bracketX(148) + BRACKET_CARD_WIDTH / 2,
+      QUARTER_FINAL: bracketX(292) + BRACKET_CARD_WIDTH / 2,
+      SEMI_FINAL: bracketX(436) + BRACKET_CARD_WIDTH / 2,
+      THIRD_PLACE: bracketX(580) + BRACKET_CARD_WIDTH / 2,
+      FINAL: bracketX(580) + BRACKET_CARD_WIDTH / 2,
     };
     const visibleWidth = Math.max(320, width - 70);
     setActiveStage(stage);
@@ -1480,12 +1605,12 @@ function KnockoutBoard({
           <Ionicons name="time-outline" size={22} color="#5ee8a0" />
           <View style={styles.knockoutDeadlineCopy}>
             <Text style={styles.knockoutDeadlineTitle}>
-              {canEdit ? 'Chave aberta para edição' : 'Chave fechada'}
+              {canEdit ? 'Jogos futuros abertos para edição' : 'Sem jogos futuros abertos'}
             </Text>
             <Text style={styles.knockoutDeadlineText}>
-              {board.knockout.generation.closesAt
-                ? `Fecha em ${dateTime(board.knockout.generation.closesAt)}`
-                : 'O prazo será definido ao fim da fase de grupos.'}
+              {canEdit
+                ? `${editableFixtures.length} jogo(s) ainda podem receber palpite.`
+                : 'Jogos iniciados ou encerrados ficam bloqueados.'}
             </Text>
           </View>
         </View>
@@ -1543,14 +1668,14 @@ function KnockoutBoard({
             <BracketFinalConnector from={102} side="left" />
 
             {[
-              { stage: 'ROUND_OF_32' as const, x: 4 },
-              { stage: 'ROUND_OF_16' as const, x: 148 },
-              { stage: 'QUARTER_FINAL' as const, x: 292 },
-              { stage: 'SEMI_FINAL' as const, x: 436 },
-              { stage: 'SEMI_FINAL' as const, x: 724 },
-              { stage: 'QUARTER_FINAL' as const, x: 868 },
-              { stage: 'ROUND_OF_16' as const, x: 1012 },
-              { stage: 'ROUND_OF_32' as const, x: 1156 },
+              { stage: 'ROUND_OF_32' as const, x: bracketX(4) },
+              { stage: 'ROUND_OF_16' as const, x: bracketX(148) },
+              { stage: 'QUARTER_FINAL' as const, x: bracketX(292) },
+              { stage: 'SEMI_FINAL' as const, x: bracketX(436) },
+              { stage: 'SEMI_FINAL' as const, x: bracketX(724) },
+              { stage: 'QUARTER_FINAL' as const, x: bracketX(868) },
+              { stage: 'ROUND_OF_16' as const, x: bracketX(1012) },
+              { stage: 'ROUND_OF_32' as const, x: bracketX(1156) },
             ].map(({ stage, x }, index) => (
               <View key={`${stage}-${index}`} style={[styles.bracketColumnLabel, { left: x }]}>
                 <Text style={styles.bracketColumnTitle}>{stageLabels[stage]}</Text>
@@ -1585,7 +1710,8 @@ function KnockoutBoard({
                     value={
                       draft[fixture.matchNumber] ?? { home: '', away: '', advancingTeamId: null }
                     }
-                    open={canEdit}
+                    open={board.canPredict && knockoutFixtureIsEditable(fixture)}
+                    winnersByStage={winnersByStage}
                     onChangeScore={(side, value) => changeScore(fixture.matchNumber, side, value)}
                     onChoose={(teamId) => chooseAdvancingTeam(fixture.matchNumber, teamId)}
                   />
@@ -1596,7 +1722,7 @@ function KnockoutBoard({
         </ScrollView>
       </View>
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      {board.knockout.generation.mode === 'OFFICIAL' && !board.knockout.generation.isOpen ? (
+      {board.knockout.generation.mode === 'OFFICIAL' && !canEdit ? (
         <View style={styles.publicBracketAction}>
           <Pressable style={styles.publicBracketButton} onPress={openPublicBrackets}>
             <Ionicons name="people-outline" size={17} color={palette.white} />
@@ -1609,15 +1735,18 @@ function KnockoutBoard({
           <Text style={styles.knockoutFooterText}>
             {complete
               ? 'Todos os 32 confrontos estão preenchidos.'
-              : filledPicks.length
-                ? `${filledPicks.length}/32 jogos preenchidos. Ao salvar agora, ${missingCount} jogo(s) fica(m) pendente(s).`
-                : 'Preencha pelo menos um confronto para salvar a chave.'}
+              : editableFilledPicks.length
+                ? `${editableFilledPicks.length}/${editableFixtures.length} jogo(s) futuro(s) preenchido(s). Jogos iniciados ou encerrados ficam preservados.`
+                : 'Preencha pelo menos um confronto futuro para salvar a chave.'}
           </Text>
           <View style={styles.knockoutFooterActions}>
             <Pressable
-              disabled={!filledPicks.length || saving}
+              disabled={!editableFilledPicks.length || saving}
               onPress={save}
-              style={[styles.submitBracket, (!filledPicks.length || saving) && styles.disabled]}
+              style={[
+                styles.submitBracket,
+                (!editableFilledPicks.length || saving) && styles.disabled,
+              ]}
             >
               <Ionicons name="cloud-upload-outline" size={18} color={palette.shell} />
               <Text style={styles.submitBracketText}>
@@ -1876,7 +2005,7 @@ export function PredictionBoardScreen({
             </Text>
           </View>
           {[
-            ['7', 'placar exato'],
+            ['15', 'placar exato'],
             ['3', 'resultado'],
             ['1', 'gols de um time'],
             ['0', 'erro'],
@@ -1892,27 +2021,6 @@ export function PredictionBoardScreen({
       {standaloneKnockout ? (
         <>
           <KnockoutGuide />
-          <GroupSimulationPanel
-            groups={board.groups}
-            draft={draft}
-            canEdit={simulationOpen}
-            onChange={(matchId, side, value) =>
-              setDraft((current) => ({
-                ...current,
-                [matchId]: { home: '', away: '', ...current[matchId], [side]: value },
-              }))
-            }
-          />
-          <View style={styles.previewStatusBar}>
-            <Ionicons name="sync-outline" size={15} color="#5ee8a0" />
-            <Text style={styles.previewStatusText}>
-              {previewing
-                ? 'Salvando simulacao...'
-                : simulationOpen
-                  ? 'Chave sincronizada com a simulacao salva.'
-                  : 'Simulacao fechada para alteracoes.'}
-            </Text>
-          </View>
         </>
       ) : null}
 
@@ -1957,6 +2065,32 @@ export function PredictionBoardScreen({
           />
         )}
       </SoftReveal>
+
+      {standaloneKnockout ? (
+        <>
+          <GroupSimulationPanel
+            groups={board.groups}
+            draft={draft}
+            canEdit={simulationOpen}
+            onChange={(matchId, side, value) =>
+              setDraft((current) => ({
+                ...current,
+                [matchId]: { home: '', away: '', ...current[matchId], [side]: value },
+              }))
+            }
+          />
+          <View style={styles.previewStatusBar}>
+            <Ionicons name="sync-outline" size={15} color="#5ee8a0" />
+            <Text style={styles.previewStatusText}>
+              {previewing
+                ? 'Salvando simulacao...'
+                : simulationOpen
+                  ? 'Chave sincronizada com a simulacao salva.'
+                  : 'Simulacao fechada para alteracoes.'}
+            </Text>
+          </View>
+        </>
+      ) : null}
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <PublicPredictionsModal
@@ -2477,7 +2611,7 @@ const styles = StyleSheet.create({
   bracketColumnRange: { color: '#9bb9ac', fontSize: 7, fontWeight: '700' },
   bracketTrophy: {
     position: 'absolute',
-    left: 580,
+    left: bracketX(580),
     top: 96,
     width: BRACKET_CARD_WIDTH,
     alignItems: 'center',
@@ -2502,7 +2636,7 @@ const styles = StyleSheet.create({
   bracketTrophyDate: { color: '#6cffb1', fontSize: 8, fontWeight: '800' },
   thirdPlaceLabel: {
     position: 'absolute',
-    left: 580,
+    left: bracketX(580),
     top: 366,
     width: BRACKET_CARD_WIDTH,
     alignItems: 'center',
@@ -2540,6 +2674,9 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     shadowOffset: { width: 0, height: 1 },
   },
+  knockoutCardLocked: {
+    opacity: 0.82,
+  },
   knockoutCardHeader: {
     height: 9,
     flexDirection: 'row',
@@ -2563,6 +2700,21 @@ const styles = StyleSheet.create({
     borderColor: '#143a2f',
   },
   knockoutTeamSelected: { borderColor: '#2ed085', backgroundColor: 'rgba(46,208,133,0.18)' as never },
+  knockoutScorePairBox: {
+    gap: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    padding: 1,
+  },
+  knockoutScorePairCorrect: {
+    borderColor: '#21d66f',
+    backgroundColor: 'rgba(33, 214, 111, 0.12)' as never,
+  },
+  knockoutScorePairWrong: {
+    borderColor: '#ff6b59',
+    backgroundColor: 'rgba(255, 107, 89, 0.12)' as never,
+  },
   knockoutScoreArea: { flexDirection: 'row', alignItems: 'center', gap: 1 },
   knockoutScoreInput: {
     width: 22,
@@ -2578,7 +2730,52 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     outlineStyle: 'none' as never,
   },
+  knockoutScoreInputCorrect: {
+    borderColor: '#21d66f',
+    backgroundColor: 'rgba(8, 74, 51, 0.92)' as never,
+  },
+  knockoutScoreInputWrong: {
+    borderColor: '#ff6b59',
+    backgroundColor: 'rgba(90, 27, 32, 0.92)' as never,
+  },
+  knockoutScoreInputLocked: {
+    opacity: 0.74,
+    backgroundColor: 'rgba(7, 20, 48, 0.9)' as never,
+  },
   knockoutAdvanceMarker: { width: 10, height: 15, alignItems: 'center', justifyContent: 'center' },
+  penaltyAdvanceRow: {
+    minHeight: 17,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  penaltyAdvanceLabel: {
+    width: 40,
+    color: '#9bb9ac',
+    fontSize: 7,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  penaltyAdvanceButton: {
+    flex: 1,
+    minWidth: 0,
+    height: 17,
+    borderRadius: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(98, 164, 255, 0.24)' as never,
+    backgroundColor: 'rgba(5, 28, 62, 0.82)' as never,
+  },
+  penaltyAdvanceButtonActive: {
+    borderColor: '#21d66f',
+    backgroundColor: 'rgba(46, 208, 133, 0.28)' as never,
+  },
+  penaltyAdvanceButtonText: {
+    color: palette.white,
+    fontSize: 8,
+    fontWeight: '900',
+  },
   knockoutFooter: {
     padding: 9,
     flexDirection: 'row',
@@ -2711,6 +2908,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.bracketBorder,
     gap: 4,
+  },
+  publicBracketPickCorrect: {
+    borderColor: '#21d66f',
+    backgroundColor: 'rgba(8, 74, 51, 0.74)' as never,
+  },
+  publicBracketPickWrong: {
+    borderColor: '#ff6b59',
+    backgroundColor: 'rgba(90, 27, 32, 0.74)' as never,
   },
   publicBracketTeams: { color: palette.white, fontSize: 12, fontWeight: '800' },
   publicBracketWinner: { color: palette.yellow, fontSize: 10, fontWeight: '800' },

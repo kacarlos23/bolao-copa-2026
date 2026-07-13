@@ -12,7 +12,7 @@ export function calculatePredictionScore(input: ScoreInput): ScoreResult {
     input.predictedAwayScore === input.actualAwayScore;
 
   if (exactScore) {
-    return { points: 7, scoreType: 'EXACT_SCORE' };
+    return { points: 15, scoreType: 'EXACT_SCORE' };
   }
 
   const predictedOutcome = outcome(input.predictedHomeScore, input.predictedAwayScore);

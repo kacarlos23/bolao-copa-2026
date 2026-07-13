@@ -79,6 +79,10 @@ export interface Match {
   rawPayload?: {
     group?: string;
     round?: string;
+    type?: string;
+    knockoutFixtureId?: string;
+    knockoutMatchNumber?: number;
+    knockoutStage?: KnockoutStage;
   } | null;
 }
 

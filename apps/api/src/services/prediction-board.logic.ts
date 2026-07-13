@@ -336,18 +336,24 @@ export function materializeBracket(
     const awayTeamId = seeded?.awayTeamId ?? teamFromSource(fixture.awaySource, materialized);
     if (!homeTeamId || !awayTeamId)
       throw new Error(`Não foi possível propagar o jogo ${fixture.matchNumber}.`);
-    if (![homeTeamId, awayTeamId].includes(input.advancingTeamId)) {
+    const advancingTeamId =
+      input.predictedHomeScore === input.predictedAwayScore
+        ? input.advancingTeamId
+        : input.predictedHomeScore > input.predictedAwayScore
+          ? homeTeamId
+          : awayTeamId;
+    if (![homeTeamId, awayTeamId].includes(advancingTeamId)) {
       throw new Error(`Classificado inválido no jogo ${fixture.matchNumber}.`);
     }
     if (
       input.predictedHomeScore !== input.predictedAwayScore &&
-      input.advancingTeamId !==
+      advancingTeamId !==
         (input.predictedHomeScore > input.predictedAwayScore ? homeTeamId : awayTeamId)
     ) {
       throw new Error(`O classificado não corresponde ao placar do jogo ${fixture.matchNumber}.`);
     }
 
-    materialized.set(fixture.matchNumber, { ...input, homeTeamId, awayTeamId });
+    materialized.set(fixture.matchNumber, { ...input, homeTeamId, awayTeamId, advancingTeamId });
   }
   return [...materialized.values()];
 }

@@ -80,6 +80,7 @@ function countdownText(targetTime: number, nowTime: number) {
 }
 
 function dateOnly(value: string | Date) {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(
     typeof value === 'string' ? new Date(value) : value,
   );
@@ -298,7 +299,6 @@ function LastFive({
   return (
     <View style={[styles.lastFiveList, { position: 'relative' }]}>
       {padded.map((value, index) => {
-        const realIndex = values.length - 5 + index;
         const match = paddedMatches[index];
         const isHovered = hoveredIndex === index;
 
@@ -309,9 +309,9 @@ function LastFive({
               onMouseLeave={() => setHoveredIndex(null)}
               style={[
                 styles.lastFiveBadge,
-                value === 7 && styles.lastFiveExact,
+                value === 15 && styles.lastFiveExact,
                 value === 3 && styles.lastFiveResult,
-                value === 1 && styles.lastFiveGoal,
+                (value === 1 || value === 7) && styles.lastFiveGoal,
                 value === 0 && styles.lastFiveMiss,
                 value < 0 && styles.lastFiveEmpty,
               ]}
@@ -382,7 +382,8 @@ function TeamNameButton({
   onOpenTeam?: (team: Team) => void;
   singleLine?: boolean;
 }) {
-  if (!onOpenTeam) {
+  const isPlaceholder = team.id.startsWith('placeholder-');
+  if (!onOpenTeam || isPlaceholder) {
     return <Text numberOfLines={singleLine ? 1 : undefined} style={styles.matchTitle}>{team.name}</Text>;
   }
 
@@ -1122,8 +1123,8 @@ function DaysScreen({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  async function load() {
-    setLoading(true);
+  async function load(showLoading = true) {
+    if (showLoading) setLoading(true);
     try {
       const result = await api.matchDays();
       setDays(result.matchDays);
@@ -1143,12 +1144,16 @@ function DaysScreen({
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar jogos.');
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }
 
   useEffect(() => {
     void load();
+    const interval = setInterval(() => {
+      void load(false);
+    }, 60_000);
+    return () => clearInterval(interval);
   }, [refreshVersion]);
 
   if (loading) return <ActivityIndicator color={colors.green} style={styles.loader} />;
@@ -1440,7 +1445,7 @@ function PredictionsScreen({
         </View>
         <View style={styles.rulesList}>
           <View style={styles.ruleRow}>
-            <Text style={styles.rulePoints}>7 pts</Text>
+            <Text style={styles.rulePoints}>15 pts</Text>
             <Text style={styles.ruleText}>Acertou o placar exato.</Text>
           </View>
           <View style={styles.ruleRow}>
@@ -3614,6 +3619,24 @@ export default function App() {
 
   const triggerRefresh = useCallback(() => {
     setRefreshVersion((current) => current + 1);
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    document.documentElement.lang = 'pt-BR';
+    document.documentElement.translate = false;
+    document.documentElement.setAttribute('translate', 'no');
+    document.documentElement.classList.add('notranslate');
+    document.body.translate = false;
+    document.body?.setAttribute('translate', 'no');
+    document.body?.classList.add('notranslate');
+    let meta = document.querySelector('meta[name="google"]') as HTMLMetaElement | null;
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.name = 'google';
+      document.head.appendChild(meta);
+    }
+    meta.content = 'notranslate';
   }, []);
 
   function adjustAppScroll(delta: number) {

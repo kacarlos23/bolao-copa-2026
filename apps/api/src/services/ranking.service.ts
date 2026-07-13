@@ -628,7 +628,7 @@ export async function getRankingAwards() {
     {
       key: 'round_of_32',
       title: 'Mata-mata inicial',
-      subtitle: 'Campeao dos 32 avos',
+      subtitle: 'Campeao dos 16 avos',
       stages: ['ROUND_OF_32'],
       tier: 'standard',
       icon: 'shield-outline',

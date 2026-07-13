@@ -71,6 +71,62 @@ function assertGenerationIsOpen(generation: EditableGeneration) {
   }
 }
 
+function pickInputChanged(
+  current: {
+    homeTeamId: string;
+    awayTeamId: string;
+    advancingTeamId: string;
+    predictedHomeScore: number;
+    predictedAwayScore: number;
+  },
+  next: {
+    homeTeamId?: string;
+    awayTeamId?: string;
+    advancingTeamId: string;
+    predictedHomeScore: number;
+    predictedAwayScore: number;
+  },
+) {
+  return (
+    (next.homeTeamId != null && current.homeTeamId !== next.homeTeamId) ||
+    (next.awayTeamId != null && current.awayTeamId !== next.awayTeamId) ||
+    current.advancingTeamId !== next.advancingTeamId ||
+    current.predictedHomeScore !== next.predictedHomeScore ||
+    current.predictedAwayScore !== next.predictedAwayScore
+  );
+}
+
+function fixtureIsEditableForPrediction(
+  fixture: { startsAt: Date; status: MatchStatus },
+  now = new Date(),
+) {
+  return fixture.status === MatchStatus.SCHEDULED && fixture.startsAt > now;
+}
+
+function actualKnockoutWinnerId(fixture: {
+  homeTeamId: string | null;
+  awayTeamId: string | null;
+  winnerTeamId: string | null;
+  homeScore: number | null;
+  awayScore: number | null;
+  finalHomeScore: number | null;
+  finalAwayScore: number | null;
+}) {
+  if (fixture.winnerTeamId) return fixture.winnerTeamId;
+  const homeScore = fixture.finalHomeScore ?? fixture.homeScore;
+  const awayScore = fixture.finalAwayScore ?? fixture.awayScore;
+  if (
+    !fixture.homeTeamId ||
+    !fixture.awayTeamId ||
+    homeScore == null ||
+    awayScore == null ||
+    homeScore === awayScore
+  ) {
+    return null;
+  }
+  return homeScore > awayScore ? fixture.homeTeamId : fixture.awayTeamId;
+}
+
 async function assertCanSaveKnockout(userId: string) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -522,15 +578,148 @@ export async function saveKnockoutBracket(userId: string, input: UpsertKnockoutB
   }
 
   const { generation } = await ensureKnockoutInfrastructure();
-  assertGenerationIsOpen(generation);
 
   const groupScores = input.groupScores
     ? await replaceSavedGroupSimulationScores(userId, generation.id, input.groupScores)
     : await loadSavedGroupSimulationScores(userId, generation.id);
+  const fixtures = await prisma.knockoutFixture.findMany({
+    select: {
+      id: true,
+      matchNumber: true,
+      startsAt: true,
+      status: true,
+      homeTeamId: true,
+      awayTeamId: true,
+      winnerTeamId: true,
+      homeScore: true,
+      awayScore: true,
+      finalHomeScore: true,
+      finalAwayScore: true,
+    },
+  });
+  const existingBracket = await prisma.knockoutBracket.findUnique({
+    where: { userId_generationId: { userId, generationId: generation.id } },
+    include: { picks: { include: { fixture: true } } },
+  });
+  const editableMatchNumbers = new Set(
+    fixtures
+      .filter((fixture) => fixtureIsEditableForPrediction(fixture))
+      .map((fixture) => fixture.matchNumber),
+  );
+  if (editableMatchNumbers.size === 0) {
+    throw new AppError(
+      409,
+      'Nao ha jogos futuros abertos para edicao na chave.',
+      'KNOCKOUT_BRACKET_CLOSED',
+    );
+  }
+
+  const existingByMatch = new Map(
+    (existingBracket?.picks ?? []).map((pick) => [pick.fixture.matchNumber, pick]),
+  );
+  const mergedByMatch = new Map<number, UpsertKnockoutBracketInput['picks'][number]>();
+  let editablePickCount = 0;
+
+  for (const pick of input.picks) {
+    const fixture = fixtures.find((item) => item.matchNumber === pick.matchNumber);
+    if (!fixture) {
+      throw new AppError(400, `Jogo ${pick.matchNumber} inválido.`, 'INVALID_KNOCKOUT_BRACKET');
+    }
+
+    const existing = existingByMatch.get(pick.matchNumber);
+    if (!editableMatchNumbers.has(pick.matchNumber)) {
+      if (
+        !existing ||
+        pickInputChanged(existing, {
+          advancingTeamId: pick.advancingTeamId,
+          predictedHomeScore: pick.predictedHomeScore,
+          predictedAwayScore: pick.predictedAwayScore,
+        })
+      ) {
+        throw new AppError(
+          409,
+          `O jogo ${pick.matchNumber} já iniciou ou foi encerrado e não pode mais ser editado.`,
+          'KNOCKOUT_FIXTURE_LOCKED',
+        );
+      }
+      continue;
+    }
+
+    editablePickCount += 1;
+    mergedByMatch.set(pick.matchNumber, pick);
+  }
+
+  if (editablePickCount === 0) {
+    throw new AppError(
+      400,
+      'Preencha pelo menos um jogo futuro para salvar a chave.',
+      'EMPTY_KNOCKOUT_BRACKET',
+    );
+  }
+
+  const sanitizedPicks = [...mergedByMatch.values()];
+  const requestedMatchNumbers = new Set(sanitizedPicks.map((pick) => pick.matchNumber));
   const { participants } = await roundOf32ForGeneration(generation.mode, userId, groupScores);
+  const fixedParticipants = new Map(participants);
+  for (const fixture of fixtures) {
+    if (fixture.homeTeamId && fixture.awayTeamId) {
+      fixedParticipants.set(fixture.matchNumber, {
+        homeTeamId: fixture.homeTeamId,
+        awayTeamId: fixture.awayTeamId,
+      });
+    }
+  }
+  const contextInputsByMatch = new Map<number, UpsertKnockoutBracketInput['picks'][number]>();
+  for (const fixture of fixtures) {
+    const winnerTeamId = actualKnockoutWinnerId(fixture);
+    const homeScore = fixture.finalHomeScore ?? fixture.homeScore;
+    const awayScore = fixture.finalAwayScore ?? fixture.awayScore;
+    if (
+      fixture.status === MatchStatus.FINISHED &&
+      fixture.homeTeamId &&
+      fixture.awayTeamId &&
+      winnerTeamId &&
+      homeScore != null &&
+      awayScore != null
+    ) {
+      contextInputsByMatch.set(fixture.matchNumber, {
+        matchNumber: fixture.matchNumber,
+        predictedHomeScore: homeScore,
+        predictedAwayScore: awayScore,
+        advancingTeamId: winnerTeamId,
+      });
+    }
+  }
+  for (const pick of existingBracket?.picks ?? []) {
+    const matchNumber = pick.fixture.matchNumber;
+    if (contextInputsByMatch.has(matchNumber) || requestedMatchNumbers.has(matchNumber)) continue;
+    const fixture = fixtures.find((item) => item.matchNumber === matchNumber);
+    if (!fixture || !editableMatchNumbers.has(matchNumber)) continue;
+    const fixed = fixedParticipants.get(matchNumber);
+    if (!fixed?.homeTeamId || !fixed.awayTeamId) continue;
+    const advancingTeamId =
+      pick.predictedHomeScore === pick.predictedAwayScore
+        ? pick.advancingTeamId
+        : pick.predictedHomeScore > pick.predictedAwayScore
+          ? fixed.homeTeamId
+          : fixed.awayTeamId;
+    if (![fixed.homeTeamId, fixed.awayTeamId].includes(advancingTeamId)) continue;
+    contextInputsByMatch.set(matchNumber, {
+      matchNumber,
+      predictedHomeScore: pick.predictedHomeScore,
+      predictedAwayScore: pick.predictedAwayScore,
+      advancingTeamId,
+    });
+  }
+  for (const pick of sanitizedPicks) {
+    contextInputsByMatch.set(pick.matchNumber, pick);
+  }
+
   let materialized;
   try {
-    materialized = materializeBracket(input.picks, participants, undefined, { allowPartial: true });
+    materialized = materializeBracket([...contextInputsByMatch.values()], fixedParticipants, undefined, {
+      allowPartial: true,
+    });
   } catch (error) {
     throw new AppError(
       400,
@@ -539,28 +728,36 @@ export async function saveKnockoutBracket(userId: string, input: UpsertKnockoutB
     );
   }
 
-  const fixtures = await prisma.knockoutFixture.findMany({
-    select: { id: true, matchNumber: true },
-  });
   const fixtureIdByNumber = new Map(fixtures.map((fixture) => [fixture.matchNumber, fixture.id]));
+  const editableMaterialized = materialized.filter((pick) => requestedMatchNumbers.has(pick.matchNumber));
   const bracket = await prisma.$transaction(async (tx) => {
     const saved = await tx.knockoutBracket.upsert({
       where: { userId_generationId: { userId, generationId: generation.id } },
       update: { submittedAt: new Date() },
       create: { userId, generationId: generation.id },
     });
-    await tx.knockoutPick.deleteMany({ where: { bracketId: saved.id } });
-    await tx.knockoutPick.createMany({
-      data: materialized.map((pick) => ({
-        bracketId: saved.id,
-        fixtureId: fixtureIdByNumber.get(pick.matchNumber)!,
-        homeTeamId: pick.homeTeamId,
-        awayTeamId: pick.awayTeamId,
-        advancingTeamId: pick.advancingTeamId,
-        predictedHomeScore: pick.predictedHomeScore,
-        predictedAwayScore: pick.predictedAwayScore,
-      })),
-    });
+    for (const pick of editableMaterialized) {
+      const fixtureId = fixtureIdByNumber.get(pick.matchNumber)!;
+      await tx.knockoutPick.upsert({
+        where: { bracketId_fixtureId: { bracketId: saved.id, fixtureId } },
+        update: {
+          homeTeamId: pick.homeTeamId,
+          awayTeamId: pick.awayTeamId,
+          advancingTeamId: pick.advancingTeamId,
+          predictedHomeScore: pick.predictedHomeScore,
+          predictedAwayScore: pick.predictedAwayScore,
+        },
+        create: {
+          bracketId: saved.id,
+          fixtureId,
+          homeTeamId: pick.homeTeamId,
+          awayTeamId: pick.awayTeamId,
+          advancingTeamId: pick.advancingTeamId,
+          predictedHomeScore: pick.predictedHomeScore,
+          predictedAwayScore: pick.predictedAwayScore,
+        },
+      });
+    }
     return saved;
   });
 
@@ -609,18 +806,31 @@ export async function recalculateKnockoutScoresForFixture(
       },
     },
   });
-  if (!fixture || !fixture.homeTeamId || !fixture.awayTeamId) return;
+  if (!fixture) return;
+
+  if (
+    fixture.status !== MatchStatus.FINISHED ||
+    !fixture.homeTeamId ||
+    !fixture.awayTeamId
+  ) {
+    await prisma.knockoutPredictionScore.deleteMany({ where: { fixtureId } });
+    if (options.refreshRanking !== false) await refreshRankingSnapshot();
+    return;
+  }
+
+  const winnerTeamId = actualKnockoutWinnerId(fixture);
+  const actualTeamIds = new Set([fixture.homeTeamId, fixture.awayTeamId]);
 
   for (const pick of fixture.picks) {
-    const predictedTeams = new Set([pick.homeTeamId, pick.awayTeamId]);
-    const actualTeams = new Set([fixture.homeTeamId, fixture.awayTeamId]);
-    const matchedTeams = [...predictedTeams].filter((teamId) => actualTeams.has(teamId)).length;
-    const score =
-      matchedTeams === 2
-        ? { points: 15, scoreType: 'EXACT_SCORE' as const }
-        : matchedTeams === 1
-          ? { points: 7, scoreType: 'ONE_TEAM_GOALS' as const }
-          : { points: 0, scoreType: 'MISS' as const };
+    const winnerHit = Boolean(winnerTeamId && pick.advancingTeamId === winnerTeamId);
+    const matchedTeamCount = [pick.homeTeamId, pick.awayTeamId].filter((teamId) =>
+      actualTeamIds.has(teamId),
+    ).length;
+    const score = winnerHit
+      ? { points: 15, scoreType: 'RESULT' as const }
+      : matchedTeamCount > 0
+        ? { points: 7, scoreType: 'ONE_TEAM_GOALS' as const }
+        : { points: 0, scoreType: 'MISS' as const };
 
     await prisma.knockoutPredictionScore.upsert({
       where: { pickId: pick.id },

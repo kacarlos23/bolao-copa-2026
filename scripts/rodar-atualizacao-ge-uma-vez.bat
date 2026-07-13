@@ -1,5 +1,5 @@
 @echo off
 setlocal
 cd /d "%~dp0\.."
-npm run scrape:ge-scores:once -- --force
+npm --workspace @bolao/api run scrape:ge-scores:once -- --force
 pause

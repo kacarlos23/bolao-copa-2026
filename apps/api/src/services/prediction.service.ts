@@ -10,6 +10,44 @@ import {
   predictionState,
 } from './prediction-settings.service.js';
 
+function knockoutStageLabel(stage: string) {
+  const labels: Record<string, string> = {
+    ROUND_OF_32: '16 avos',
+    ROUND_OF_16: 'Oitavas de final',
+    QUARTER_FINAL: 'Quartas de final',
+    SEMI_FINAL: 'Semifinais',
+    THIRD_PLACE: 'Disputa de terceiro lugar',
+    FINAL: 'Final',
+  };
+  return labels[stage] ?? stage;
+}
+
+function sourceLabel(source: string) {
+  if (/^[12][A-L]$/.test(source)) return `${source[0]}o do Grupo ${source[1]}`;
+  if (source === '3*') return 'Melhor 3o colocado';
+  if (/^W\d+$/.test(source)) return `Vencedor Jogo ${source.slice(1)}`;
+  if (/^L\d+$/.test(source)) return `Perdedor Jogo ${source.slice(1)}`;
+  return 'A definir';
+}
+
+function placeholderTeam(source: string) {
+  return {
+    id: `placeholder-${source}`,
+    name: sourceLabel(source),
+    code: 'TBD',
+    externalId: null,
+    flagUrl: null,
+    metadata: null,
+    fifaRank: null,
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+  };
+}
+
+function saoPauloDateOnly(value: Date) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(value);
+}
+
 export function matchPredictionsCloseAt(
   startsAt: Date,
   closeMinutes = DEFAULT_PREDICTION_CLOSE_MINUTES,
@@ -27,7 +65,7 @@ export function matchPredictionState(
 
 export async function listMatchDays(userId?: string) {
   const now = new Date();
-  const [predictionCloseMinutes, days] = await Promise.all([
+  const [predictionCloseMinutes, days, knockoutFixtures] = await Promise.all([
     getPredictionCloseMinutes(),
     prisma.matchDay.findMany({
       orderBy: { firstMatchStartsAt: 'asc' },
@@ -42,21 +80,95 @@ export async function listMatchDays(userId?: string) {
         },
       },
     }),
+    prisma.knockoutFixture.findMany({
+      orderBy: { startsAt: 'asc' },
+      include: { homeTeam: true, awayTeam: true, winnerTeam: true },
+    }),
   ]);
 
-  const matchDays = days.map((day) => {
+  const matchDaysByDate = new Map<string, any>();
+
+  for (const day of days) {
     const matches = day.matches.map((match) => ({
       ...match,
       ...matchPredictionState(match.startsAt, now, predictionCloseMinutes),
     }));
 
-    return {
+    matchDaysByDate.set(saoPauloDateOnly(day.date), {
       ...day,
       matches,
       isOpenForPredictions: matches.some((match) => match.isOpenForPredictions),
       predictionsArePublic: matches.every((match) => match.predictionsArePublic),
+    });
+  }
+
+  for (const fixture of knockoutFixtures) {
+    const date = saoPauloDateOnly(fixture.startsAt);
+    const current = matchDaysByDate.get(date);
+    const state = matchPredictionState(fixture.startsAt, now, predictionCloseMinutes);
+    const match = {
+      id: `knockout-${fixture.id}`,
+      matchDayId: current?.id ?? `knockout-day-${date}`,
+      homeTeamId: fixture.homeTeamId,
+      awayTeamId: fixture.awayTeamId,
+      startsAt: fixture.startsAt,
+      status: fixture.status,
+      homeScore: fixture.homeScore,
+      awayScore: fixture.awayScore,
+      finalHomeScore: fixture.finalHomeScore,
+      finalAwayScore: fixture.finalAwayScore,
+      homeTeam: fixture.homeTeam ?? placeholderTeam(fixture.homeSource),
+      awayTeam: fixture.awayTeam ?? placeholderTeam(fixture.awaySource),
+      predictions: [],
+      rawPayload: {
+        round: `${knockoutStageLabel(fixture.stage)} - Jogo ${fixture.matchNumber}`,
+        group: 'Mata-mata',
+        type: 'KNOCKOUT',
+        knockoutFixtureId: fixture.id,
+        knockoutMatchNumber: fixture.matchNumber,
+        knockoutStage: fixture.stage,
+      },
+      ...state,
     };
-  });
+
+    if (current) {
+      current.matches.push(match);
+      current.matches.sort(
+        (matchA: { startsAt: Date }, matchB: { startsAt: Date }) =>
+          matchA.startsAt.getTime() - matchB.startsAt.getTime(),
+      );
+      current.firstMatchStartsAt = current.matches[0]?.startsAt ?? current.firstMatchStartsAt;
+      current.predictionsCloseAt = predictionCloseAt(
+        current.firstMatchStartsAt,
+        predictionCloseMinutes,
+      );
+      current.isOpenForPredictions = current.matches.some(
+        (item: { isOpenForPredictions?: boolean }) => item.isOpenForPredictions,
+      );
+      current.predictionsArePublic = current.matches.every(
+        (item: { predictionsArePublic?: boolean }) => item.predictionsArePublic,
+      );
+      continue;
+    }
+
+    matchDaysByDate.set(date, {
+      id: `knockout-day-${date}`,
+      date,
+      firstMatchStartsAt: fixture.startsAt,
+      predictionsCloseAt: predictionCloseAt(fixture.startsAt, predictionCloseMinutes),
+      status: state.isOpenForPredictions ? 'OPEN' : 'CLOSED',
+      createdAt: fixture.createdAt,
+      updatedAt: fixture.updatedAt,
+      matches: [match],
+      isOpenForPredictions: state.isOpenForPredictions,
+      predictionsArePublic: state.predictionsArePublic,
+    });
+  }
+
+  const matchDays = [...matchDaysByDate.values()].sort(
+    (dayA, dayB) =>
+      new Date(dayA.firstMatchStartsAt).getTime() - new Date(dayB.firstMatchStartsAt).getTime(),
+  );
   return { matchDays, predictionCloseMinutes };
 }
 

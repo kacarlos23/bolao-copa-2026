@@ -20,6 +20,7 @@ import {
   type CupStandingGroup,
   type CupStandingRow,
   type KnockoutFixture,
+  type PredictionBoard,
   type Match,
   type MatchDay,
   type Team,
@@ -42,19 +43,21 @@ const c = {
 };
 
 function localDay(value: string | Date) {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(
     typeof value === 'string' ? new Date(value) : value,
   );
 }
 
 function shortDate(value: string) {
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00-03:00` : value;
   return new Intl.DateTimeFormat('pt-BR', {
     weekday: 'short',
     day: '2-digit',
     month: 'short',
     timeZone: 'America/Sao_Paulo',
   })
-    .format(new Date(value))
+    .format(new Date(date))
     .replace('.', '');
 }
 
@@ -123,6 +126,17 @@ function score(match: Match | CupMatchResult | KnockoutFixture) {
   return home == null || away == null ? null : `${home} x ${away}`;
 }
 
+function knockoutMatchNumber(match: Match) {
+  return match.rawPayload?.type === 'KNOCKOUT' &&
+    typeof match.rawPayload.knockoutMatchNumber === 'number'
+    ? match.rawPayload.knockoutMatchNumber
+    : null;
+}
+
+function isPlaceholderTeam(team?: Team | null) {
+  return !team || team.id.startsWith('placeholder-');
+}
+
 function StatusBadge({ status, open }: { status: string; open?: boolean }) {
   const live = status === 'LIVE';
   const label = live
@@ -150,7 +164,7 @@ function RulesBar({ closeMinutes }: { closeMinutes: number }) {
         <Text style={styles.ruleDeadlineText}>Fecha {closeMinutes} min antes de cada jogo</Text>
       </View>
       {[
-        ['7', 'Placar exato'],
+        ['15', 'Placar exato'],
         ['3', 'Resultado'],
         ['1', 'Gol de um time'],
         ['0', 'Erro'],
@@ -256,6 +270,7 @@ export function DailyPredictionsV2({
   const [days, setDays] = useState<MatchDay[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [day, setDay] = useState<MatchDay | null>(null);
+  const [board, setBoard] = useState<PredictionBoard | null>(null);
   const [closeMinutes, setCloseMinutes] = useState(5);
   const [draft, setDraft] = useState<Record<string, { home: string; away: string }>>({});
   const [savingAll, setSavingAll] = useState(false);
@@ -264,11 +279,14 @@ export function DailyPredictionsV2({
   const [publicMatch, setPublicMatch] = useState<Match | null>(null);
   const [saved, setSaved] = useState(false);
   const skipNextDaysRefreshUntil = useRef(0);
+  const dateScrollerRef = useRef<ScrollView>(null);
+  const daysRef = useRef<MatchDay[]>([]);
 
   const loadDays = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
     try {
       const result = await api.matchDays();
+      daysRef.current = result.matchDays;
       setDays(result.matchDays);
       setCloseMinutes(result.predictionCloseMinutes);
       setSelectedId((current) => {
@@ -292,13 +310,31 @@ export function DailyPredictionsV2({
     async (id: string, quiet = false) => {
       if (!quiet) setDay(null);
       try {
-        const result = await api.matchDay(id);
-        setDay(result.matchDay);
-        setCloseMinutes(result.predictionCloseMinutes);
+        const listedDay = daysRef.current.find((item) => item.id === id);
+        const hasKnockoutMatches = Boolean(
+          listedDay?.matches.some((match) => knockoutMatchNumber(match) != null),
+        );
+        const isSyntheticDay = id.startsWith('knockout-day-');
+        const result = isSyntheticDay || hasKnockoutMatches ? null : await api.matchDay(id);
+        const matchDay = result?.matchDay ?? listedDay;
+        if (!matchDay) return;
+        const nextBoard =
+          matchDay.matches.some((match) => knockoutMatchNumber(match) != null)
+            ? await api.predictionBoard()
+            : null;
+        if (nextBoard) setBoard(nextBoard);
+        setDay(matchDay);
+        if (result) setCloseMinutes(result.predictionCloseMinutes);
         setDraft((current) => {
           const next = { ...current };
-          for (const match of result.matchDay.matches) {
-            const own = match.predictions.find((prediction) => prediction.userId === currentUserId);
+          for (const match of matchDay.matches) {
+            const matchNumber = knockoutMatchNumber(match);
+            const own =
+              matchNumber != null
+                ? nextBoard?.knockout.savedBracket?.picks.find(
+                    (pick) => pick.matchNumber === matchNumber,
+                  )
+                : match.predictions.find((prediction) => prediction.userId === currentUserId);
             next[match.id] = {
               home: own ? String(own.predictedHomeScore) : (next[match.id]?.home ?? ''),
               away: own ? String(own.predictedAwayScore) : (next[match.id]?.away ?? ''),
@@ -335,7 +371,16 @@ export function DailyPredictionsV2({
     if (selectedId) void loadDay(selectedId);
   }, [loadDay, selectedId]);
 
-  const completeOpenPredictions = useMemo(() => {
+  useEffect(() => {
+    const selectedIndex = days.findIndex((item) => item.id === selectedId);
+    if (selectedIndex < 0) return;
+    dateScrollerRef.current?.scrollTo({
+      x: Math.max(0, selectedIndex * 150 - 24),
+      animated: true,
+    });
+  }, [days.length, selectedId]);
+
+  const completeOpenItems = useMemo(() => {
     if (!day) return [];
     return day.matches
       .filter((match) => match.isOpenForPredictions)
@@ -343,6 +388,7 @@ export function DailyPredictionsV2({
         const values = draft[match.id];
         if (!values || values.home === '' || values.away === '') return null;
         return {
+          match,
           matchId: match.id,
           predictedHomeScore: Number(values.home),
           predictedAwayScore: Number(values.away),
@@ -350,14 +396,68 @@ export function DailyPredictionsV2({
       })
       .filter((prediction): prediction is NonNullable<typeof prediction> => Boolean(prediction));
   }, [day, draft]);
+  const completeOpenPredictions = completeOpenItems.filter(
+    (item) => knockoutMatchNumber(item.match) == null,
+  );
+  const completeOpenKnockoutPredictions = completeOpenItems.filter(
+    (item) => knockoutMatchNumber(item.match) != null,
+  );
 
   async function saveDayPredictions() {
-    if (!day || completeOpenPredictions.length === 0) return;
+    if (!day || completeOpenItems.length === 0) return;
     setSavingAll(true);
     setError('');
     try {
       skipNextDaysRefreshUntil.current = Date.now() + 4000;
-      await api.savePredictions(day.id, completeOpenPredictions);
+      if (completeOpenPredictions.length) {
+        await api.savePredictions(
+          day.id,
+          completeOpenPredictions.map(({ match: _match, ...prediction }) => prediction),
+        );
+      }
+      if (completeOpenKnockoutPredictions.length) {
+        const nextBoard = board ?? (await api.predictionBoard());
+        const picks = completeOpenKnockoutPredictions.map((item) => {
+          const matchNumber = knockoutMatchNumber(item.match);
+          const fixture = nextBoard.knockout.fixtures.find(
+            (candidate) => candidate.matchNumber === matchNumber,
+          );
+          if (
+            matchNumber == null ||
+            !fixture ||
+            isPlaceholderTeam(item.match.homeTeam) ||
+            isPlaceholderTeam(item.match.awayTeam)
+          ) {
+            throw new Error('Este jogo de mata-mata ainda nao tem os dois times definidos.');
+          }
+          const existingPick = nextBoard.knockout.savedBracket?.picks.find(
+            (pick) => pick.matchNumber === matchNumber,
+          );
+          let advancingTeamId = item.match.homeTeam.id;
+          if (item.predictedAwayScore > item.predictedHomeScore) {
+            advancingTeamId = item.match.awayTeam.id;
+          } else if (item.predictedHomeScore === item.predictedAwayScore) {
+            if (
+              existingPick?.advancingTeamId &&
+              [item.match.homeTeam.id, item.match.awayTeam.id].includes(existingPick.advancingTeamId)
+            ) {
+              advancingTeamId = existingPick.advancingTeamId;
+            } else {
+              throw new Error(
+                'Em empate no mata-mata, escolha quem avanca pela tela Eliminatorias.',
+              );
+            }
+          }
+          return {
+            matchNumber,
+            predictedHomeScore: item.predictedHomeScore,
+            predictedAwayScore: item.predictedAwayScore,
+            advancingTeamId,
+          };
+        });
+        const updatedBoard = await api.saveKnockoutBracket(picks);
+        setBoard(updatedBoard);
+      }
       await loadDay(day.id, true);
       setSaved(true);
     } catch (caught) {
@@ -409,6 +509,7 @@ export function DailyPredictionsV2({
       <View style={[styles.datePanel, compact && styles.datePanelCompact]}>
         <View style={styles.dateScrollerShell}>
           <ScrollView
+            ref={dateScrollerRef}
             horizontal
             showsHorizontalScrollIndicator
             persistentScrollbar
@@ -562,15 +663,15 @@ export function DailyPredictionsV2({
           <View style={styles.bulkSaveCopy}>
             <Text style={styles.bulkSaveTitle}>Salvar palpites do dia</Text>
             <Text style={styles.bulkSaveText}>
-              {completeOpenPredictions.length} palpite(s) preenchido(s) em partidas abertas.
+              {completeOpenItems.length} palpite(s) preenchido(s) em partidas abertas.
             </Text>
           </View>
           <Pressable
             onPress={() => void saveDayPredictions()}
-            disabled={savingAll || completeOpenPredictions.length === 0}
+            disabled={savingAll || completeOpenItems.length === 0}
             style={[
               styles.bulkSaveButton,
-              (savingAll || completeOpenPredictions.length === 0) && styles.bulkSaveButtonDisabled,
+              (savingAll || completeOpenItems.length === 0) && styles.bulkSaveButtonDisabled,
             ]}
           >
             <Ionicons name="save-outline" size={19} color={c.bg} />
@@ -808,7 +909,7 @@ function ThirdPlacedTable({ groups }: { groups: CupStandingGroup[] }) {
 }
 
 const stageLabels: Record<KnockoutFixture['stage'], string> = {
-  ROUND_OF_32: '32 avos',
+  ROUND_OF_32: '16 avos',
   ROUND_OF_16: 'Oitavas',
   QUARTER_FINAL: 'Quartas',
   SEMI_FINAL: 'Semifinais',
