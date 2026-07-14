@@ -1,0 +1,66 @@
+Etapa 6 — Refatoração do frontend
+Estrutura recomendada
+apps/web/src/
+├── app/
+│   ├── AppShell.tsx
+│   ├── Navigation.tsx
+│   └── CompetitionContext.tsx
+├── features/
+│   ├── auth/
+│   ├── competitions/
+│   ├── seasons/
+│   ├── matches/
+│   ├── predictions/
+│   ├── standings/
+│   ├── rankings/
+│   ├── brackets/
+│   └── admin/
+├── components/
+│   ├── TeamBadge.tsx
+│   ├── MatchCard.tsx
+│   ├── ScoreInput.tsx
+│   ├── RankingTable.tsx
+│   └── StatusBadge.tsx
+├── services/
+│   ├── api-client.ts
+│   └── realtime.ts
+└── theme/
+Navegação
+Início
+├── Copa do Mundo 2026 — encerrada
+├── Brasileirão 2026 — em disputa
+├── Copa do Brasil
+├── Libertadores
+└── Sul-Americana
+
+Ao selecionar uma competição:
+
+Visão geral
+Jogos e palpites
+Classificação
+Ranking do bolão
+Premiações
+Estatísticas
+
+A API deve informar capacidades:
+
+{
+  "supportsLeagueStandings": true,
+  "supportsGroups": false,
+  "supportsKnockoutBracket": false,
+  "supportsTwoLeggedTies": false
+}
+
+O frontend monta a navegação conforme essas capacidades, sem testar nomes como "world-cup" ou "brasileirao".
+
+Identidade visual
+
+Cada competição pode possuir:
+
+logo
+cor principal
+cor secundária
+imagem de fundo
+rótulos próprios
+
+Os componentes funcionais devem permanecer os mesmos.
