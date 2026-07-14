@@ -1,0 +1,44 @@
+Etapa 2 — Migração estrutural do banco
+
+Aplicar o padrão expand–migrate–contract:
+
+2.1 Expandir
+
+Adicionar novas tabelas e colunas, mantendo as antigas funcionando.
+
+2.2 Migrar dados
+
+Criar automaticamente:
+
+Competition:
+  world-cup
+
+Season:
+  world-cup-2026
+
+Pool:
+  bolão-do-trabalho
+
+Depois:
+
+vincular partidas atuais à temporada da Copa;
+vincular pontuações e snapshots;
+cadastrar seleções em SeasonTeam;
+preservar IDs existentes;
+criar mapeamentos dos IDs externos.
+2.3 Compatibilidade temporária
+
+Durante uma versão:
+
+antigas rotas continuam apontando para world-cup-2026;
+novas rotas recebem competição e temporada explicitamente;
+escrita nova deve sempre preencher seasonId.
+2.4 Contrair
+
+Somente depois de testes em produção:
+
+remover dependências globais;
+eliminar consultas sem filtro de temporada;
+tornar seasonId obrigatório.
+
+Critério de conclusão: nenhum ranking ou palpite de uma temporada pode aparecer em outra.
