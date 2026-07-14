@@ -1,0 +1,73 @@
+Etapa 5 — Implementação do Brasileirão 2026
+
+A CBF divulgou uma tabela básica com as 38 rodadas, datas-base e mandos da Série A de 2026.
+
+Carga inicial
+
+Criar:
+
+Competition: brasileirao-serie-a
+Season: brasileirao-serie-a-2026
+Format: LEAGUE
+Stage: Série A — pontos corridos
+Rounds: 1 a 38
+Teams: 20
+Matches: 380
+Partidas anteriores ao início do novo bolão
+
+As partidas já disputadas devem ser importadas para:
+
+construir a classificação oficial;
+apresentar resultados históricos;
+permitir estatísticas;
+validar equipes e tabela.
+
+Contudo:
+
+não serão criados palpites retroativos;
+não gerarão pontos no ranking do bolão;
+o PoolSeason registrará a rodada efetiva de início da disputa.
+
+Exemplo:
+
+startsAtRound: 19
+historicalMatchesScoreable: false
+Classificação do campeonato
+
+O sistema deve calcular internamente:
+
+J  - jogos
+V  - vitórias
+E  - empates
+D  - derrotas
+GP - gols pró
+GC - gols contra
+SG - saldo
+PTS - pontos
+
+A classificação externa deve ser usada para conferência, não como única fonte.
+
+Ranking do bolão para o Brasileirão
+
+Filtros:
+
+Geral
+Rodada
+Mês
+Turno
+Últimas cinco partidas
+
+Premiações configuráveis:
+
+Campeão da rodada
+Campeão do primeiro turno
+Campeão do segundo turno
+Maior número de placares exatos
+Campeão do Brasileirão no bolão
+Lanterna da rodada
+
+Não devem existir no código contagens fixas equivalentes aos 72 jogos da Copa.
+
+Observação sobre a data de retorno
+
+Hoje é 14 de julho de 2026. A tabela pública indexada que encontrei indica a 19ª rodada em 22 de julho de 2026, e não em 15 de julho. Como datas e horários podem ser detalhados ou modificados posteriormente, o sistema não deve codificar a data do retorno: deve importá-la da tabela oficial vigente antes da abertura dos palpites.
