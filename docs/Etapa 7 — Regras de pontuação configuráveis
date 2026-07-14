@@ -1,0 +1,26 @@
+Etapa 7 — Regras de pontuação configuráveis
+
+Transformar a função atual em:
+
+calculatePredictionScore(input, ruleSet)
+
+Exemplo:
+
+const defaultFootballRuleSet = {
+  exactScore: 15,
+  correctOutcome: 3,
+  oneTeamGoals: 1,
+  miss: 0,
+};
+
+A interface deve consultar a regra da temporada, em vez de exibir valores fixos.
+
+Cada PredictionScore deve registrar:
+
+ruleSetId
+ruleSetVersion
+breakdown
+calculatedAt
+isFinal
+
+Assim, uma mudança futura não altera pontuações antigas.
