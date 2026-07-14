@@ -1,0 +1,24 @@
+Etapa 0 — Preservação do bolão da Copa
+
+Antes de alterar o domínio:
+
+Criar backup validado do PostgreSQL.
+
+Criar tag Git, por exemplo:
+
+world-cup-2026-final
+Registrar uma fotografia do ranking final.
+Executar todos os testes existentes.
+Criar testes adicionais para:
+ranking final da Copa;
+palpites já realizados;
+pontuação do mata-mata;
+visibilidade dos palpites;
+usuários e sessões.
+Arquivar a Copa como temporada histórica, sem apagar tabelas ou dados.
+
+Criar feature flag:
+
+MULTI_COMPETITION_ENABLED
+
+Critério de conclusão: a versão atual pode ser restaurada integralmente e o ranking da Copa permanece idêntico.
