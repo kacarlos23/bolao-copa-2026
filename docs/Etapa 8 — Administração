@@ -1,27 +1,46 @@
-O painel administrativo deverá permitir:
+# Etapa 8 — Administração, auditoria e observabilidade
 
-criar competição;
-criar temporada;
-escolher formato;
-habilitar temporada no bolão;
-importar equipes;
-importar tabela;
-acompanhar sincronização;
-corrigir horários e resultados;
-cadastrar aliases de equipes;
-suspender palpites de uma partida;
-definir regra de pontuação;
-escolher rodada inicial;
-recalcular classificação;
-recalcular ranking;
-arquivar temporada;
-conferir divergências entre fornecedores.
+## Objetivo
 
-Toda alteração de resultado deve registrar:
+Permitir operação segura das competições sem acesso direto ao banco e sem depender de autorização armazenada indefinidamente na sessão.
 
-valor anterior
-valor novo
-administrador
-data
-justificativa
-origem
+## Funcionalidades
+
+- Criar/arquivar competição e temporada; configurar capabilities e PoolSeason.
+- Importar equipes/tabela, dry-run, diff, apply, quarantine e rollback lógico.
+- Acompanhar provider, lock, última execução, divergências e contingência CSV/manual.
+- Corrigir horário/status/resultado com justificativa e precedência manual.
+- Suspender/reabrir palpites com preview de afetados e política explícita.
+- Configurar rodada inicial, ruleset, desempate e premiações antes do início.
+- Recalcular standings/ranking/achievements em dry-run e job assíncrono idempotente.
+- Gerenciar usuário/papel/status e revogar sessões.
+- Ver audit log, métricas de pool/SSE/sync/ranking e saúde de backup.
+
+## Controles
+
+- RBAC revalidado no servidor; no futuro separar `SUPER_ADMIN`, `COMPETITION_ADMIN` e `SUPPORT`.
+- Ações críticas com CSRF, reautenticação/step-up, confirmação e idempotency key.
+- Auditoria before/after, actor, requestId, season/pool, origem, justificativa e timestamp.
+- Nunca logar senha, cookie, segredo ou payload externo sem limite/redaction.
+- Operações longas viram job com progress; HTTP não fica aberto indefinidamente.
+- Admin não usa endpoint público `/ranking/refresh` para disparar scraper; sync tem permissão específica.
+
+## Arquivos principais
+
+`admin.routes.ts`, `admin.service.ts`, middleware auth/RBAC, modelos audit/job/sync, módulos admin web, provider e observabilidade.
+
+## Melhores práticas
+
+Least privilege, four-eyes opcional, command/query separation pragmática, dry-run, idempotência, transações, audit trail imutável, paginação e filtros.
+
+## Critérios de aceite
+
+- Usuário bloqueado/admin rebaixado perde acesso imediatamente conforme política.
+- Toda mutação crítica gera audit before/after e requestId.
+- Sync/recalculo duplicado não executa duas vezes.
+- Admin vê impacto e divergência antes de aplicar.
+- Histórico não é apagado por arquivamento.
+
+## Execução
+
+Este documento é a especificação da etapa. Para implementá-la, use exclusivamente o [Prompt 8 — administração e operação segura](PROMPTS_CODEX_EXPANSAO_BRASILEIRAO_2026.md#prompt-8) no arquivo canônico de prompts.

@@ -1,26 +1,51 @@
-Etapa 7 — Regras de pontuação configuráveis
+# Etapa 7 — Pontuação, desempates e gamificação configuráveis
 
-Transformar a função atual em:
+## Objetivo
 
-calculatePredictionScore(input, ruleSet)
+Versionar regras sem alterar a história e introduzir gamificação derivada de eventos finais, idempotente e compreensível.
 
-Exemplo:
+## Pontuação
 
-const defaultFootballRuleSet = {
-  exactScore: 15,
-  correctOutcome: 3,
-  oneTeamGoals: 1,
-  miss: 0,
-};
+Preservar a Copa como rule set versão 1:
 
-A interface deve consultar a regra da temporada, em vez de exibir valores fixos.
+```text
+placar exato 15
+resultado     3
+um time       1
+erro          0
+```
 
-Cada PredictionScore deve registrar:
+`calculatePredictionScore(input, ruleSet)` permanece função pura. Cada score grava `ruleSetId`, `version`, `breakdown`, `isFinal` e `calculatedAt`. Um rule set usado é imutável; mudança cria versão nova com `effectiveAt` e preview de impacto.
 
-ruleSetId
-ruleSetVersion
-breakdown
-calculatedAt
-isFinal
+`TieBreakerRuleSet` contém lista ordenada, por exemplo pontos, exatos, resultados, gols de um time, menos erros e critério final definido. A UI exibe a ordem. Apelido não deve decidir campeão; se o regulamento permitir empate, posições compartilhadas precisam ser representadas.
 
-Assim, uma mudança futura não altera pontuações antigas.
+## Gamificação
+
+- `Streak`: sequência final e ordenada; tipos `ANY_HIT`, `OUTCOME`, `EXACT`; live não consolida.
+- `AchievementDefinition`/`UserAchievement`: versão, condição, raridade, progress e chave idempotente.
+- `RoundLeader`: provisório durante jogos e locked após a rodada finalizada.
+- `RankingMovement`: comparação entre snapshots persistidos e `lastSeen`, não entre filtros da tela.
+- `NotificationInbox`: movimento, rival, streak e badge; preferências, agrupamento e quiet hours.
+
+Badges iniciais: primeiro palpite, primeiro exato, três acertos seguidos, líder da rodada, virada no ranking e chave completa. Evitar punição pública/“lanterna” como notificação automática.
+
+## Arquivos principais
+
+`packages/shared/src/scoring.ts`, schema Prisma, ranking/score services, outbox/jobs, API/SSE, frontend ranking/trophy shelf/inbox e admin de ruleset.
+
+## Melhores práticas
+
+Funções puras, event/outbox transacional, replay determinístico, unique keys idempotentes, versionamento imutável, backfill auditável, feature flag e testes baseados em propriedades para regras.
+
+## Critérios de aceite
+
+- Scores históricos não mudam ao criar nova versão.
+- Replay não duplica badge/notificação.
+- Correção de resultado recomputa streak/award de modo determinístico.
+- Live é sempre marcado provisório.
+- Movimento desde última visita funciona entre dispositivos.
+- Usuário entende regra e desempate antes de palpitar.
+
+## Execução
+
+Este documento é a especificação da etapa. Para implementá-la, use exclusivamente o [Prompt 7 — pontuação configurável e gamificação](PROMPTS_CODEX_EXPANSAO_BRASILEIRAO_2026.md#prompt-7) no arquivo canônico de prompts.

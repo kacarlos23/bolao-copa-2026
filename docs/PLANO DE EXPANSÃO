@@ -1,1012 +1,159 @@
-# Plano de evolução do bolão para múltiplas competições
-
-Analisei o repositório `kacarlos23/bolao-copa-2026`. A base tecnológica é adequada para continuar: monorepo com Express, Prisma/PostgreSQL, Expo/React Native Web, pacote compartilhado e SSE. Não recomendo reescrever o sistema. A evolução correta é transformar a atual aplicação especializada na Copa em uma plataforma orientada a **competições, temporadas e formatos de disputa**.
-
-## 1. Diagnóstico da arquitetura atual
-
-### Pontos positivos
-
-O projeto já possui:
-
-* Backend e frontend separados em workspaces.
-* Regras compartilhadas em `packages/shared`.
-* PostgreSQL com Prisma.
-* Autenticação e sessões persistentes.
-* Palpites com restrição única por usuário e partida.
-* Cálculo de pontuação ao vivo e definitivo.
-* Ranking, snapshots, auditoria, logs de sincronização e SSE.
-* Cobertura de testes para pontuação, ranking, previsões, SSE e sincronização.
-
-### Acoplamentos que precisam ser removidos
-
-#### 1. Ausência de competição e temporada
-
-Atualmente `Team`, `Match`, `MatchDay`, `PredictionScore` e `RankingSnapshot` existem em um contexto único. Não há `competitionId`, `seasonId` ou entidade equivalente. Consequentemente, ao importar partidas do Brasileirão, o ranking atual somaria Copa do Mundo e Brasileirão indiscriminadamente.
-
-#### 2. `MatchDay` possui data globalmente única
-
-A restrição `@@unique([date])` impede que cada competição tenha seu próprio agrupamento diário. Além disso, em campeonatos nacionais a unidade esportiva relevante é a **rodada**, não apenas o dia.
-
-#### 3. Mata-mata possui estrutura paralela
-
-A aplicação mantém:
-
-* `Match` e `Prediction`;
-* `KnockoutFixture` e `KnockoutPick`;
-* `PredictionScore` e `KnockoutPredictionScore`.
-
-Essa duplicidade funcionou para concluir a Copa, mas não deve ser reproduzida para Copa do Brasil, Libertadores e Sul-Americana. Todas devem utilizar uma única entidade `Match`, complementada por confrontos, fases e vínculos de classificação.
-
-#### 4. Rankings e premiações específicos da Copa
-
-O serviço possui valores fixos para:
-
-* 72 jogos da fase de grupos;
-* 32 jogos de mata-mata;
-* três rodadas de grupos;
-* oitavas, quartas, semifinal, terceiro lugar e final.
-
-Isso não se aplica ao Brasileirão nem integralmente às competições sul-americanas.
-
-#### 5. Sincronização diretamente ligada ao GE e à Copa
-
-O sincronizador contém URL da Copa, chave `cup.topScorers`, fonte `ge.globo.com:copa` e lógica que procura partidas pelo nome das equipes. Isso deve ser convertido em um adaptador de fornecedor e vinculado à temporada correspondente.
-
-#### 6. Frontend excessivamente centralizado
-
-O arquivo `apps/web/App.tsx` tem mais de seis mil linhas e concentra navegação, telas, estilos e regras de apresentação. A navegação também é definida por uma união fixa de telas, incluindo `cup` e `knockout`. A expansão deve ser precedida por divisão em módulos funcionais.
-
-#### 7. Seleções estão representadas como regra geral
-
-O frontend utiliza `iso2`, bandeiras e `TeamFlag`. Para competições de clubes, a abstração deve passar a ser `TeamBadge`, exibindo escudo, abreviação e cores do clube.
-
-#### 8. Regra de pontuação inconsistente na documentação
-
-O código e a interface atualmente trabalham com **15/3/1/0**, enquanto o documento inicial ainda registra **7/3/1/0**. Antes da expansão, deve ser definida uma fonte única e versionada para a regra de pontuação.
-
----
-
-# 2. Arquitetura-alvo
-
-A hierarquia recomendada é:
-
-```text
-Bolão/Grupo
-└── Participantes
-└── Temporadas habilitadas
-    └── Competição
-        └── Edição/Temporada
-            ├── Participantes esportivos
-            ├── Fases
-            │   └── Rodadas ou confrontos
-            │       └── Partidas
-            ├── Palpites
-            ├── Pontuações
-            ├── Ranking do bolão
-            └── Classificação esportiva
-```
-
-É importante distinguir:
-
-* **Classificação esportiva:** posição de Flamengo, Palmeiras, Bahia etc.
-* **Ranking do bolão:** posição dos usuários que fazem os palpites.
-* **Ranking de carreira:** soma histórica opcional entre diferentes temporadas.
-
----
-
-# 3. Modelagem recomendada
-
-## Entidades centrais
-
-### `Competition`
-
-Representa a competição permanente.
-
-```prisma
-model Competition {
-  id          String            @id @default(cuid())
-  slug        String            @unique
-  name        String
-  shortName   String?
-  organizer   String?
-  countryCode String?
-  logoUrl     String?
-  format      CompetitionFormat
-  active      Boolean           @default(true)
-  metadata    Json?
-  seasons     CompetitionSeason[]
-}
-```
-
-Exemplos:
-
-* `world-cup`
-* `brasileirao-serie-a`
-* `copa-do-brasil`
-* `libertadores`
-* `sul-americana`
-
-### `CompetitionSeason`
-
-Representa uma edição específica.
-
-```prisma
-model CompetitionSeason {
-  id            String       @id @default(cuid())
-  competitionId String
-  slug          String
-  name          String
-  year          Int?
-  startsAt      DateTime?
-  endsAt        DateTime?
-  timezone      String       @default("America/Sao_Paulo")
-  status        SeasonStatus
-  current       Boolean      @default(false)
-  metadata      Json?
-
-  @@unique([competitionId, slug])
-}
-```
-
-Exemplos:
-
-* Copa do Mundo 2026;
-* Brasileirão Série A 2026;
-* Libertadores 2027.
-
-### `Stage`
-
-Permite representar qualquer formato.
-
-```text
-LEAGUE
-GROUP
-KNOCKOUT
-QUALIFYING
-FINAL
-```
-
-No Brasileirão haverá inicialmente uma única fase `LEAGUE`.
-
-Na Libertadores:
-
-```text
-Fase de grupos
-Oitavas
-Quartas
-Semifinal
-Final
-```
-
-### `Round`
-
-```prisma
-model Round {
-  id       String @id @default(cuid())
-  stageId  String
-  number   Int?
-  name     String
-  order    Int
-  startsAt DateTime?
-  endsAt   DateTime?
-  metadata Json?
-
-  @@unique([stageId, order])
-}
-```
-
-Para o Brasileirão serão criadas as rodadas 1 a 38.
-
-### `SeasonTeam`
-
-A equipe deve continuar sendo uma entidade reutilizável, mas sua participação deve estar vinculada à temporada.
-
-```prisma
-model SeasonTeam {
-  id       String @id @default(cuid())
-  seasonId String
-  teamId   String
-  group    String?
-  seed     Int?
-  metadata Json?
-
-  @@unique([seasonId, teamId])
-}
-```
-
-A entidade `Team` passa a representar tanto clubes quanto seleções:
-
-```text
-type: CLUB | NATIONAL_TEAM
-name
-shortName
-code
-crestUrl
-countryCode
-primaryColor
-secondaryColor
-```
-
-O atual `externalId @unique` não deve continuar como identificador universal, pois um mesmo time terá IDs diferentes em fornecedores distintos.
-
-### `ProviderEntityMapping`
-
-```prisma
-model ProviderEntityMapping {
-  id             String @id @default(cuid())
-  provider       String
-  entityType     String
-  internalId     String
-  externalId     String
-  seasonId       String?
-  metadata       Json?
-
-  @@unique([provider, entityType, externalId])
-}
-```
-
-Com isso, o Palmeiras pode ter:
-
-* ID da CBF;
-* ID do GE;
-* ID de uma API comercial;
-* ID interno único.
-
-### `Match`
-
-A entidade deverá receber:
-
-```text
-seasonId
-stageId
-roundId
-tieId
-leg
-homeTeamId
-awayTeamId
-startsAt
-predictionClosesAt
-status
-homeScore
-awayScore
-finalHomeScore
-finalAwayScore
-homePenaltyScore
-awayPenaltyScore
-winnerTeamId
-providerStatus
-manualOverride
-```
-
-O fechamento do palpite deve ser controlado por partida, e não obrigatoriamente pelo primeiro jogo do dia.
-
-### `Tie`
-
-Necessário para Copa do Brasil, Libertadores e Sul-Americana.
-
-```text
-stageId
-homeTeamId
-awayTeamId
-firstLegMatchId
-secondLegMatchId
-aggregateHomeScore
-aggregateAwayScore
-winnerTeamId
-decidedBy: REGULAR | EXTRA_TIME | PENALTIES | WALKOVER
-```
-
-### `ScoringRuleSet`
-
-A pontuação precisa ser configurável e versionada.
-
-```text
-exactScorePoints
-correctOutcomePoints
-oneTeamGoalsPoints
-missPoints
-penaltyWinnerBonus
-version
-effectiveAt
-```
-
-O conjunto utilizado em uma temporada não deve ser alterado retroativamente depois de iniciada a disputa.
-
-### `Pool`
-
-Embora exista inicialmente apenas o grupo do trabalho, recomendo criar desde já:
+# Plano de expansão para múltiplas competições
+
+> Revisão 2026-07-14. O diagnóstico, as evidências e os gates estão no [plano de evolução](plano-de-evolucao-bolao.md). A execução usa exclusivamente o [arquivo canônico de prompts](PROMPTS_CODEX_EXPANSAO_BRASILEIRAO_2026.md).
+
+## Decisão executiva
+
+A arquitetura atual deve evoluir, não ser reescrita. A expansão será aditiva e manterá a Copa do Mundo 2026 como temporada histórica íntegra. O Brasileirão 2026 será a primeira execução do domínio genérico, nunca um conjunto de condicionais dentro dos serviços da Copa.
+
+Antes da modelagem multi-competição, devem ser corrigidos os P0 encontrados na revisão:
+
+- erro de `session.regenerate` fora do pipeline Express;
+- sessão de usuário bloqueado sem revogação/revalidação;
+- ausência de CSRF explícito para autenticação por cookie;
+- pool PostgreSQL de sessões e conexões SSE sem shutdown completo;
+- corrida entre verificação do prazo e gravação do palpite;
+- polling/SSE sobrescrevendo draft não salvo no frontend;
+- sucesso parcial oculto no “Salvar todos”;
+- `multer@2.1.1` com avisos de DoS;
+- provider sem timeout e snapshots sem retenção;
+- backup sem os avatares do filesystem.
+
+## Princípios obrigatórios
+
+1. Expand–migrate–contract: antes do go-live executar apenas expand e migrate.
+2. Preservar IDs, palpites, pontuações, ranking, mata-mata e auditoria da Copa.
+3. Toda consulta esportiva possuir `seasonId`; ranking/palpite também possuir `poolSeasonId`.
+4. Rotas antigas serem aliases explícitos de `world-cup-2026`, não consultas globais.
+5. Pontuação e desempate serem imutáveis e versionados por `PoolSeason`.
+6. Providers normalizarem dados antes de qualquer escrita e usarem IDs externos, não nome, como chave primária.
+7. Importações serem idempotentes, auditáveis e executáveis em dry-run.
+8. Frontend ser orientado por capabilities, não por slug de competição.
+9. Jobs, SSE, backup/restore e observabilidade carregarem o contexto de temporada.
+10. Nenhuma migração destrutiva ser aplicada até o período de compatibilidade terminar.
+
+## Arquitetura-alvo
 
 ```text
 Pool
-PoolMembership
-PoolSeason
+├── PoolMembership
+└── PoolSeason
+    ├── CompetitionSeason
+    │   ├── Stage
+    │   │   ├── Round
+    │   │   └── Match
+    │   ├── SeasonTeam
+    │   └── ProviderEntityMapping
+    ├── Prediction / PredictionScore
+    ├── RankingSnapshot / RankingMovement
+    └── Achievement / Streak / NotificationInbox
 ```
 
-Isso permite futuramente:
+Entidades mínimas:
 
-* criar grupos separados;
-* estabelecer regras diferentes;
-* permitir que um usuário participe de mais de um bolão;
-* manter o mesmo cadastro entre temporadas.
+- `Competition`: identidade permanente (`world-cup`, `brasileirao-serie-a`).
+- `CompetitionSeason`: edição, timezone, status e capabilities.
+- `Stage` e `Round`: formato esportivo sem contagens fixas.
+- `SeasonTeam`: participação de clube/seleção numa edição.
+- `Pool`, `PoolMembership` e `PoolSeason`: escopo social e regras do bolão.
+- `ProviderEntityMapping`: identidade por provider e entidade.
+- `ScoringRuleSetVersion` e `TieBreakerRuleSet`: regras históricas imutáveis.
+- `Tie`: somente na fase posterior de mata-mata genérico.
 
-Para a primeira migração, será criado apenas um `Pool` padrão contendo todos os usuários atuais.
-
-### Alterações em palpites e rankings
+Constraints essenciais:
 
 ```text
-Prediction
-- poolSeasonId
-- userId
-- matchId
-- scores
-
-Unique:
-(poolSeasonId, userId, matchId)
+Prediction UNIQUE(poolSeasonId, userId, matchId)
+SeasonTeam UNIQUE(seasonId, teamId)
+Round UNIQUE(stageId, order)
+ProviderEntityMapping UNIQUE(provider, entityType, externalId)
+MatchDay/agrupamento UNIQUE(seasonId, date) ou substituição por Round
 ```
+
+Além da unicidade, serviços devem confirmar que `match.seasonId`, `poolSeason.seasonId` e membership pertencem ao mesmo contexto; uma foreign key isolada não expressa toda essa invariável.
+
+## Roadmap
+
+### Etapa 0 — Preservação e hardening
+
+Backup de PostgreSQL e avatares, checksum, restore drill, snapshot de regressão da Copa, correções de sessão/CSRF/SSE/prazo/drafts e feature flags separadas para leitura, escrita e UI. Ver [Etapa 0](<Etapa 0 — Preservação do bolão da Copa>).
+
+### Etapa 1 — Decisões e contratos
+
+ADRs de domínio, pools, providers, rulesets, auth/CSRF, realtime, backup e capabilities. Definir invariantes e contratos antes do schema. Ver [Etapa 1](<Etapa 1 — Decisões arquiteturais e documentação>).
+
+### Etapa 2 — Migração estrutural
+
+Criar schema aditivo, backfill idempotente da Copa, índices por temporada e período de dual read. Ensaiar em cópia restaurada; não contrair no go-live. Ver [Etapa 2](<Etapa 2 — Migração estrutural do banco>).
+
+### Etapa 3 — Camada genérica
+
+Módulos de competição/temporada/pool, APIs com escopo obrigatório, aliases legados e autorização de membership. Ver [Etapa 3](<Etapa 3 — Camada genérica de competições>).
+
+### Etapa 4 — Providers
+
+Extrair GE para adapter, criar CBF/CSV/manual, lock por provider+season, timeout, limite, retry, reconciliação e precedência de override manual. Ver [Etapa 4](<Etapa 4 — Abstração da fonte de dados>).
+
+### Etapa 5 — Brasileirão 2026
+
+Importar clubes, rodadas e partidas verificadas; classificar por pontos corridos; impedir pontuação retroativa; oferecer ranking geral/rodada/mês/turno e contingência operacional. Ver [Etapa 5](<Etapa 5 — Implementação do Brasileirão 2026>).
+
+### Etapa 6 — Frontend e UX
+
+Dividir arquivos monolíticos, unificar contratos, introduzir seletor de competição, drafts seguros, feedback acessível, ranking responsivo e chave por fase no mobile. Ver [Etapa 6](<Etapa 6 — Refatoração do frontend>).
+
+### Etapa 7 — Regras e gamificação
+
+Versionar 15/3/1/0 e desempates; criar streaks, badges, líder da rodada, movimento desde última visita e inbox com preferências. Ver [Etapa 7](<Etapa 7 — Regras de pontuação configuráveis>).
+
+### Etapa 8 — Administração
+
+RBAC revalidado, preview/dry-run, justificativa, before/after, idempotency key, divergências e observabilidade. Ver [Etapa 8](<Etapa 8 — Administração>).
+
+### Etapa 9 — Testes e release
+
+Unitários, integração PostgreSQL, contrato, concorrência, componente, E2E, acessibilidade, performance, migration rehearsal e restore drill. Ver [Etapa 9](<Etapa 9 — Testes obrigatórios>).
+
+## Brasileirão 2026 e corte de risco
+
+A fonte oficial consultada em 14/07/2026 registra os primeiros jogos depois da pausa em 16/07/2026 e tabela detalhada das rodadas 19 a 24: [CBF](https://www.cbf.com.br/futebol-brasileiro/noticias/campeonato-brasileiro/campeonato-brasileiro-serie-a/cbf-divulga-tabela-detalhada-das-rodadas-19-a-24-do-brasileirao-serie-a).
+
+O sistema não deve codificar essa data como regra. O provider importa a tabela vigente com provenance, e o `PoolSeason` define a rodada/instante a partir do qual partidas são pontuáveis.
+
+Go-live mínimo:
+
+- Copa com hash de regressão idêntico;
+- backup/restore ensaiado, incluindo avatares;
+- 20 clubes e jogos da rodada de abertura do bolão reconciliados;
+- `seasonId` e `poolSeasonId` obrigatórios nas queries novas;
+- fechamento atômico por partida e timezone testada;
+- ranking isolado e partidas históricas não pontuáveis;
+- atualização manual de contingência;
+- smoke E2E em mobile e desktop;
+- feature flag com rollback sem restore destrutivo.
+
+Se qualquer gate estiver incompleto, o bolão do Brasileirão deve começar em rodada posterior. Dados incorretos ou palpites misturados produzem dano maior que adiar a abertura.
+
+## Gamificação com integridade
+
+1. Streak usa apenas resultados finais e ordem determinística.
+2. Badge possui definição/versionamento e concessão idempotente.
+3. Líder da rodada é provisório enquanto houver jogo não finalizado.
+4. Movimento de ranking usa snapshot persistido e `lastSeen`, não comparação entre filtros.
+5. Desempate é configurado e exibido antes de a temporada começar.
+6. Push/e-mail é opt-in; o primeiro canal é inbox in-app com quiet hours.
+7. Reprocessamento de score pode recomputar conquistas sem duplicá-las.
+
+## Ordem de releases
 
 ```text
-RankingSnapshot
-- poolSeasonId
-- seasonId
-- roundId opcional
-- userId
-- points
-- rank
+R0 Baseline e P0
+R1 Schema aditivo + Copa backfilled
+R2 API genérica + isolamento comprovado
+R3 Provider + Brasileirão em modo admin/canário
+R4 UI pública + palpites e ranking
+R5 UX modular + gamificação inicial
+R6 Admin completo + mata-mata genérico futuro
 ```
 
----
-
-# 4. Plano de implementação por etapas
-
-## Etapa 0 — Preservação do bolão da Copa
-
-Antes de alterar o domínio:
-
-1. Criar backup validado do PostgreSQL.
-2. Criar tag Git, por exemplo:
-
-   ```text
-   world-cup-2026-final
-   ```
-3. Registrar uma fotografia do ranking final.
-4. Executar todos os testes existentes.
-5. Criar testes adicionais para:
-
-   * ranking final da Copa;
-   * palpites já realizados;
-   * pontuação do mata-mata;
-   * visibilidade dos palpites;
-   * usuários e sessões.
-6. Arquivar a Copa como temporada histórica, sem apagar tabelas ou dados.
-7. Criar feature flag:
-
-   ```text
-   MULTI_COMPETITION_ENABLED
-   ```
-
-**Critério de conclusão:** a versão atual pode ser restaurada integralmente e o ranking da Copa permanece idêntico.
-
----
-
-## Etapa 1 — Decisões arquiteturais e documentação
-
-Criar documentos em `docs/architecture`:
-
-```text
-ADR-001-multi-competition-domain.md
-ADR-002-season-and-stage-model.md
-ADR-003-scoring-rule-versioning.md
-ADR-004-provider-adapters.md
-ADR-005-knockout-unification.md
-ADR-006-pool-and-membership.md
-```
-
-Também atualizar:
-
-* README;
-* diagrama de entidades;
-* fluxo de sincronização;
-* regras de pontuação;
-* estratégia de migração;
-* política de fechamento dos palpites.
-
-**Decisão central:** o Brasileirão deve ser a primeira utilização da nova arquitetura, mas a Copa do Mundo deve continuar acessível como temporada arquivada.
-
----
-
-## Etapa 2 — Migração estrutural do banco
-
-Aplicar o padrão **expand–migrate–contract**:
-
-### 2.1 Expandir
-
-Adicionar novas tabelas e colunas, mantendo as antigas funcionando.
-
-### 2.2 Migrar dados
-
-Criar automaticamente:
-
-```text
-Competition:
-  world-cup
-
-Season:
-  world-cup-2026
-
-Pool:
-  bolão-do-trabalho
-```
-
-Depois:
-
-* vincular partidas atuais à temporada da Copa;
-* vincular pontuações e snapshots;
-* cadastrar seleções em `SeasonTeam`;
-* preservar IDs existentes;
-* criar mapeamentos dos IDs externos.
-
-### 2.3 Compatibilidade temporária
-
-Durante uma versão:
-
-* antigas rotas continuam apontando para `world-cup-2026`;
-* novas rotas recebem competição e temporada explicitamente;
-* escrita nova deve sempre preencher `seasonId`.
-
-### 2.4 Contrair
-
-Somente depois de testes em produção:
-
-* remover dependências globais;
-* eliminar consultas sem filtro de temporada;
-* tornar `seasonId` obrigatório.
-
-**Critério de conclusão:** nenhum ranking ou palpite de uma temporada pode aparecer em outra.
-
----
-
-## Etapa 3 — Camada genérica de competições
-
-Criar módulos no backend:
-
-```text
-apps/api/src/modules/
-├── competitions/
-├── seasons/
-├── stages/
-├── rounds/
-├── teams/
-├── matches/
-├── predictions/
-├── standings/
-├── rankings/
-├── scoring/
-├── providers/
-└── pools/
-```
-
-A API deve abandonar gradualmente rotas específicas como `/api/cup`.
-
-### Rotas recomendadas
-
-```http
-GET /api/competitions
-GET /api/competitions/:competitionSlug/seasons
-GET /api/seasons/:seasonId
-GET /api/seasons/:seasonId/rounds
-GET /api/seasons/:seasonId/matches
-GET /api/seasons/:seasonId/standings
-
-GET /api/pools/:poolSlug/seasons/:seasonId/ranking
-GET /api/pools/:poolSlug/seasons/:seasonId/predictions
-PUT /api/pools/:poolSlug/seasons/:seasonId/predictions
-
-GET /api/seasons/:seasonId/awards
-```
-
-Os endpoints devem sempre validar:
-
-* se a partida pertence à temporada;
-* se a temporada está habilitada no bolão;
-* se o usuário é membro;
-* se o palpite ainda está aberto;
-* se o resultado pertence à mesma competição.
-
----
-
-## Etapa 4 — Abstração da fonte de dados
-
-Criar um contrato:
-
-```ts
-interface CompetitionDataProvider {
-  syncTeams(context: ProviderContext): Promise<NormalizedTeam[]>;
-  syncSchedule(context: ProviderContext): Promise<NormalizedMatch[]>;
-  syncResults(context: ProviderContext): Promise<NormalizedResult[]>;
-  syncStandings?(context: ProviderContext): Promise<NormalizedStanding[]>;
-  healthCheck(): Promise<ProviderHealth>;
-}
-```
-
-Implementações possíveis:
-
-```text
-CbfProvider
-GeProvider
-CsvProvider
-ManualProvider
-```
-
-### Regras de sincronização
-
-1. A identificação primária será o ID do fornecedor, não o nome normalizado.
-2. A sincronização será idempotente.
-3. Alterações de horário atualizarão a partida existente.
-4. Jogos adiados não serão recriados.
-5. Resultado final nunca poderá regredir automaticamente para “agendado”.
-6. Correção manual terá precedência registrada e auditada.
-7. Cada execução será vinculada a:
-
-   * fornecedor;
-   * competição;
-   * temporada;
-   * tipo de sincronização.
-8. Deve existir importação CSV como contingência.
-
-O atual scraper pode ser preservado como primeiro adaptador, mas sua lógica de Copa deve ser extraída do serviço genérico. O nome da equipe deve servir apenas como fallback de reconciliação.
-
----
-
-## Etapa 5 — Implementação do Brasileirão 2026
-
-A CBF divulgou uma tabela básica com as 38 rodadas, datas-base e mandos da Série A de 2026. ([CBF][1])
-
-### Carga inicial
-
-Criar:
-
-```text
-Competition: brasileirao-serie-a
-Season: brasileirao-serie-a-2026
-Format: LEAGUE
-Stage: Série A — pontos corridos
-Rounds: 1 a 38
-Teams: 20
-Matches: 380
-```
-
-### Partidas anteriores ao início do novo bolão
-
-As partidas já disputadas devem ser importadas para:
-
-* construir a classificação oficial;
-* apresentar resultados históricos;
-* permitir estatísticas;
-* validar equipes e tabela.
-
-Contudo:
-
-* não serão criados palpites retroativos;
-* não gerarão pontos no ranking do bolão;
-* o `PoolSeason` registrará a rodada efetiva de início da disputa.
-
-Exemplo:
-
-```text
-startsAtRound: 19
-historicalMatchesScoreable: false
-```
-
-### Classificação do campeonato
-
-O sistema deve calcular internamente:
-
-```text
-J  - jogos
-V  - vitórias
-E  - empates
-D  - derrotas
-GP - gols pró
-GC - gols contra
-SG - saldo
-PTS - pontos
-```
-
-A classificação externa deve ser usada para conferência, não como única fonte.
-
-### Ranking do bolão para o Brasileirão
-
-Filtros:
-
-```text
-Geral
-Rodada
-Mês
-Turno
-Últimas cinco partidas
-```
-
-Premiações configuráveis:
-
-```text
-Campeão da rodada
-Campeão do primeiro turno
-Campeão do segundo turno
-Maior número de placares exatos
-Campeão do Brasileirão no bolão
-Lanterna da rodada
-```
-
-Não devem existir no código contagens fixas equivalentes aos 72 jogos da Copa.
-
-### Observação sobre a data de retorno
-
-Hoje é **14 de julho de 2026**. A tabela pública indexada que encontrei indica a 19ª rodada em **22 de julho de 2026**, e não em 15 de julho. Como datas e horários podem ser detalhados ou modificados posteriormente, o sistema não deve codificar a data do retorno: deve importá-la da tabela oficial vigente antes da abertura dos palpites. ([Wikipédia][2])
-
----
-
-## Etapa 6 — Refatoração do frontend
-
-### Estrutura recomendada
-
-```text
-apps/web/src/
-├── app/
-│   ├── AppShell.tsx
-│   ├── Navigation.tsx
-│   └── CompetitionContext.tsx
-├── features/
-│   ├── auth/
-│   ├── competitions/
-│   ├── seasons/
-│   ├── matches/
-│   ├── predictions/
-│   ├── standings/
-│   ├── rankings/
-│   ├── brackets/
-│   └── admin/
-├── components/
-│   ├── TeamBadge.tsx
-│   ├── MatchCard.tsx
-│   ├── ScoreInput.tsx
-│   ├── RankingTable.tsx
-│   └── StatusBadge.tsx
-├── services/
-│   ├── api-client.ts
-│   └── realtime.ts
-└── theme/
-```
-
-### Navegação
-
-```text
-Início
-├── Copa do Mundo 2026 — encerrada
-├── Brasileirão 2026 — em disputa
-├── Copa do Brasil
-├── Libertadores
-└── Sul-Americana
-```
-
-Ao selecionar uma competição:
-
-```text
-Visão geral
-Jogos e palpites
-Classificação
-Ranking do bolão
-Premiações
-Estatísticas
-```
-
-A API deve informar capacidades:
-
-```json
-{
-  "supportsLeagueStandings": true,
-  "supportsGroups": false,
-  "supportsKnockoutBracket": false,
-  "supportsTwoLeggedTies": false
-}
-```
-
-O frontend monta a navegação conforme essas capacidades, sem testar nomes como `"world-cup"` ou `"brasileirao"`.
-
-### Identidade visual
-
-Cada competição pode possuir:
-
-```text
-logo
-cor principal
-cor secundária
-imagem de fundo
-rótulos próprios
-```
-
-Os componentes funcionais devem permanecer os mesmos.
-
----
-
-## Etapa 7 — Regras de pontuação configuráveis
-
-Transformar a função atual em:
-
-```ts
-calculatePredictionScore(input, ruleSet)
-```
-
-Exemplo:
-
-```ts
-const defaultFootballRuleSet = {
-  exactScore: 15,
-  correctOutcome: 3,
-  oneTeamGoals: 1,
-  miss: 0,
-};
-```
-
-A interface deve consultar a regra da temporada, em vez de exibir valores fixos.
-
-Cada `PredictionScore` deve registrar:
-
-```text
-ruleSetId
-ruleSetVersion
-breakdown
-calculatedAt
-isFinal
-```
-
-Assim, uma mudança futura não altera pontuações antigas.
-
----
-
-## Etapa 8 — Administração
-
-O painel administrativo deverá permitir:
-
-* criar competição;
-* criar temporada;
-* escolher formato;
-* habilitar temporada no bolão;
-* importar equipes;
-* importar tabela;
-* acompanhar sincronização;
-* corrigir horários e resultados;
-* cadastrar aliases de equipes;
-* suspender palpites de uma partida;
-* definir regra de pontuação;
-* escolher rodada inicial;
-* recalcular classificação;
-* recalcular ranking;
-* arquivar temporada;
-* conferir divergências entre fornecedores.
-
-Toda alteração de resultado deve registrar:
-
-```text
-valor anterior
-valor novo
-administrador
-data
-justificativa
-origem
-```
-
----
-
-## Etapa 9 — Testes obrigatórios
-
-### Testes unitários
-
-* Pontuação por conjunto de regras.
-* Classificação por pontos corridos.
-* Critérios de desempate.
-* Resultado ao vivo versus resultado final.
-* Partida adiada.
-* Partida cancelada.
-* Mudança de horário.
-* Fechamento individual por partida.
-* Agregado de ida e volta.
-* Disputa por pênaltis.
-
-### Testes de integração
-
-* Ranking filtrado por temporada.
-* Palpite não pode cruzar competição.
-* Importação idempotente.
-* Usuário não inscrito não pontua.
-* Rodadas históricas não geram pontos.
-* World Cup 2026 continua com o mesmo ranking.
-* Snapshot de uma temporada não altera outra.
-* SSE informa `seasonId` e `poolSeasonId`.
-
-### Testes de interface
-
-* Troca de competição.
-* Exibição de escudos.
-* Navegação específica de liga.
-* Navegação específica de mata-mata.
-* Ranking da rodada.
-* Classificação esportiva.
-* Mobile e desktop.
-
-O frontend atualmente declara que ainda não possui testes próprios; essa lacuna deve ser corrigida antes das competições eliminatórias.
-
----
-
-# 5. Estratégia para as próximas competições
-
-## Copa do Brasil
-
-Primeira competição a utilizar plenamente `Tie`.
-
-Necessidades:
-
-* várias fases;
-* entrada de clubes em fases diferentes;
-* confrontos de ida e volta;
-* eventuais jogos únicos;
-* mando sorteado;
-* placar agregado;
-* pênaltis;
-* vencedor alimentando fase seguinte.
-
-## Libertadores
-
-Formato híbrido:
-
-```text
-Fases preliminares
-Fase de grupos
-Oitavas
-Quartas
-Semifinais
-Final única
-```
-
-Necessidades adicionais:
-
-* grupos;
-* classificação por grupo;
-* sorteio de confrontos;
-* ida e volta;
-* final única;
-* clubes de diferentes países;
-* escudos e códigos de país.
-
-## Copa Sul-Americana
-
-Pode reutilizar praticamente toda a infraestrutura da Libertadores:
-
-* fase de grupos;
-* fases eliminatórias;
-* confrontos de ida e volta;
-* final única;
-* possibilidade de equipes transferidas de outra competição, caso o regulamento aplicável preveja isso.
-
----
-
-# 6. Ordem recomendada de entregas
-
-## Entrega 1 — Fundação
-
-* Backup e tag da Copa.
-* Entidades `Competition`, `CompetitionSeason`, `Stage`, `Round`.
-* Migração da Copa.
-* Filtros obrigatórios por temporada.
-* Testes de isolamento.
-
-## Entrega 2 — Brasileirão funcional
-
-* Cadastro dos clubes.
-* Importação das 38 rodadas.
-* Palpites por partida.
-* Classificação de clubes.
-* Ranking geral e por rodada.
-* Seleção de competição.
-* Administração básica.
-
-## Entrega 3 — Organização e robustez
-
-* Refatoração do `App.tsx`.
-* Adaptadores de fornecedores.
-* Importação CSV.
-* Regras de pontuação versionadas.
-* Painel de divergências.
-* Ranking histórico.
-
-## Entrega 4 — Mata-mata genérico
-
-* Unificação gradual de `KnockoutFixture` com `Match`.
-* Entidade `Tie`.
-* Agregado e pênaltis.
-* Copa do Brasil.
-
-## Entrega 5 — Competições híbridas
-
-* Grupos configuráveis.
-* Classificação por grupo.
-* Chave eliminatória.
-* Libertadores.
-* Sul-Americana.
-
----
-
-# 7. Backlog sugerido no GitHub
-
-```text
-EPIC 1 — Multi-competition domain
-  #1 Criar Competition e CompetitionSeason
-  #2 Criar Stage e Round
-  #3 Vincular Match à temporada
-  #4 Migrar Copa do Mundo 2026
-  #5 Isolar rankings por temporada
-
-EPIC 2 — Pools and memberships
-  #6 Criar Pool
-  #7 Criar PoolMembership
-  #8 Criar PoolSeason
-  #9 Migrar usuários atuais para o pool padrão
-
-EPIC 3 — Brasileirão 2026
-  #10 Cadastrar os 20 clubes
-  #11 Importar as 38 rodadas
-  #12 Implementar classificação de pontos corridos
-  #13 Implementar ranking por rodada
-  #14 Criar telas do Brasileirão
-  #15 Abrir palpites apenas a partir da rodada definida
-
-EPIC 4 — Data providers
-  #16 Criar interface CompetitionDataProvider
-  #17 Extrair GeProvider
-  #18 Criar CbfProvider ou importador CBF
-  #19 Criar CsvProvider
-  #20 Implementar aliases e reconciliação
-
-EPIC 5 — Frontend modular
-  #21 Dividir App.tsx
-  #22 Criar CompetitionContext
-  #23 Criar seletor de competição
-  #24 Substituir TeamFlag por TeamBadge
-  #25 Tornar navegação orientada a capabilities
-
-EPIC 6 — Generic knockout
-  #26 Criar Tie
-  #27 Unificar partidas eliminatórias
-  #28 Implementar agregado
-  #29 Implementar pênaltis
-  #30 Migrar mata-mata da Copa
-
-EPIC 7 — Quality and operation
-  #31 Testes de isolamento de temporadas
-  #32 Testes de classificação
-  #33 Testes de interface
-  #34 Métricas de sincronização
-  #35 Procedimento de rollback
-```
-
-## Diretriz final
-
-O ponto mais importante é **não implementar o Brasileirão adicionando condicionais ao código da Copa**, como:
-
-```ts
-if (competition === 'brasileirao') ...
-```
-
-A implementação deve nascer das propriedades da temporada:
-
-```text
-format = LEAGUE
-supportsStandings = true
-supportsGroups = false
-supportsKnockout = false
-roundCount = 38
-```
-
-Dessa forma, o Brasileirão deixa de ser uma exceção e passa a ser a primeira competição da nova arquitetura permanente. A Copa do Brasil, a Libertadores e a Sul-Americana entram posteriormente por composição de fases e capacidades, sem criar um novo subsistema para cada torneio.
-
-[1]: https://www.cbf.com.br/futebol-brasileiro/noticias/noticias/a/cbf-divulga-tabela-detalhada-das-primeiras-rodadas-do-brasileirao-2026 "CBF divulga Regulamento Específico e tabela básica de todas as rodadas do Brasileirão 2026 - Confederação Brasileira de Futebol"
-[2]: https://pt.wikipedia.org/wiki/Temporada_do_Clube_de_Regatas_do_Flamengo_de_2026 "Temporada do Clube de Regatas do Flamengo de 2026 – Wikipédia, a enciclopédia livre"
+Cada release encerra com lint, testes, build, audit triado, migration rehearsal quando aplicável, smoke E2E e registro de rollback. Os documentos de plano e etapa são especificações; copie instruções somente de [PROMPTS_CODEX_EXPANSAO_BRASILEIRAO_2026.md](PROMPTS_CODEX_EXPANSAO_BRASILEIRAO_2026.md), na ordem indicada ali.

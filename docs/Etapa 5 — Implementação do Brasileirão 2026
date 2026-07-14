@@ -1,73 +1,57 @@
-Etapa 5 — Implementação do Brasileirão 2026
+# Etapa 5 — Implementação do Brasileirão 2026
 
-A CBF divulgou uma tabela básica com as 38 rodadas, datas-base e mandos da Série A de 2026.
+## Objetivo
 
-Carga inicial
+Colocar a Série A 2026 em produção como primeira temporada do domínio genérico, com classificação esportiva e ranking do bolão isolados da Copa.
 
-Criar:
+## Fonte e corte operacional
 
+Em 14/07/2026, a CBF informa que os primeiros jogos depois da pausa serão em 16/07/2026 e publicou o detalhamento das rodadas 19 a 24: [fonte oficial](https://www.cbf.com.br/futebol-brasileiro/noticias/campeonato-brasileiro/campeonato-brasileiro-serie-a/cbf-divulga-tabela-detalhada-das-rodadas-19-a-24-do-brasileirao-serie-a).
+
+A implementação deve consultar a tabela oficial vigente novamente no momento da carga. Datas não são constantes de código. Se os gates não forem concluídos, iniciar o bolão em rodada posterior.
+
+## Carga
+
+```text
 Competition: brasileirao-serie-a
 Season: brasileirao-serie-a-2026
 Format: LEAGUE
-Stage: Série A — pontos corridos
-Rounds: 1 a 38
+Stage: Série A
+Rounds: 1..38
 Teams: 20
-Matches: 380
-Partidas anteriores ao início do novo bolão
+Matches: 380 quando a fonte oficial completa estiver validada
+Timezone: America/Sao_Paulo
+```
 
-As partidas já disputadas devem ser importadas para:
+Cada registro deve guardar provider, externalId, source URL/documento, collectedAt e checksum. Escudos precisam de licença/origem documentada e fallback por iniciais.
 
-construir a classificação oficial;
-apresentar resultados históricos;
-permitir estatísticas;
-validar equipes e tabela.
+## Regras
 
-Contudo:
+- Partidas anteriores constroem standings e histórico, mas não criam palpites nem pontos.
+- `PoolSeason.scoreableFrom`/`startsAtRound` define o início; a regra é por partida/rodada, não por data hardcoded.
+- Fechamento é individual por partida e atômico.
+- Standings internos calculam J/V/E/D/GP/GC/SG/PTS; desempates seguem rule set confirmado no regulamento.
+- Ranking oferece geral, rodada, mês e turno; “últimos cinco” precisa definir se é jogo, dia ou rodada.
+- Jogos adiados/cancelados/remarcados têm política explícita para palpite e score.
+- Não usar contagens `72`, `32` ou fases da Copa no novo caminho.
 
-não serão criados palpites retroativos;
-não gerarão pontos no ranking do bolão;
-o PoolSeason registrará a rodada efetiva de início da disputa.
+## Arquivos principais
 
-Exemplo:
+Módulos competitions/seasons/rounds/matches/standings/rankings/providers, fixtures/imports, `packages/shared`, telas do frontend e admin mínimo.
 
-startsAtRound: 19
-historicalMatchesScoreable: false
-Classificação do campeonato
+## Melhores práticas
 
-O sistema deve calcular internamente:
+Fonte oficial como autoridade de agenda, cálculo interno determinístico, reconciliação, idempotência, feature flags leitura/escrita/UI, canário de admin, bulk inserts e índices por season+round+startsAt.
 
-J  - jogos
-V  - vitórias
-E  - empates
-D  - derrotas
-GP - gols pró
-GC - gols contra
-SG - saldo
-PTS - pontos
+## Critérios de aceite
 
-A classificação externa deve ser usada para conferência, não como única fonte.
+- 20 clubes e partidas da rodada de abertura reconciliados sem duplicidade.
+- Carga repetida é idempotente e remarcações preservam match ID/palpite.
+- Histórico aparece no campeonato, mas não no ranking do bolão.
+- Ranking Copa permanece idêntico e Brasileirão nunca inclui score da Copa.
+- Usuário completa palpite mobile/desktop e recebe fechamento correto.
+- Fallback CSV/manual e rollback por feature flag foram ensaiados.
 
-Ranking do bolão para o Brasileirão
+## Execução
 
-Filtros:
-
-Geral
-Rodada
-Mês
-Turno
-Últimas cinco partidas
-
-Premiações configuráveis:
-
-Campeão da rodada
-Campeão do primeiro turno
-Campeão do segundo turno
-Maior número de placares exatos
-Campeão do Brasileirão no bolão
-Lanterna da rodada
-
-Não devem existir no código contagens fixas equivalentes aos 72 jogos da Copa.
-
-Observação sobre a data de retorno
-
-Hoje é 14 de julho de 2026. A tabela pública indexada que encontrei indica a 19ª rodada em 22 de julho de 2026, e não em 15 de julho. Como datas e horários podem ser detalhados ou modificados posteriormente, o sistema não deve codificar a data do retorno: deve importá-la da tabela oficial vigente antes da abertura dos palpites.
+Este documento é a especificação da etapa. Para implementá-la, use exclusivamente o [Prompt 5 — Brasileirão Série A 2026](PROMPTS_CODEX_EXPANSAO_BRASILEIRAO_2026.md#prompt-5) no arquivo canônico de prompts.

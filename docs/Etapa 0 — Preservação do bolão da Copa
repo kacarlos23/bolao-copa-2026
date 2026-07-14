@@ -1,24 +1,57 @@
-Etapa 0 — Preservação do bolão da Copa
+# Etapa 0 — Preservação do bolão da Copa e hardening
 
-Antes de alterar o domínio:
+## Objetivo
 
-Criar backup validado do PostgreSQL.
+Criar uma baseline restaurável da Copa do Mundo 2026 e corrigir falhas P0 antes de qualquer mudança de domínio. Esta etapa não cria tabelas multi-competição.
 
-Criar tag Git, por exemplo:
+## Achados que entram nesta etapa
 
-world-cup-2026-final
-Registrar uma fotografia do ranking final.
-Executar todos os testes existentes.
-Criar testes adicionais para:
-ranking final da Copa;
-palpites já realizados;
-pontuação do mata-mata;
-visibilidade dos palpites;
-usuários e sessões.
-Arquivar a Copa como temporada histórica, sem apagar tabelas ou dados.
+- Callback de `session.regenerate` pode lançar exceção fora do Express.
+- Pool de sessões e clientes SSE não são drenados no shutdown.
+- Bloqueio/reset de usuário não revoga nem revalida sessão.
+- Cookie auth não tem CSRF explícito.
+- Prazo do palpite é verificado antes, e não dentro, da transação.
+- Polling/SSE pode substituir rascunho não salvo.
+- Upload depende de MIME informado e `multer@2.1.1` possui avisos de DoS.
+- Scraper não usa timeout; snapshots crescem sem retenção.
+- Backup não contém `uploads/avatars` e não gera checksum/manifesto.
 
-Criar feature flag:
+## Arquivos principais
 
-MULTI_COMPETITION_ENABLED
+- `apps/api/src/app.ts`, `server.ts`, `routes/auth.routes.ts` e `middleware/auth.ts`.
+- `apps/api/src/realtime/sse.ts`.
+- `apps/api/src/services/prediction.service.ts`, `knockout.service.ts`, `avatar.service.ts` e `ge-score-sync.service.ts`.
+- `apps/web/src/api.ts`, `competitionV2.tsx` e `predictionBoard.tsx`.
+- `scripts/backup-postgres.ps1`, `restore-postgres.ps1` e `docs/operacao.md`.
+- Testes API, shared e novos testes frontend/E2E mínimos.
 
-Critério de conclusão: a versão atual pode ser restaurada integralmente e o ranking da Copa permanece idêntico.
+## Implementação
+
+1. Gerar manifest com commit, migrations, contagens, hash do ranking/palpites/scores e timezone.
+2. Fazer backup custom do PostgreSQL, SHA-256 e arquivo versionado de avatares; testar restore em destino isolado.
+3. Converter APIs callback de sessão para Promise e propagar erros ao middleware.
+4. Adicionar `sessionVersion` ou mecanismo equivalente; revalidar status/papel e revogar sessões em bloqueio, papel e senha.
+5. Implementar token CSRF no cliente central e servidor; validar `Origin`/Fetch Metadata como defesa adicional.
+6. Tornar ownership de Prisma, pool de sessão, HTTP server, jobs e SSE explícito; shutdown idempotente com timeout.
+7. Rechecar o fechamento dentro de transação interativa; definir que `now >= closesAt` está fechado.
+8. Preservar drafts sujos durante refresh; indicar `Não salvo`, `Salvando`, `Salvo` e `Falhou`.
+9. Atualizar Multer em patch isolado, limitar partes/campos, validar conteúdo, reencodar e limpar órfãos.
+10. Aplicar timeout/limite/retry ao provider e política de retenção aos snapshots.
+
+## Melhores práticas
+
+Fail closed, least privilege, transações atômicas, idempotência, recursos com ciclo de vida explícito, logs com redaction, fake timers, teste de falha e rollback ensaiado. Não usar `npm audit fix --force`.
+
+## Critérios de aceite
+
+- Restore recupera DB e avatares e reproduz os hashes da Copa.
+- Usuário bloqueado perde acesso na próxima requisição; senha/papel revogam sessões conforme política.
+- CSRF inválido recebe 403; requests legítimos web/native continuam funcionando.
+- Nenhum palpite é aceito no instante ou após o fechamento.
+- Shutdown termina sem handles de pool/timer/SSE.
+- Refresh não sobrescreve edição local e sucesso parcial nunca é descrito como sucesso total.
+- `npm test`, lint, build e audit triado ficam registrados.
+
+## Execução
+
+Este documento é a especificação da etapa. Para implementá-la, use exclusivamente o [Prompt 0 — preservação da Copa e hardening P0](PROMPTS_CODEX_EXPANSAO_BRASILEIRAO_2026.md#prompt-0) no arquivo canônico de prompts.

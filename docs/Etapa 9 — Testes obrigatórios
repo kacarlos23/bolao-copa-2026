@@ -1,31 +1,65 @@
-Etapa 9 — Testes obrigatórios
-Testes unitários
-Pontuação por conjunto de regras.
-Classificação por pontos corridos.
-Critérios de desempate.
-Resultado ao vivo versus resultado final.
-Partida adiada.
-Partida cancelada.
-Mudança de horário.
-Fechamento individual por partida.
-Agregado de ida e volta.
-Disputa por pênaltis.
-Testes de integração
-Ranking filtrado por temporada.
-Palpite não pode cruzar competição.
-Importação idempotente.
-Usuário não inscrito não pontua.
-Rodadas históricas não geram pontos.
-World Cup 2026 continua com o mesmo ranking.
-Snapshot de uma temporada não altera outra.
-SSE informa seasonId e poolSeasonId.
-Testes de interface
-Troca de competição.
-Exibição de escudos.
-Navegação específica de liga.
-Navegação específica de mata-mata.
-Ranking da rodada.
-Classificação esportiva.
-Mobile e desktop.
+# Etapa 9 — Testes obrigatórios e gates de release
 
-O frontend atualmente declara que ainda não possui testes próprios; essa lacuna deve ser corrigida antes das competições eliminatórias.
+## Objetivo
+
+Substituir a confiança em 38 testes majoritariamente unitários por uma pirâmide que cubra banco, concorrência, UI, operação e rollback.
+
+## Baseline e lacunas
+
+Em 14/07/2026: shared 8 e API 30 testes aprovados; lint/build aprovados. `apps/web/package.json` ainda declara `No web tests yet`. Os testes de API não exercitam PostgreSQL real, connect-pg-simple, migration ou shutdown de processo.
+
+## Suíte obrigatória
+
+### Unitários
+
+Pontuação/ruleset/desempate; standings; streak/achievement/replay; timezone; fechamento exato; parser/provider; status adiado/cancelado/final; mata-mata/agregado futuro.
+
+### Integração PostgreSQL
+
+Migration e backfill; isolamento season/pool; constraints; sessão/revogação/CSRF; palpite concorrente no limite; import idempotente; override; outbox; retenção/snapshot; ranking e histórico não pontuável.
+
+### Contrato/API/SSE
+
+Schemas de sucesso/erro; aliases da Copa; params inválidos; membership; events com versão/contexto; reconexão, backpressure, cliente lento, logout/bloqueio e shutdown.
+
+### Frontend
+
+Componentes de score/draft/toast/ranking/mata-mata; merge dirty; request fora de ordem; sucesso parcial; 401/403/409/5xx; SSE offline/reconnect; reduced motion.
+
+### E2E
+
+Login/logout, palpite simples e em lote, empate no mata-mata, fechamento, troca de competição, ranking, admin import/override, bloqueio de usuário. Executar mobile e desktop.
+
+### Não funcionais/operacionais
+
+Acessibilidade por teclado/leitor de tela/contraste; bundle e renders; carga de ranking/SSE; timeout de provider; migration rehearsal; backup+avatares; restore drill; deploy/rollback com flags.
+
+## Matriz mínima de gates
+
+```text
+PR: lint + unit + contract + component + build
+merge/release candidate: integração PostgreSQL + E2E + audit triado
+migration release: rehearsal + hash da Copa + plano de locks
+go-live: smoke real + fonte reconciliada + restore drill + rollback ensaiado
+```
+
+## Arquivos principais
+
+Configs Vitest/web, testcontainers ou PostgreSQL CI, Playwright/E2E, fixtures, scripts de migration/restore, workflow CI e documentação de evidências.
+
+## Melhores práticas
+
+Dados determinísticos, clock injetável, fake timers, property-based em regras, testes negativos, sem dependência de GE/CBF ao vivo no CI, snapshots sem PII, flaky budget zero nos gates críticos.
+
+## Critérios de aceite
+
+- Web possui testes reais e E2E crítico.
+- Migration roda sobre backup sanitizado e preserva hash da Copa.
+- Concorrência do instante limite é comprovada.
+- Restore recupera DB+avatares e passa smoke.
+- CI usa `npm ci` e falha em divergência do lockfile.
+- Nenhum P0/P1 aberto no go-live.
+
+## Execução
+
+Este documento é a especificação da etapa. Para implementá-la, use exclusivamente o [Prompt 9 — testes obrigatórios e release gates](PROMPTS_CODEX_EXPANSAO_BRASILEIRAO_2026.md#prompt-9) no arquivo canônico de prompts.

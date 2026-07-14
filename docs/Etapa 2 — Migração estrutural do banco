@@ -1,44 +1,56 @@
-Etapa 2 — Migração estrutural do banco
+# Etapa 2 — Migração estrutural do banco
 
-Aplicar o padrão expand–migrate–contract:
+## Objetivo
 
-2.1 Expandir
+Aplicar expand–migrate sem apagar dados e backfillar a Copa preservando IDs, ranking e contratos antigos.
 
-Adicionar novas tabelas e colunas, mantendo as antigas funcionando.
+## Modelo aditivo mínimo
 
-2.2 Migrar dados
+- `Competition`, `CompetitionSeason`, `Stage`, `Round`, `SeasonTeam`.
+- `Pool`, `PoolMembership`, `PoolSeason`.
+- `ProviderEntityMapping` e `ScoringRuleSetVersion` inicial.
+- `seasonId` em partidas/agrupamentos; `poolSeasonId` em palpites, scores e snapshots.
+- Índices compostos por temporada, rodada, status e horário.
 
-Criar automaticamente:
+Alterações críticas:
 
-Competition:
-  world-cup
+- substituir futuramente `MatchDay @@unique([date])` por escopo composto `(seasonId, date)` ou `Round`;
+- `Prediction UNIQUE(poolSeasonId,userId,matchId)`;
+- snapshots indexados por pool/season/round/calculatedAt;
+- manter colunas atuais opcionais durante o período de compatibilidade;
+- não unificar ainda `KnockoutFixture`/`KnockoutPick`.
 
-Season:
-  world-cup-2026
+## Arquivos principais
 
-Pool:
-  bolão-do-trabalho
+- `apps/api/prisma/schema.prisma` e nova migration SQL.
+- script idempotente de backfill e verificação.
+- `prisma/seed.ts` sem credenciais padrão.
+- serviços afetados por dual write/read e testes de migration.
+- scripts de backup/restore e manifesto da Etapa 0.
 
-Depois:
+## Sequência
 
-vincular partidas atuais à temporada da Copa;
-vincular pontuações e snapshots;
-cadastrar seleções em SeasonTeam;
-preservar IDs existentes;
-criar mapeamentos dos IDs externos.
-2.3 Compatibilidade temporária
+1. Restaurar backup em banco isolado e registrar baseline.
+2. Expandir tabelas/colunas nullable e índices sem operações destrutivas.
+3. Criar `world-cup`, `world-cup-2026`, pool padrão e PoolSeason.
+4. Vincular times, partidas, palpites, scores e snapshots em lotes idempotentes.
+5. Verificar órfãos, duplicidades, relações cruzadas e hashes de ranking.
+6. Ativar dual write; comparar old read e new read em shadow mode.
+7. Tornar aplicação nova dependente do escopo, mas manter schema legado.
+8. Adiar contract/NOT NULL/drop para release posterior com telemetria.
 
-Durante uma versão:
+## Melhores práticas
 
-antigas rotas continuam apontando para world-cup-2026;
-novas rotas recebem competição e temporada explicitamente;
-escrita nova deve sempre preencher seasonId.
-2.4 Contrair
+Transações por lote, constraints compostas, índices `CONCURRENTLY` quando o ambiente permitir, migration rehearsal, locks medidos, script reexecutável, validação de contagens e rollback de aplicação sem rollback destrutivo de schema.
 
-Somente depois de testes em produção:
+## Critérios de aceite
 
-remover dependências globais;
-eliminar consultas sem filtro de temporada;
-tornar seasonId obrigatório.
+- Backfill executado novamente não duplica nem altera dados.
+- Nenhum registro esportivo da Copa fica sem season/pool esperado.
+- Ranking/palpites/scores antes e depois têm a mesma assinatura.
+- Queries negativas provam que uma temporada não acessa outra.
+- Migration cabe na janela medida e não exige restore para rollback normal.
 
-Critério de conclusão: nenhum ranking ou palpite de uma temporada pode aparecer em outra.
+## Execução
+
+Este documento é a especificação da etapa. Para implementá-la, use exclusivamente o [Prompt 2 — schema aditivo e backfill da Copa](PROMPTS_CODEX_EXPANSAO_BRASILEIRAO_2026.md#prompt-2) no arquivo canônico de prompts.

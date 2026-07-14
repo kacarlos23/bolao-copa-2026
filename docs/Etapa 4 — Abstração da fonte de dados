@@ -1,33 +1,50 @@
-Etapa 4 — Abstração da fonte de dados
+# Etapa 4 — Abstração da fonte de dados
 
-Criar um contrato:
+## Objetivo
 
+Extrair o scraper GE específico da Copa para providers normalizados, resilientes e auditáveis por competição/temporada.
+
+## Contrato
+
+```ts
 interface CompetitionDataProvider {
   syncTeams(context: ProviderContext): Promise<NormalizedTeam[]>;
   syncSchedule(context: ProviderContext): Promise<NormalizedMatch[]>;
   syncResults(context: ProviderContext): Promise<NormalizedResult[]>;
   syncStandings?(context: ProviderContext): Promise<NormalizedStanding[]>;
-  healthCheck(): Promise<ProviderHealth>;
+  healthCheck(context: ProviderContext): Promise<ProviderHealth>;
 }
+```
 
-Implementações possíveis:
+Adapters: `GeProvider` preservado, `CbfProvider` ou importador oficial, `CsvProvider` e `ManualProvider`.
 
-CbfProvider
-GeProvider
-CsvProvider
-ManualProvider
-Regras de sincronização
-A identificação primária será o ID do fornecedor, não o nome normalizado.
-A sincronização será idempotente.
-Alterações de horário atualizarão a partida existente.
-Jogos adiados não serão recriados.
-Resultado final nunca poderá regredir automaticamente para “agendado”.
-Correção manual terá precedência registrada e auditada.
-Cada execução será vinculada a:
-fornecedor;
-competição;
-temporada;
-tipo de sincronização.
-Deve existir importação CSV como contingência.
+## Regras
 
-O atual scraper pode ser preservado como primeiro adaptador, mas sua lógica de Copa deve ser extraída do serviço genérico. O nome da equipe deve servir apenas como fallback de reconciliação.
+1. ID externo+mapeamento é chave; nome normalizado é fallback que exige reconciliação.
+2. Importação tem `dryRun`, diff, idempotency key e lock distribuído por provider+season+tipo.
+3. `fetch` usa timeout, limite de bytes, redirect controlado e retry com jitter.
+4. Resultado `FINISHED` não regride automaticamente; remarcação atualiza a mesma partida.
+5. Overrides manuais têm precedência, justificativa, before/after e não são apagados pelo sync.
+6. Cada execução grava source, season, started/finished, status, contagens, checksum e erro redigido.
+7. Payload externo passa por schema e quarantine; erro parcial não corrompe lote inteiro.
+8. SSE é emitido depois do commit/outbox, não durante uma transação incompleta.
+
+## Arquivos principais
+
+`ge-score-sync.service.ts`, script watch, módulos providers/imports/mappings, schema Prisma de sync/audit, admin e fixtures de parser.
+
+## Melhores práticas
+
+Hexagonal/ports and adapters, anti-corruption layer, schema validation, idempotência, circuit breaker, bulk writes, transações curtas, métricas e logs sem HTML/payload ilimitado.
+
+## Critérios de aceite
+
+- Duas execuções da mesma carga têm zero inserts na segunda.
+- Timeout libera lock e `activeRun`; processo watch encerra e desconecta Prisma.
+- Nome ambíguo entra em quarantine em vez de escolher time silenciosamente.
+- Override manual sobrevive ao sync.
+- CSV permite contingência sem burlar as mesmas validações.
+
+## Execução
+
+Este documento é a especificação da etapa. Para implementá-la, use exclusivamente o [Prompt 4 — providers e sincronização auditável](PROMPTS_CODEX_EXPANSAO_BRASILEIRAO_2026.md#prompt-4) no arquivo canônico de prompts.

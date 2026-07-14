@@ -1,66 +1,64 @@
-Etapa 6 — Refatoração do frontend
-Estrutura recomendada
+# Etapa 6 — Refatoração do frontend e UX/UI
+
+## Objetivo
+
+Dividir os arquivos monolíticos e oferecer uma interface orientada a competição, acessível, responsiva e resistente a refresh concorrente.
+
+## Diagnóstico
+
+- `App.tsx`: 6.123 linhas; `predictionBoard.tsx`: 2.966; `competitionV2.tsx`: 1.826.
+- Implementações V1/V2 coexistem e o bundle JS principal medido tem cerca de 1,97 MB.
+- `api.ts` duplica contratos, sempre usa cookie e não tem timeout/cancelamento/código de erro/CSRF.
+- Polling e SSE podem sobrescrever draft; mudanças de dia podem sofrer race de resposta.
+- Inputs de placar não têm labels acessíveis; tabs/filtros não expõem role/state.
+- `window.alert` e loaders de tela inteira prejudicam fluxo e foco.
+
+## Estrutura
+
+```text
 apps/web/src/
-├── app/
-│   ├── AppShell.tsx
-│   ├── Navigation.tsx
-│   └── CompetitionContext.tsx
-├── features/
-│   ├── auth/
-│   ├── competitions/
-│   ├── seasons/
-│   ├── matches/
-│   ├── predictions/
-│   ├── standings/
-│   ├── rankings/
-│   ├── brackets/
-│   └── admin/
-├── components/
-│   ├── TeamBadge.tsx
-│   ├── MatchCard.tsx
-│   ├── ScoreInput.tsx
-│   ├── RankingTable.tsx
-│   └── StatusBadge.tsx
-├── services/
-│   ├── api-client.ts
-│   └── realtime.ts
+├── app/          AppShell, Navigation, CompetitionContext
+├── features/     auth, competitions, predictions, standings, rankings, brackets, admin
+├── components/   TeamBadge, ScoreInput, AsyncState, Toast, RankingTable
+├── services/     api-client, realtime, drafts
 └── theme/
-Navegação
-Início
-├── Copa do Mundo 2026 — encerrada
-├── Brasileirão 2026 — em disputa
-├── Copa do Brasil
-├── Libertadores
-└── Sul-Americana
+```
 
-Ao selecionar uma competição:
+## UX obrigatória
 
-Visão geral
-Jogos e palpites
-Classificação
-Ranking do bolão
-Premiações
-Estatísticas
+1. Draft por `userId+poolSeasonId+matchId/generationId`, com dirty tracking e merge que preserva edição.
+2. Estados `Não salvo`, `Salvando`, `Salvo às HH:mm`, `Falhou — tentar novamente`.
+3. Aviso ao trocar tela/competição com alterações; autosave apenas com version/idempotency key.
+4. Mata-mata: nome do time associado a cada input, seleção de classificado explícita no empate, progresso por fase e resumo antes de enviar.
+5. Ranking: usuário destacado, pontos/posição da rodada, distância para rival acima, líder da rodada e critérios de desempate.
+6. Skeleton com dados anteriores, toast acessível, erro inline com ação e status de SSE/sync.
+7. Mobile: navegação por fase e ranking resumido; desktop: header/primeira coluna sticky.
 
-A API deve informar capacidades:
+## Acessibilidade e performance
 
-{
-  "supportsLeagueStandings": true,
-  "supportsGroups": false,
-  "supportsKnockoutBracket": false,
-  "supportsTwoLeggedTies": false
-}
+- Labels, hints, invalid/state, tabs e live regions; alvo 44 px; foco visível; não depender só de cor.
+- `prefers-reduced-motion` aplicado também a Animated, não apenas GSAP.
+- Cancelar/ignorar resposta obsoleta com `AbortController`/request ID.
+- Lazy load por feature/rota; reduzir famílias/fontes de ícones; budget definido.
+- `memo`, `useMemo` e `useCallback` somente após profiling e para fronteiras estáveis.
 
-O frontend monta a navegação conforme essas capacidades, sem testar nomes como "world-cup" ou "brasileirao".
+## Arquivos principais
 
-Identidade visual
+Os três monólitos, `api.ts`, `ui.tsx`, `motion.tsx`, Expo Router/app shell, `packages/shared` e novos testes web.
 
-Cada competição pode possuir:
+## Melhores práticas
 
-logo
-cor principal
-cor secundária
-imagem de fundo
-rótulos próprios
+Single responsibility, state machine/reducer para drafts, contratos runtime, stale-while-revalidate, progressive disclosure, design tokens, componentes controlados e paridade antes de remover V1.
 
-Os componentes funcionais devem permanecer os mesmos.
+## Critérios de aceite
+
+- Draft nunca é perdido por polling/SSE/troca de seleção.
+- Leitor de tela e teclado completam login, palpite, desempate e ranking.
+- 320/768/1280/1440 px sem conteúdo essencial inacessível.
+- Reduced motion, contraste e foco passam auditoria.
+- Testes web deixam de imprimir `No web tests yet`.
+- V1 é removida apenas após paridade e flag estabilizada.
+
+## Execução
+
+Este documento é a especificação da etapa. Para implementá-la, use exclusivamente o [Prompt 6 — frontend, UX/UI e acessibilidade](PROMPTS_CODEX_EXPANSAO_BRASILEIRAO_2026.md#prompt-6) no arquivo canônico de prompts.

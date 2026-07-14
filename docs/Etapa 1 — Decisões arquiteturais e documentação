@@ -1,21 +1,57 @@
-Etapa 1 — Decisões arquiteturais e documentação
+# Etapa 1 — Decisões arquiteturais e documentação
 
-Criar documentos em docs/architecture:
+## Objetivo
 
+Fechar decisões e invariantes antes do schema. O resultado é um conjunto de ADRs e contratos revisáveis; não é uma refatoração ampla.
+
+## Decisões obrigatórias
+
+1. `Competition` permanente versus `CompetitionSeason`/edição.
+2. `Pool`, membership e `PoolSeason` como escopo social e de pontuação.
+3. `Stage`, `Round` e capabilities para liga, grupos e mata-mata.
+4. Ownership de `Match`, `Prediction`, `Score`, ranking e snapshot.
+5. Fechamento individual por partida e semântica exata do instante limite.
+6. Versionamento imutável de pontuação e desempate.
+7. Provider normalizado, mappings, override manual e provenance.
+8. Compatibilidade das rotas da Copa e estratégia expand–migrate–contract.
+9. Sessão/CSRF/RBAC, SSE versionado e idempotência de jobs.
+10. Backup, restore, retenção, observabilidade e rollback.
+
+## Arquivos principais
+
+- `docs/architecture/ADR-001` a `ADR-010`.
+- `README.md`, `docs/operacao.md`, plano canônico e diagrama de entidades/fluxos.
+- `packages/shared` para contratos propostos e nomenclatura.
+- `schema.prisma` apenas como fonte de evidência; migration fica na Etapa 2.
+
+ADRs sugeridos:
+
+```text
 ADR-001-multi-competition-domain.md
-ADR-002-season-and-stage-model.md
-ADR-003-scoring-rule-versioning.md
-ADR-004-provider-adapters.md
-ADR-005-knockout-unification.md
-ADR-006-pool-and-membership.md
+ADR-002-season-stage-round.md
+ADR-003-pool-membership-pool-season.md
+ADR-004-scoring-and-tiebreak-versioning.md
+ADR-005-provider-normalization.md
+ADR-006-knockout-unification.md
+ADR-007-auth-csrf-session-revocation.md
+ADR-008-realtime-events-and-outbox.md
+ADR-009-expand-migrate-contract.md
+ADR-010-backup-restore-observability.md
+```
 
-Também atualizar:
+## Melhores práticas
 
-README;
-diagrama de entidades;
-fluxo de sincronização;
-regras de pontuação;
-estratégia de migração;
-política de fechamento dos palpites.
+ADRs curtos com contexto, decisão, alternativas, consequências, status e data; ubiquitous language; invariantes testáveis; SOLID nas fronteiras; evitar YAGNI no MVP; diagramas que diferenciem classificação esportiva de ranking do bolão.
 
-Decisão central: o Brasileirão deve ser a primeira utilização da nova arquitetura, mas a Copa do Mundo deve continuar acessível como temporada arquivada.
+## Critérios de aceite
+
+- Não existe termo ambíguo “season” sem definição.
+- Toda entidade tem owner, cardinalidade, retenção e política de exclusão.
+- Capabilities substituem condicionais por slug.
+- Contrato de evento inclui `eventId`, `occurredAt`, `seasonId`, `poolSeasonId`, `version`.
+- Plano define rollout de leitura, escrita, backfill, contract e rollback.
+- Decisões abertas têm responsável e data-limite; nenhuma vira suposição escondida.
+
+## Execução
+
+Este documento é a especificação da etapa. Para implementá-la, use exclusivamente o [Prompt 1 — decisões arquiteturais e contratos](PROMPTS_CODEX_EXPANSAO_BRASILEIRAO_2026.md#prompt-1) no arquivo canônico de prompts.

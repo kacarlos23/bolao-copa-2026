@@ -1,1241 +1,336 @@
-# Prompts sequenciais para o Codex — expansão do bolão para o Brasileirão 2026
+# Prompts canônicos — expansão do bolão para o Brasileirão 2026
 
-## Objetivo
+> Este é o **único arquivo de execução** do plano. Copie prompts somente daqui. Os demais documentos explicam decisões, escopo e critérios de aceite; eles não são fontes alternativas de prompts.
 
-Executar, com segurança e rastreabilidade, a evolução do repositório
-`kacarlos23/bolao-copa-2026` de um bolão específico da Copa do Mundo para uma
-plataforma de múltiplas competições, entregando um **MVP funcional do
-Brasileirão Série A 2026 antes da abertura da rodada de 16/07/2026**.
+## Como os documentos se relacionam
 
-Conforme a referência visual fornecida, a Rodada 19 possui partidas a partir de
-**16/07/2026 às 19:30, no horário de Brasília**. O objetivo operacional é deixar
-a aplicação publicada e validada com antecedência suficiente para os
-participantes enviarem seus palpites.
+| Documento | Função | Deve ser copiado como prompt? |
+|---|---|---|
+| [plano-de-evolucao-bolao.md](plano-de-evolucao-bolao.md) | Diagnóstico, prioridades, fases e visão de produto | Não |
+| [PLANO DE EXPANSÃO](<PLANO DE EXPANSÃO>) | Arquitetura-alvo, releases e invariantes | Não |
+| `Etapa 0` a `Etapa 9` | Especificação detalhada e critérios de aceite de cada etapa | Não |
+| **Este arquivo** | Instruções operacionais prontas para o agente | **Sim** |
 
-## Documentos obrigatórios
+<a id="ordem-execucao"></a>
 
-Antes de qualquer alteração, o Codex deve ler integralmente:
-
-- `README.md`;
-- `docs/PLANO DE EXPANSÃO`;
-- `docs/Etapa 0 — Preservação do bolão da Copa`;
-- `docs/Etapa 1 — Decisões arquiteturais e documentação`;
-- `docs/Etapa 2 — Migração estrutural do banco`;
-- `docs/Etapa 3 — Camada genérica de competições`;
-- `docs/Etapa 4 — Abstração da fonte de dados`;
-- `docs/Etapa 5 — Implementação do Brasileirão 2026`;
-- `docs/Etapa 6 — Refatoração do frontend`;
-- `docs/Etapa 7 — Regras de pontuação configuráveis`;
-- `docs/Etapa 8 — Administração`;
-- `docs/Etapa 9 — Testes obrigatórios`;
-- `apps/api/prisma/schema.prisma`;
-- os serviços atuais de palpites, ranking, mata-mata, sincronização e SSE;
-- `apps/web/App.tsx`;
-- `apps/web/src/api.ts`;
-- todos os testes existentes relacionados a pontuação, ranking, palpites,
-  sincronização e SSE.
-
----
-
-# Regras gerais para todas as execuções
-
-Estas regras devem ser repetidas ou consideradas vinculantes em todos os
-prompts abaixo.
-
-1. Trabalhe em uma branch exclusiva:
-
-   ```text
-   codex/multicompeticao-brasileirao-2026
-   ```
-
-2. Não altere diretamente a branch `main`.
-
-3. Não reescreva o sistema do zero.
-
-4. Não apague, recrie ou invalide dados existentes da Copa do Mundo 2026.
-
-5. Não execute migração destrutiva antes do go-live do Brasileirão.
-
-6. Use a estratégia **expand–migrate–contract**. Nesta entrega urgente,
-   execute apenas **expand** e **migrate**. A fase **contract** ficará para
-   depois da estabilização.
-
-7. A Copa do Mundo 2026 deve continuar acessível e com o mesmo ranking,
-   palpites, pontuações e mata-mata.
-
-8. A regra vigente de pontuação deve permanecer:
-
-   ```text
-   15 pontos — placar exato
-   3 pontos  — resultado correto
-   1 ponto   — gols corretos de uma das equipes, com resultado incorreto
-   0 ponto   — erro
-   ```
-
-9. Não introduza regras do tipo:
-
-   ```ts
-   if (competition === 'brasileirao') {
-     // comportamento especial
-   }
-   ```
-
-   O comportamento deve decorrer de `format`, `capabilities`, `stage`,
-   `round`, `season` e configurações da temporada.
-
-10. Toda consulta de partidas, palpites, pontuações, rankings e snapshots deve
-    possuir escopo explícito de temporada.
-
-11. Mantenha temporariamente as rotas antigas da Copa como aliases de
-    compatibilidade.
-
-12. O frontend nunca deve consultar diretamente GE, CBF, SofaScore ou qualquer
-    provedor externo. Toda integração deve ocorrer no backend.
-
-13. Não invente tabela, horário, resultado, escudo, ID externo ou critério de
-    desempate. Use fonte verificada e registre a origem.
-
-14. A importação deve ser idempotente.
-
-15. Em caso de falha de teste, migração ou validação de dados, pare a execução,
-    descreva o erro e não avance para a etapa seguinte.
-
-16. Ao final de cada prompt:
-
-    - informe arquivos criados e alterados;
-    - informe decisões tomadas;
-    - execute as validações exigidas;
-    - apresente o resultado dos comandos;
-    - registre riscos ou pendências;
-    - faça um único commit, com a mensagem indicada;
-    - não faça merge.
-
-17. Não misture refatorações estéticas ou melhorias não essenciais com o escopo
-    do prompt em execução.
-
-18. Preserve o horário oficial da aplicação em `America/Sao_Paulo`.
-
-19. Não exponha segredos, cookies, strings de conexão ou dados pessoais em
-    logs, commits ou documentação.
-
-20. O go-live deve ser controlado pela feature flag:
-
-    ```text
-    MULTI_COMPETITION_ENABLED
-    ```
-
----
-
-# Corte de escopo obrigatório para 16/07/2026
-
-## Deve estar funcional antes da rodada
-
-- Copa do Mundo 2026 preservada.
-- Entidades de competição, temporada, fase e rodada.
-- Temporada `brasileirao-serie-a-2026`.
-- Vinte clubes cadastrados.
-- Rodada 19 completa, com seus dez jogos e horários verificados.
-- Preferencialmente as 38 rodadas importadas, desde que a fonte seja confiável.
-- Partidas anteriores importadas apenas para classificação e histórico.
-- Palpites abertos somente a partir da rodada definida no `PoolSeason`.
-- Fechamento individual por partida.
-- Classificação esportiva por pontos corridos.
-- Ranking do bolão isolado por temporada.
-- Ranking geral e por rodada.
-- Seleção de competição no frontend.
-- Escudos de clubes por meio de componente genérico.
-- Sincronização ou atualização manual de contingência.
-- Testes de regressão e procedimento de rollback.
-- Feature flag desligada durante a preparação e ligada apenas no go-live.
-
-## Deve ficar para depois da rodada
-
-- Migração definitiva do mata-mata da Copa para uma estrutura única.
-- Implementação completa de `Tie`.
-- Copa do Brasil, Libertadores e Sul-Americana.
-- Refatoração integral das mais de seis mil linhas de `App.tsx`.
-- Ranking histórico de carreira.
-- Gestão avançada de múltiplos pools pela interface.
-- Premiações avançadas.
-- Painel completo de divergências.
-- Remoção de colunas e rotas antigas.
-- Qualquer migração destrutiva.
-
----
-
-# Protocolo de execução
-
-Execute os prompts rigorosamente na ordem indicada. Cada prompt constitui um
-checkpoint. Não agrupe vários prompts em um único commit.
-
----
-
-## Prompt 00 — Auditoria somente leitura e plano de execução
+## Ordem única de execução
 
 ```text
-Atue como arquiteto e mantenedor principal do repositório
-kacarlos23/bolao-copa-2026.
-
-Nesta etapa, não altere nenhum arquivo.
-
-Leia integralmente todos os documentos da pasta docs, com prioridade para o
-PLANO DE EXPANSÃO e as Etapas 0 a 9. Inspecione o schema Prisma, as migrações
-existentes, scripts de backup/restore, seeds, serviços de palpites, ranking,
-mata-mata, sincronização GE, SSE, rotas da API, App.tsx, api.ts e testes.
-
-Produza um relatório técnico em tela contendo:
-
-1. estado atual da branch e commit-base;
-2. mapa dos arquivos que serão afetados;
-3. riscos de regressão da Copa do Mundo 2026;
-4. relações e consultas que atualmente não possuem escopo de competição;
-5. pontos de acoplamento da Copa no backend e frontend;
-6. estratégia expand–migrate sem operações destrutivas;
-7. plano de compatibilidade das rotas antigas;
-8. plano de backfill dos dados atuais;
-9. plano de rollback;
-10. sequência exata de implementação;
-11. comandos de validação disponíveis no package.json;
-12. confirmação de que a entrega urgente não incluirá a migração genérica do
-    mata-mata.
-
-Não edite arquivos, não crie migrações e não faça commit.
-
-Critério de aceite:
-- relatório identifica todas as consultas globais de ranking, partidas,
-  MatchDay, KnockoutFixture e RankingSnapshot;
-- relatório identifica o risco do @@unique([date]) em MatchDay;
-- relatório confirma a manutenção da pontuação 15/3/1/0;
-- relatório indica como preservar IDs e dados atuais.
+Pré-execução (uma vez, somente leitura)
+  ↓
+Prompt 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9
+  ↓
+Prompt final de go-live (opcional, após todos os gates)
 ```
 
+Use **um prompt por interação**. Aguarde a implementação, a revisão do diff e as evidências dos gates antes de enviar o próximo. Não agrupe etapas e não pule uma etapa bloqueada. Se parte do trabalho já existir, a pré-execução deve comprová-la e indicar o primeiro prompt ainda incompleto.
+
+## Regras herdadas por todos os prompts
+
+As regras abaixo valem para todos os blocos deste arquivo e não precisam ser repetidas pelo usuário:
+
+1. Trabalhar no monorepo existente e ler `README.md`, `docs/plano-de-evolucao-bolao.md`, o documento da etapa corrente e os arquivos reais antes de editar.
+2. Preservar integralmente dados, IDs, ranking, palpites, scores, mata-mata, backup/restore e rotas atuais da Copa do Mundo 2026.
+3. Usar TypeScript estrito, Zod nas fronteiras, erros padronizados e autorização server-side. Não introduzir `any`, casts inseguros ou DTOs duplicados sem justificativa.
+4. Aplicar expand–migrate–contract. Não executar `DROP`, `TRUNCATE`, limpeza destrutiva, alteração retroativa de pontuação ou contract migration sem autorização explícita.
+5. Toda operação esportiva nova deve receber `seasonId`; palpite, score, ranking e conquista também devem receber `poolSeasonId`. Validar relações cruzadas no servidor.
+6. Usar transações Prisma quando a validação e a escrita precisarem ser atômicas; jobs, imports, eventos e conquistas devem ser idempotentes.
+7. Não criar regras por `slug`. Formato e comportamento derivam de capabilities, configuração e rule sets versionados.
+8. Armazenar instantes em UTC e usar a timezone declarada pela temporada; para o Brasileirão 2026, `America/Sao_Paulo` enquanto confirmado pela fonte.
+9. Dados externos exigem schema, provenance, checksum, reconciliação e fonte oficial verificada no momento da carga. Não inventar clubes, partidas, datas, horários ou regulamento.
+10. Não registrar secrets, cookies, tokens, senhas, HTML ilimitado ou dados pessoais em logs, snapshots ou fixtures.
+11. Não usar `npm audit fix --force`. Triar atualizações e regressões isoladamente.
+12. Não fazer commit, push, merge, deploy, restore de produção ou alteração de serviço externo sem solicitação explícita.
+13. Preservar mudanças preexistentes do usuário e limitar o diff ao escopo da etapa.
+14. Ao terminar, executar os gates aplicáveis (`lint`, testes, build, Prisma, integração, E2E ou operação), informar comandos e resultados, listar arquivos alterados, riscos residuais e o próximo prompt. Falha de gate impede avançar silenciosamente.
+
+No momento da implementação da Etapa 5, confirme novamente a agenda e o regulamento em fonte oficial da CBF. Datas registradas em revisão anterior são contexto, não constantes de código.
+
 ---
 
-## Prompt 01 — Preservação, baseline e mecanismos de rollback
+<a id="pre-execucao"></a>
+
+## Pré-execução — auditoria e escolha do próximo prompt
+
+Execute este prompt uma única vez no início ou quando não houver certeza sobre o estágio atual. Ele é somente leitura.
 
 ```text
-Continue na branch codex/multicompeticao-brasileirao-2026.
+Atue como engenheiro sênior responsável pela pré-execução do plano de expansão do repositório bolao-copa-2026.
 
-Implemente somente a camada de preservação anterior à expansão.
+Leia integralmente README.md, docs/plano-de-evolucao-bolao.md, docs/PLANO DE EXPANSÃO, docs/Etapa 0 até docs/Etapa 9 e docs/PROMPTS_CODEX_EXPANSAO_BRASILEIRAO_2026.md. Inspecione o código, schema Prisma, migrations, scripts, testes e estado do Git.
 
-Tarefas:
-
-1. Verifique os scripts atuais de backup e restore.
-2. Sem executar ações destrutivas, crie ou ajuste documentação e scripts para:
-   - gerar backup completo do PostgreSQL;
-   - validar o arquivo produzido;
-   - restaurar em banco temporário de verificação;
-   - registrar data, tamanho e checksum;
-   - impedir que credenciais sejam commitadas.
-3. Crie um script de snapshot lógico da Copa contendo, no mínimo:
-   - quantidade de usuários ativos;
-   - quantidade de partidas;
-   - quantidade de palpites;
-   - quantidade de pontuações;
-   - quantidade de fixtures do mata-mata;
-   - ranking final ou atual ordenado;
-   - totais de pontos e acertos por usuário.
-4. O snapshot deve ser determinístico e adequado à comparação antes/depois.
-5. Crie testes ou verificações automatizadas para comparar dois snapshots.
-6. Documente os comandos para criar a tag:
-   world-cup-2026-final
-   Não crie nem mova a tag automaticamente sem confirmação do operador.
-7. Adicione MULTI_COMPETITION_ENABLED ao .env.example com valor padrão false.
-8. Não altere ainda o schema de domínio.
-
-Validações obrigatórias:
-- npm run lint
-- npm run test
-- npm run build
-- execução do snapshot em ambiente de teste, quando possível;
-- verificação de que nenhum dado foi alterado.
+Não altere arquivos, banco, dependências ou serviços. Para cada Etapa 0–9, classifique como NÃO INICIADA, PARCIAL, CONCLUÍDA ou BLOQUEADA e cite evidências verificáveis em arquivos/testes. Execute apenas verificações locais não destrutivas necessárias para confirmar a baseline.
 
 Entregue:
-- arquivos alterados;
-- comandos exatos de backup, validação, restore e snapshot;
-- riscos pendentes;
-- confirmação de que o estado funcional da Copa não mudou.
+1. resumo do estado real e divergências entre documentação e código;
+2. matriz Etapa × status × evidência × gate faltante;
+3. riscos P0/P1 ainda abertos;
+4. primeiro prompt canônico que deve ser executado;
+5. comandos de validação executados e seus resultados.
 
-Commit:
-chore: add world cup preservation and rollback baseline
+Não considere uma etapa concluída apenas porque seu documento existe. Não implemente correções nesta interação.
 ```
+
+**Gate para continuar:** o primeiro prompt incompleto foi identificado com evidências e não há dúvida sobre a baseline a preservar.
 
 ---
 
-## Prompt 02 — Modelagem aditiva de competição e temporada
+<a id="prompt-0"></a>
+
+## Prompt 0 — preservação da Copa e hardening P0
+
+**Pré-requisito:** pré-execução concluída. Especificação: [Etapa 0](<Etapa 0 — Preservação do bolão da Copa>).
 
 ```text
-Continue na mesma branch e parta do commit anterior.
+Implemente exclusivamente a Etapa 0 do plano do repositório bolao-copa-2026.
 
-Implemente uma migração Prisma estritamente aditiva para suportar múltiplas
-competições, sem remover tabelas, colunas, índices ou rotas atuais.
+Antes de editar, confirme a baseline e inspecione app/server, auth e sessões, SSE, Prisma, palpites simples e mata-mata, upload de avatar, provider GE, cliente HTTP/SSE do frontend, scripts de backup/restore e testes. Não crie entidades multi-competição nesta etapa.
 
-Crie, com nomes e relações coerentes com os documentos:
+Implemente, em mudanças pequenas e testáveis:
+1. manifesto da Copa com commit, migrations, timezone, contagens e hashes determinísticos de ranking, palpites e scores;
+2. backup custom do PostgreSQL com SHA-256 e inclusão versionada de uploads/avatars; ensaie restore em destino isolado e compare o manifesto;
+3. propagação segura dos erros de session.regenerate/session.destroy ao pipeline Express;
+4. revalidação de status/papel e revogação de sessões em bloqueio, reset de senha ou mudança de privilégio, usando sessionVersion ou mecanismo equivalente;
+5. proteção CSRF compatível com web cookie-auth e cliente nativo, complementada por Origin/Fetch Metadata quando aplicável;
+6. ownership e shutdown idempotente de HTTP server, Prisma, pool de sessões, jobs, timers e clientes SSE, com timeout e drenagem;
+7. verificação do fechamento dentro da mesma transação da gravação do palpite, considerando fechado quando now >= closesAt;
+8. preservação de drafts dirty em polling/SSE e estados Não salvo, Salvando, Salvo e Falhou; sucesso parcial não pode ser mostrado como total;
+9. atualização segura do Multer, limites de upload, validação real do conteúdo, reencode e limpeza de órfãos;
+10. timeout, limite de resposta, retry controlado e retenção de snapshots do provider.
 
-- Competition;
-- CompetitionSeason;
-- Stage;
-- Round;
-- SeasonTeam;
-- Pool;
-- PoolMembership;
-- PoolSeason;
-- ProviderEntityMapping;
-- ScoringRuleSet.
-
-Adicione de forma inicialmente opcional, quando necessário:
-
-- seasonId em MatchDay;
-- seasonId, stageId e roundId em Match;
-- seasonId em KnockoutFixture e estruturas relacionadas necessárias para
-  preservar o escopo da Copa;
-- seasonId, poolSeasonId e roundId em RankingSnapshot;
-- poolSeasonId em Prediction e PredictionScore, se a modelagem final exigir;
-- campos de tipo e escudo em Team, preservando os campos existentes;
-- capabilities e metadata em competição/temporada;
-- scoreableFromRound e historicalMatchesScoreable em PoolSeason;
-- predictionClosesAt por partida, sem remover o comportamento antigo.
-
-Requisitos:
-
-1. Preserve o externalId atual de Team nesta fase. Não remova sua unicidade antes
-   de existir backfill e cobertura suficiente.
-2. Substitua a unicidade global de MatchDay por uma estratégia compatível com
-   temporada, mas somente após garantir backfill na mesma migração ou em
-   migração subsequente segura.
-3. Use índices compostos para consultas frequentes por seasonId, roundId,
-   status e startsAt.
-4. Não torne imediatamente obrigatórias as novas FKs em tabelas legadas.
-5. Gere SQL revisável e explique qualquer lock potencial.
-6. Crie diagrama textual das relações no documento técnico.
-7. Não altere ainda consultas de negócio.
-
-Validações obrigatórias:
-- prisma format;
-- prisma validate;
-- prisma generate;
-- aplicação da migração em banco limpo;
-- aplicação da migração em uma cópia do banco atual;
-- npm run lint;
-- npm run test;
-- npm run build.
-
-Pare imediatamente se a migração exigir apagar ou recriar dados.
-
-Commit:
-feat: add additive multi-competition database model
+Adicione testes negativos, de falha, fake timers, concorrência no limite e shutdown. Execute lint, todos os testes, build e npm audit --omit=dev; documente a triagem sem usar correção forçada. Entregue evidências do restore drill, dos hashes preservados e dos riscos residuais.
 ```
+
+**Gate para continuar:** restore recupera banco e avatares; hashes da Copa são iguais; acesso revogado falha; CSRF inválido retorna 403; fechamento é atômico; processo encerra sem handles próprios abertos.
 
 ---
 
-## Prompt 03 — Backfill da Copa e pool padrão
+<a id="prompt-1"></a>
+
+## Prompt 1 — decisões arquiteturais e contratos
+
+**Pré-requisito:** Prompt 0 aprovado. Especificação: [Etapa 1](<Etapa 1 — Decisões arquiteturais e documentação>).
 
 ```text
-Continue na mesma branch.
+Execute exclusivamente a Etapa 1 do plano do repositório bolao-copa-2026. Esta etapa é de decisão e documentação: não crie migration e não altere comportamento runtime.
 
-Implemente o backfill idempotente dos dados existentes da Copa do Mundo 2026.
+Inspecione schema, rotas, serviços, frontend, contratos compartilhados, operação e evidências da Etapa 0. Produza ADR-001 a ADR-010 conforme a Etapa 1, cada um com contexto, alternativas, decisão, consequências, invariantes testáveis, compatibilidade, rollout e rollback.
 
-Crie automaticamente, com IDs ou slugs estáveis:
+Feche explicitamente:
+- Competition, CompetitionSeason, Stage, Round, Pool, PoolMembership e PoolSeason;
+- ownership/cardinalidade de Match, Prediction, Score, ranking e snapshots;
+- capabilities para LEAGUE, GROUPS, KNOCKOUT e TWO_LEGS;
+- fechamento individual e semântica do instante limite;
+- versionamento imutável de pontuação e desempate;
+- provider normalizado, mapping, override manual e provenance;
+- estratégia expand–migrate–contract e aliases temporários da Copa;
+- sessão, CSRF, RBAC, eventos SSE/outbox versionados, backup e observabilidade.
 
-Competition:
-- slug: world-cup
-- name: Copa do Mundo
-
-CompetitionSeason:
-- slug: world-cup-2026
-- name: Copa do Mundo 2026
-- status adequado para temporada encerrada ou em andamento, conforme os dados
-  reais existentes
-
-Pool:
-- slug: bolao-do-trabalho
-- nome compatível com o uso atual
-
-PoolSeason:
-- vínculo entre bolao-do-trabalho e world-cup-2026
-
-Stage e Round:
-- representar a estrutura existente sem mudar a lógica do mata-mata atual
-
-Backfill obrigatório:
-
-1. Vincule MatchDay, Match, KnockoutFixture, RankingSnapshot e registros
-   relacionados à temporada world-cup-2026.
-2. Vincule todos os usuários participantes ao pool padrão.
-3. Vincule palpites e pontuações ao PoolSeason padrão, quando aplicável.
-4. Cadastre as seleções atuais em SeasonTeam.
-5. Crie ProviderEntityMapping para os IDs externos já conhecidos.
-6. Crie o ScoringRuleSet vigente 15/3/1/0 e vincule-o à temporada/pool.
-7. Preserve todos os IDs de User, Team, Match, Prediction e scores.
-8. O script deve poder ser executado duas vezes sem duplicar ou alterar
-   resultados.
-9. Gere relatório de backfill com contagens antes/depois.
-10. Compare o snapshot da Copa gerado no Prompt 01 antes e depois.
-
-Não altere ainda o comportamento público da aplicação.
-
-Validações obrigatórias:
-- backfill em banco limpo com seed;
-- backfill em cópia do banco atual;
-- segunda execução idempotente;
-- comparação dos snapshots;
-- nenhum ponto, posição, palpite ou resultado pode mudar;
-- npm run lint;
-- npm run test;
-- npm run build.
-
-Commit:
-feat: backfill world cup into default competition season
+Atualize diagramas de entidades e fluxos de palpite, sync, ranking, evento, backup e restore. Use um glossário único. Valide todos os links Markdown e entregue decisões abertas com responsável e data-limite; não esconda decisões como suposições.
 ```
+
+**Gate para continuar:** ADRs aprovados, termos sem ambiguidade, invariantes e rollout definidos; nenhuma decisão de schema necessária à Etapa 2 permanece aberta.
 
 ---
 
-## Prompt 04 — Escopo obrigatório de temporada no backend
+<a id="prompt-2"></a>
+
+## Prompt 2 — schema aditivo e backfill da Copa
+
+**Pré-requisito:** ADRs aprovados e baseline restaurável. Especificação: [Etapa 2](<Etapa 2 — Migração estrutural do banco>).
 
 ```text
-Continue na mesma branch.
+Implemente exclusivamente a Etapa 2 do plano do repositório bolao-copa-2026, obedecendo aos ADRs aprovados e ao padrão expand–migrate. Não execute a fase contract.
 
-Implemente o escopo de competição/temporada nos serviços e rotas do backend,
-preservando compatibilidade com a Copa.
+Crie schema e migration aditivos para Competition, CompetitionSeason, Stage, Round, SeasonTeam, Pool, PoolMembership, PoolSeason, ProviderEntityMapping e a versão inicial do ScoringRuleSet. Adicione seasonId e poolSeasonId onde definido pelos ADRs, inicialmente de forma compatível, com índices e unicidades compostas. Não remova colunas legadas nem unifique ainda KnockoutFixture/KnockoutPick.
 
-Crie uma camada de contexto de temporada, sem espalhar leitura direta de slugs
-por todos os serviços.
+Crie backfill idempotente que registre world-cup/world-cup-2026, o pool padrão e seus relacionamentos, preservando IDs e dados. Implemente dual write/shadow read apenas onde previsto e mantenha rotas atuais funcionais.
 
-Rotas genéricas mínimas:
-
-GET /api/competitions
-GET /api/competitions/:competitionSlug/seasons
-GET /api/seasons/:seasonId
-GET /api/seasons/:seasonId/rounds
-GET /api/seasons/:seasonId/matches
-GET /api/seasons/:seasonId/standings
-GET /api/pools/:poolSlug/seasons/:seasonId/ranking
-GET /api/pools/:poolSlug/seasons/:seasonId/predictions
-PUT /api/pools/:poolSlug/seasons/:seasonId/predictions
-
-Requisitos:
-
-1. Mantenha /api/match-days, /api/ranking, /api/cup e demais rotas antigas
-   funcionando como aliases da temporada world-cup-2026.
-2. Todas as consultas novas devem filtrar explicitamente por seasonId.
-3. As rotas devem validar:
-   - pertencimento da partida à temporada;
-   - habilitação da temporada no pool;
-   - vínculo do usuário ao pool;
-   - prazo do palpite;
-   - correspondência entre matchId, roundId e seasonId.
-4. Uma partida de uma temporada nunca pode ser usada para salvar palpite em
-   outra.
-5. RankingSnapshot deve ser gerado por seasonId e poolSeasonId.
-6. Chaves de AppSetting que variam por competição devem ser namespaced.
-7. Eventos SSE devem transportar seasonId, poolSeasonId e IDs afetados.
-8. O serviço da Copa e o mata-mata atual devem continuar operando.
-9. Não implemente ainda o Brasileirão.
-10. Não remova código legado nesta etapa.
-
-Crie testes de autorização e isolamento suficientes para impedir vazamento
-entre temporadas.
-
-Validações obrigatórias:
-- npm run lint;
-- npm run test;
-- npm run build;
-- testes das rotas antigas;
-- testes das rotas genéricas;
-- snapshot da Copa inalterado.
-
-Commit:
-feat: scope api predictions and rankings by season
+Ensaie a migration sobre backup restaurado isoladamente. Registre duração e locks, execute novamente o backfill, detecte órfãos/duplicidades/relações cruzadas e compare contagens e hashes da Copa. Adicione testes PostgreSQL de constraints e isolamento negativo. Execute prisma format, validate, generate, migration tests, lint, testes e build. Entregue SQL, mapa de backfill, evidências e rollback de aplicação sem rollback destrutivo do schema.
 ```
+
+**Gate para continuar:** backfill reexecutável sem duplicação; zero órfãos; hashes da Copa preservados; constraints impedem cruzamento; rollback de aplicação foi ensaiado.
 
 ---
 
-## Prompt 05 — Testes de isolamento e regressão da Copa
+<a id="prompt-3"></a>
+
+## Prompt 3 — camada genérica de competições
+
+**Pré-requisito:** Prompt 2 aprovado. Especificação: [Etapa 3](<Etapa 3 — Camada genérica de competições>).
 
 ```text
-Continue na mesma branch.
+Implemente exclusivamente a Etapa 3 do plano do repositório bolao-copa-2026 sobre a migration aditiva aprovada.
 
-Não adicione novas funcionalidades. Fortaleça a cobertura de testes da
-arquitetura criada.
+Crie módulos coesos para competitions, seasons, pools, stages, rounds, matches, predictions, standings e rankings, separando controller/route, schema, caso de uso e acesso a dados somente onde houver responsabilidade real. Extraia DTOs e schemas Zod estritos para packages/shared e não exponha modelos Prisma como contratos de API.
 
-Crie testes unitários e de integração para:
+Implemente as rotas genéricas definidas na Etapa 3 com contexto seasonId/poolSeasonId, membership server-side, paginação, selects mínimos, erros seguros com code/issues/requestId e fechamento transacional. O backend deve provar Match → Season e PoolSeason → Season antes de ler ou escrever.
 
-1. duas temporadas com partidas na mesma data;
-2. MatchDay sem colisão entre temporadas;
-3. ranking completamente isolado por seasonId;
-4. snapshot isolado por seasonId e poolSeasonId;
-5. palpite recusado quando o jogo pertence a outra temporada;
-6. usuário sem vínculo ao pool recusado;
-7. partida encerrada ou fora do prazo recusada;
-8. SSE contendo seasonId e poolSeasonId;
-9. AppSetting namespaced por temporada;
-10. execução idempotente do backfill;
-11. rota legada da Copa retornando exatamente o mesmo contexto anterior;
-12. mata-mata da Copa ainda pontuando corretamente;
-13. regra 15/3/1/0;
-14. resultados ao vivo e finais;
-15. ranking atual da Copa comparado ao snapshot baseline.
-
-Não use mocks que ocultem erros de relação do Prisma quando for possível usar
-um banco de teste real.
-
-Ao final, apresente uma matriz de testes com:
-- cenário;
-- camada;
-- arquivo de teste;
-- resultado;
-- risco coberto.
-
-Validações obrigatórias:
-- npm run lint;
-- npm run test;
-- npm run build.
-
-Não avance se houver regressão da Copa.
-
-Commit:
-test: cover season isolation and world cup regression
+Transforme as rotas da Copa em aliases temporários dos mesmos casos de uso, sem duplicar regra e sem condicionais por slug. Inclua eventId, occurredAt, seasonId, poolSeasonId e version nos eventos; publique apenas após commit/outbox. Adicione testes de contrato, paridade legado/novo, autorização e isolamento cruzado. Execute lint, testes e build e reporte telemetria necessária antes de retirar qualquer caminho legado.
 ```
+
+**Gate para continuar:** rotas novas exigem contexto, cruzamentos falham, aliases da Copa mantêm paridade e eventos/logs são filtráveis por temporada e pool.
 
 ---
 
-## Prompt 06 — Fonte normalizada e importação do Brasileirão 2026
+<a id="prompt-4"></a>
+
+## Prompt 4 — providers e sincronização auditável
+
+**Pré-requisito:** APIs genéricas e isolamento aprovados. Especificação: [Etapa 4](<Etapa 4 — Abstração da fonte de dados>).
 
 ```text
-Continue na mesma branch.
+Implemente exclusivamente a Etapa 4 do plano do repositório bolao-copa-2026.
 
-Implemente a carga do Brasileirão Série A 2026 por meio de uma camada de dados
-normalizada e idempotente.
+Extraia o sincronizador GE atual para o contrato CompetitionDataProvider e uma camada anticorrupção de DTOs normalizados. Implemente mappings por externalId e adapters necessários para GE preservado, fonte oficial/CBF quando tecnicamente viável, CSV e operação manual. Não aceite URL arbitrária controlada pelo usuário.
 
-Crie:
+O pipeline deve oferecer dryRun, diff e apply; idempotency key; lock por provider+season+tipo; timeout; limite de bytes; redirect controlado; retry com jitter; schemas estritos; quarantine de ambiguidade; bulk writes e transações curtas. Registre source, checksum, início/fim, contagens e erro redigido.
 
-Competition:
-- slug: brasileirao-serie-a
-- name: Brasileirão Série A
-- format: LEAGUE
-- supportsLeagueStandings: true
-- supportsGroups: false
-- supportsKnockoutBracket: false
-- supportsTwoLeggedTies: false
+Preserve Match ID em remarcação, impeça regressão automática de resultado FINISHED e dê precedência auditada ao override manual. Publique eventos após commit via outbox. Garanta finally para liberar lock/activeRun e shutdown do watch/Prisma.
 
-CompetitionSeason:
-- slug: brasileirao-serie-a-2026
-- name: Brasileirão Série A 2026
-- timezone: America/Sao_Paulo
-
-Stage:
-- Série A — pontos corridos
-- tipo LEAGUE
-
-Rounds:
-- 1 a 38
-
-SeasonTeams:
-- os 20 clubes participantes de 2026
-
-PoolSeason:
-- pool bolao-do-trabalho
-- startsAtRound: 19
-- historicalMatchesScoreable: false
-- regra 15/3/1/0
-
-Fonte e importação:
-
-1. Crie um formato normalizado JSON ou CSV versionado no repositório.
-2. Registre no arquivo:
-   - source;
-   - sourceUrl;
-   - retrievedAt;
-   - season;
-   - checksum ou versão;
-   - timezone.
-3. Use uma fonte pública verificável e adequada. Não invente dados.
-4. Importe preferencialmente as 380 partidas.
-5. Como gate mínimo de lançamento, a Rodada 19 deve conter exatamente dez jogos
-   e todos os horários devem estar confirmados.
-6. Use a referência visual apenas como conferência. Ela mostra, entre outros:
-   - Botafogo x Santos em 16/07/2026 às 19:30;
-   - Vitória x Vasco em 16/07/2026 às 19:30.
-   Não trate a imagem parcial como fonte completa da rodada.
-7. Partidas anteriores à rodada 19 devem ser importadas para histórico e
-   classificação, mas não podem gerar palpites retroativos nem pontos no bolão.
-8. Crie Team como CLUB, com code, shortName e crestUrl quando disponível.
-9. Use ProviderEntityMapping para IDs externos.
-10. Implemente importação idempotente:
-    - atualização de horário não cria novo jogo;
-    - adiamento não duplica partida;
-    - mudança de status não altera identidade;
-    - segunda execução produz zero duplicidades.
-11. Crie um CsvProvider ou importador equivalente como contingência.
-12. Se a fonte principal não estiver disponível, não invente a tabela:
-    finalize a infraestrutura, gere o template de importação e informe
-    precisamente quais dados ainda faltam.
-
-Validações obrigatórias:
-- 20 SeasonTeams;
-- 38 Rounds;
-- 380 Matches, quando a fonte completa estiver disponível;
-- exatamente 10 jogos na Rodada 19;
-- nenhuma duplicidade;
-- horários convertidos corretamente para America/Sao_Paulo;
-- duas execuções idempotentes;
-- npm run lint;
-- npm run test;
-- npm run build.
-
-Commit:
-feat: import brasileirao 2026 season and fixtures
+Adicione fixtures locais e testes de parser, duplicidade, ambiguidade, remarcação, timeout, resposta excessiva, lock, resultado corrigido e override. Execute lint, testes e build; entregue runbook de reconciliação e contingência CSV/manual.
 ```
+
+**Gate para continuar:** segunda importação gera zero inserts indevidos; timeout libera recursos; ambiguidade é quarantined; override sobrevive ao sync; contingência usa as mesmas validações.
 
 ---
 
-## Prompt 07 — Classificação esportiva por pontos corridos
+<a id="prompt-5"></a>
+
+## Prompt 5 — Brasileirão Série A 2026
+
+**Pré-requisito:** provider e contingência aprovados. Especificação: [Etapa 5](<Etapa 5 — Implementação do Brasileirão 2026>).
 
 ```text
-Continue na mesma branch.
+Implemente exclusivamente a Etapa 5 do plano do repositório bolao-copa-2026.
 
-Implemente o motor genérico de classificação para competições de formato LEAGUE.
+Antes de alterar dados, consulte novamente fontes oficiais vigentes da CBF para tabela, horários, clubes e regulamento. Registre URL/documento, collectedAt, timezone e checksum. Não use datas da documentação como constantes e não invente dados ausentes. Se a fonte não for suficiente ou os gates não estiverem completos, proponha iniciar em rodada posterior e pare antes de expor a temporada.
 
-A classificação deve ser calculada a partir dos resultados locais finalizados,
-e não depender exclusivamente de uma tabela externa.
+Crie brasileirao-serie-a e brasileirao-serie-a-2026 no domínio genérico, com formato LEAGUE, stage, 38 rounds, 20 SeasonTeams e somente partidas oficialmente reconciliadas. Configure PoolSeason.scoreableFrom/startsAtRound para impedir pontuação retroativa; jogos históricos alimentam standings, não ranking do bolão.
 
-Calcule por clube:
+Implemente standings determinísticos J/V/E/D/GP/GC/SG/PTS e desempates versionados conforme regulamento confirmado. Implemente ranking geral, por rodada, mês e turno; política explícita para adiado, cancelado, remarcado e correção de resultado; fechamento individual e atômico.
 
-- posição;
-- jogos;
-- vitórias;
-- empates;
-- derrotas;
-- gols pró;
-- gols contra;
-- saldo de gols;
-- pontos;
-- últimos cinco resultados.
-
-Requisitos:
-
-1. Use somente partidas FINISHED para a classificação oficial.
-2. Partidas LIVE podem alimentar uma classificação provisória separada, caso a
-   interface já possua padrão equivalente, sem substituir a oficial.
-3. Critérios de desempate devem ser configuráveis e baseados no regulamento
-   oficial da temporada, com a fonte registrada na configuração.
-4. Não codifique critérios em componentes de interface.
-5. Crie serviço puro e testável em packages/shared ou módulo apropriado.
-6. Exponha GET /api/seasons/:seasonId/standings.
-7. A rota deve rejeitar ou retornar estrutura vazia adequada para temporadas
-   sem suporte a classificação de liga.
-8. Permita comparação opcional com classificação externa apenas para auditoria.
-9. Não misture ranking dos clubes com ranking dos usuários.
-
-Testes obrigatórios:
-- vitória, empate e derrota;
-- saldo e gols;
-- partidas adiadas/canceladas ignoradas;
-- desempates;
-- rodada incompleta;
-- alteração de resultado;
-- isolamento entre temporadas;
-- últimos cinco jogos;
-- classificação com jogos históricos anteriores ao início do bolão.
-
-Validações:
-- npm run lint;
-- npm run test;
-- npm run build.
-
-Commit:
-feat: add generic league standings engine
+Execute dry-run/diff, reconcilie e aplique como canário administrativo sob feature flags separadas de leitura, escrita e UI. Prove idempotência, preservação de Match ID, isolamento total da Copa e fallback CSV/manual. Execute lint, testes, build e smoke mobile/desktop antes de recomendar exposição pública.
 ```
+
+**Gate para continuar:** carga reconciliada e idempotente; histórico não pontua; Copa mantém hashes; fechamento está correto; canário, fallback e rollback por flags foram ensaiados.
 
 ---
 
-## Prompt 08 — Palpites e ranking do Brasileirão
+<a id="prompt-6"></a>
+
+## Prompt 6 — frontend, UX/UI e acessibilidade
+
+**Pré-requisito:** contratos genéricos e temporada em canário. Especificação: [Etapa 6](<Etapa 6 — Refatoração do frontend>).
 
 ```text
-Continue na mesma branch.
+Implemente exclusivamente a Etapa 6 do plano do repositório bolao-copa-2026, preservando regras e contratos aprovados do backend.
 
-Implemente o fluxo de palpites e ranking do pool bolao-do-trabalho para a
-temporada brasileirao-serie-a-2026.
+Refatore incrementalmente App.tsx, predictionBoard.tsx, competitionV2.tsx e api.ts em shell, features, componentes, serviços e theme menores. Remova tipos duplicados em favor de contratos de packages/shared validados na entrada. Mantenha V1 atrás de feature flag até provar paridade.
 
-Requisitos de palpites:
+Crie contexto/seletor de competição e temporada orientado a capabilities; TeamBadge com fallback; ScoreInput com label de time, teclado numérico, erros e foco; AsyncState; Toast acessível; skeletons; estados vazios úteis; cliente de requests/SSE com cancelamento, ordenação de resposta, reconnect e indicador Ao vivo/Reconectando/Offline.
 
-1. Palpites devem ser organizáveis por rodada e por data.
-2. O fechamento deve ocorrer individualmente por partida.
-3. Use a configuração vigente de minutos antes do jogo.
-4. O participante vê apenas o próprio palpite antes do fechamento.
-5. Após o fechamento, os palpites públicos seguem a regra atual do sistema.
-6. Partidas anteriores a startsAtRound não aceitam palpites.
-7. Partidas anteriores ou históricas não geram pontos.
-8. Jogos adiados devem reabrir ou permanecer fechados conforme regra explícita
-   e testada, sem perder o palpite existente.
-9. Mudança de horário deve recalcular predictionClosesAt.
-10. Administrador não participa, mantendo a regra atual.
+Modele drafts pela chave userId+poolSeasonId. Polling, SSE ou resposta antiga não podem sobrescrever campo dirty; avise ao sair e mostre Não salvo, Salvando, Salvo e Falhou por item/lote. No mata-mata, associe inputs aos times e exija classificado no empate. No ranking, destaque usuário atual, líder da rodada, movimento, distância para o próximo e critérios de desempate, com hierarquia visual clara.
 
-Requisitos de ranking:
-
-1. Ranking geral da temporada.
-2. Ranking por rodada.
-3. Filtro por período já existente, quando compatível.
-4. Últimos cinco resultados do participante limitados à temporada selecionada.
-5. Desempate mantendo a ordem atual:
-   pontos, placares exatos, resultados, acertos de gols, menos erros e nickname.
-6. Snapshot por seasonId, poolSeasonId e roundId quando aplicável.
-7. SSE atualizando somente o contexto afetado.
-8. Não somar Copa e Brasileirão.
-9. Não alterar a pontuação 15/3/1/0.
-10. Premiação de campeão da rodada pode ser calculada, mas não deve bloquear o
-    lançamento se a UI de prêmios ainda não estiver pronta.
-
-Testes obrigatórios:
-- rodada 19 aceita palpites;
-- rodada 18 é histórica e não pontua;
-- ranking geral;
-- ranking da rodada;
-- isolamento da Copa;
-- fechamento por partida;
-- partida ao vivo;
-- resultado final;
-- adiamento e mudança de horário;
-- SSE com contexto correto.
-
-Validações:
-- npm run lint;
-- npm run test;
-- npm run build;
-- snapshot da Copa inalterado.
-
-Commit:
-feat: add brasileirao predictions and season rankings
+Valide 320, 768, 1280 e 1440 px, teclado, leitor de tela, contraste, alvos de toque e reduced motion. Adicione testes de componentes e E2E para login, palpite, mata-mata, troca de temporada, ranking, erros 401/403/409/5xx e reconnect. Meça renders/bundle antes de aplicar memo/useCallback/lazy loading. Execute lint, testes e build.
 ```
+
+**Gate para continuar:** nenhum draft é perdido; fluxos críticos funcionam mobile/desktop e por teclado/leitor de tela; estados de erro/sync são inequívocos; V1/V2 têm paridade comprovada.
 
 ---
 
-## Prompt 09 — Frontend MVP de múltiplas competições
+<a id="prompt-7"></a>
+
+## Prompt 7 — pontuação configurável e gamificação
+
+**Pré-requisito:** frontend e isolamento aprovados. Especificação: [Etapa 7](<Etapa 7 — Regras de pontuação configuráveis>).
 
 ```text
-Continue na mesma branch.
+Implemente exclusivamente a Etapa 7 do plano do repositório bolao-copa-2026.
 
-Implemente somente a refatoração mínima do frontend necessária ao lançamento do
-Brasileirão. Não tente decompor integralmente App.tsx nesta etapa.
+Modele ScoringRuleSetVersion e TieBreakerRuleSet imutáveis. Registre o sistema atual 15/3/1/0 como versão inicial sem recalcular o histórico da Copa e grave versão e breakdown em cada novo score. Faça cálculo e recomputação determinísticos, idempotentes e auditáveis.
 
-Crie, no mínimo:
+Implemente de forma incremental AchievementDefinition, UserAchievement, Streak, RankingSnapshot, RankingMovement e NotificationInbox com chaves idempotentes e outbox transacional. Streak usa somente resultados finais em ordem definida; partidas ao vivo não consolidam conquista. Badges possuem critérios/versionamento; líder da rodada e movimento ficam provisórios enquanto aplicável. O resumo desde a última visita usa snapshot/lastSeen, não comparação acidental entre filtros.
 
-- CompetitionContext;
-- seletor de competição/temporada;
-- TeamBadge genérico;
-- tela ou seção de jogos por rodada;
-- tela ou seção de classificação esportiva;
-- ranking do bolão por temporada e por rodada;
-- estado vazio e tratamento de erro;
-- persistência da última competição selecionada, sem impedir fallback.
+Exiba regra de pontuação e desempate antes do início, progresso sem dark patterns e explicações acessíveis. Comece por inbox in-app; push/e-mail somente com opt-in, preferências e quiet hours.
 
-Navegação mínima do Brasileirão:
-
-- Visão geral;
-- Jogos e palpites;
-- Classificação;
-- Ranking do bolão.
-
-Requisitos:
-
-1. A Copa do Mundo 2026 deve permanecer selecionável e funcional.
-2. O frontend deve obter capabilities da API.
-3. Não use condicionais por slug para montar a navegação.
-4. Substitua o conceito visual de bandeira por TeamBadge quando o tipo for CLUB,
-   preservando bandeiras para NATIONAL_TEAM.
-5. Não chame provedores externos no frontend.
-6. Exiba rodada, data, horário e estado do palpite.
-7. Exiba claramente quando o jogo está aberto, fechado, ao vivo, finalizado,
-   adiado ou cancelado.
-8. O formulário deve impedir envio depois do fechamento.
-9. Atualizações SSE devem ignorar eventos de outra temporada.
-10. Mantenha boa utilização em desktop e mobile.
-11. Não realize redesign geral.
-12. Mantenha a identidade atual e permita tema por competição somente onde já
-    for simples e seguro.
-
-Adicione testes de frontend mínimos para:
-- troca de competição;
-- isolamento das requisições;
-- TeamBadge;
-- rodada 19;
-- classificação;
-- ranking por rodada;
-- erro de API;
-- estado de carregamento;
-- evento SSE de outra temporada ignorado.
-
-Validações:
-- npm run lint;
-- npm run test;
-- npm run build;
-- teste manual em viewport desktop;
-- teste manual em viewport mobile;
-- Copa e Brasileirão navegáveis na mesma sessão.
-
-Commit:
-feat: add multi-competition frontend and brasileirao screens
+Adicione testes unitários/property-based das regras, empates, replay, correção de resultado, concorrência e isolamento por PoolSeason. Prove que replay não duplica conquista, alteração de versão não muda score histórico e recomputação é reversível/auditada. Execute lint, testes e build.
 ```
+
+**Gate para continuar:** placar histórico preservado; regras são versionadas; replay é idempotente; streak/badges/movimentos têm semântica clara e não misturam temporadas.
 
 ---
 
-## Prompt 10 — Sincronização, atualização manual e contingência
+<a id="prompt-8"></a>
+
+## Prompt 8 — administração e operação segura
+
+**Pré-requisito:** domínio, provider e regras versionadas aprovados. Especificação: [Etapa 8](<Etapa 8 — Administração>).
 
 ```text
-Continue na mesma branch.
+Implemente exclusivamente a Etapa 8 do plano do repositório bolao-copa-2026.
 
-Extraia do sincronizador atual uma interface mínima de provider sem reescrever
-toda a integração da Copa.
+Crie painel e APIs administrativas por módulos coesos para temporadas/rodadas, import/sync, mappings/quarantine, overrides de partida, rule sets, usuários, auditoria, jobs e saúde. Revalide RBAC e sessão em toda ação; admin global não recebe membership social implicitamente.
 
-Crie o contrato CompetitionDataProvider com operações equivalentes a:
+Toda mutação sensível exige schema Zod estrito, CSRF, justificativa, idempotency key e auditoria before/after com actor, requestId, seasonId e poolSeasonId. Ações de alto impacto exigem preview/dry-run, contagem de registros afetados e confirmação reforçada; nunca expor botão genérico de reset ou exclusão em massa.
 
-- syncTeams;
-- syncSchedule;
-- syncResults;
-- syncStandings opcional;
-- healthCheck.
+Permita visualizar divergências, resolver mapping ambíguo, aplicar override manual com provenance, pausar/reexecutar jobs com segurança e inspecionar health de provider, SSE, pool de conexão, ranking e backup. Reprocessamento deve mostrar impacto e respeitar ruleSetVersion.
 
-Implemente:
-
-1. adaptação do sincronizador atual da Copa sem mudar seu comportamento;
-2. provider ou importador do Brasileirão;
-3. CsvProvider ou ManualProvider como contingência;
-4. ApiSyncLog com provider, competitionId, seasonId, tipo, início, fim e
-   resultado;
-5. reconciliação prioritária por ProviderEntityMapping;
-6. fallback por nomes normalizados somente quando o ID externo não existir;
-7. prevenção de regressão FINISHED para SCHEDULED;
-8. atualização de predictionClosesAt quando startsAt mudar;
-9. auditoria de correção manual;
-10. lock para impedir duas sincronizações concorrentes da mesma temporada;
-11. timeout, retry controlado e logs sem segredos;
-12. endpoint administrativo para sincronizar a temporada selecionada;
-13. endpoint administrativo para importar arquivo de contingência validado;
-14. relatório de divergências sem alterar automaticamente dados ambíguos.
-
-A sincronização do Brasileirão deve poder atualizar:
-- horário;
-- status;
-- placar ao vivo;
-- resultado final;
-- adiamento;
-- cancelamento.
-
-Não dependa de scraping frágil como única forma de operação no dia da rodada.
-
-Testes:
-- importação idempotente;
-- mudança de horário;
-- adiamento;
-- resultado final;
-- regressão ignorada;
-- mapeamento por ID;
-- ambiguidade por nome;
-- lock de concorrência;
-- fallback CSV;
-- isolamento entre temporadas.
-
-Validações:
-- npm run lint;
-- npm run test;
-- npm run build.
-
-Commit:
-feat: add competition data providers and brasileirao sync fallback
+Adicione testes negativos de RBAC/membership/CSRF, concorrência, duplicidade, auditoria, replay e proteção contra alteração cruzada de temporada. Execute lint, testes e build e entregue runbook operacional com rollback de cada ação sensível.
 ```
+
+**Gate para continuar:** ações sensíveis são autorizadas, previstas e auditadas; nenhuma ação cruzada passa; import/override/reprocessamento possuem dry-run e rollback documentados.
 
 ---
 
-## Prompt 11 — Painel administrativo mínimo para o go-live
+<a id="prompt-9"></a>
+
+## Prompt 9 — testes obrigatórios e release gates
+
+**Pré-requisito:** Prompts 0–8 implementados. Especificação: [Etapa 9](<Etapa 9 — Testes obrigatórios>).
 
 ```text
-Continue na mesma branch.
+Implemente exclusivamente a Etapa 9 do plano do repositório bolao-copa-2026. Não use esta etapa para esconder correções funcionais amplas: reporte achados e corrija somente defeitos diretamente comprovados pelos testes, mantendo o escopo explícito.
 
-Implemente apenas os controles administrativos indispensáveis para operar o
-Brasileirão na Rodada 19.
+Substitua o placeholder de testes web e monte a pirâmide definida na Etapa 9:
+- unitários de pontuação, desempate, standings, gamificação, timezone, fechamento e providers;
+- integração com PostgreSQL real para migration/backfill, constraints, sessão, CSRF, concorrência, import, outbox, ranking e isolamento;
+- contrato de API/SSE para schemas, aliases da Copa, membership, reconexão, backpressure, bloqueio e shutdown;
+- componentes frontend para drafts, feedback, ranking, mata-mata, erros e reduced motion;
+- E2E mobile/desktop para login, palpite, limite, troca de competição, ranking e admin;
+- acessibilidade, carga/budget, migration rehearsal, backup+avatares, restore drill e rollback por flags.
 
-Funcionalidades:
+Use clock injetável e fixtures locais; o CI não pode depender de GE/CBF ao vivo. Configure CI reprodutível com npm ci e gates separados para PR, release candidate, migration e go-live. Registre duração, flakiness e artefatos sem PII.
 
-1. selecionar competição e temporada;
-2. visualizar equipes, rodadas e partidas importadas;
-3. visualizar a contagem esperada e importada;
-4. executar sincronização manual;
-5. importar arquivo CSV/JSON de contingência;
-6. corrigir horário, status e placar de uma partida;
-7. informar justificativa obrigatória para correção manual;
-8. visualizar o último ApiSyncLog;
-9. habilitar ou desabilitar o PoolSeason;
-10. definir startsAtRound;
-11. visualizar predictionClosesAt;
-12. suspender palpites de uma partida em emergência;
-13. recalcular pontuações de uma partida;
-14. recalcular ranking da temporada;
-15. visualizar divergências ou dados incompletos.
-
-Requisitos:
-
-- todas as ações devem exigir ADMIN;
-- todas as alterações devem gerar AdminAuditLog;
-- a interface deve destacar ações que mudam pontuação;
-- não permita editar partidas de outra temporada por engano;
-- não implemente ainda o painel administrativo completo descrito na Etapa 8;
-- preserve os controles administrativos da Copa.
-
-Testes:
-- permissão;
-- auditoria;
-- temporada incorreta;
-- recálculo;
-- suspensão;
-- importação;
-- correção manual.
-
-Validações:
-- npm run lint;
-- npm run test;
-- npm run build.
-
-Commit:
-feat: add minimum brasileirao operations admin panel
+Execute toda a matriz disponível, incluindo lint e build. Faça um ensaio completo sobre backup sanitizado, compare hashes da Copa e prove restore e rollback. Produza relatório GO/NO-GO com P0/P1, cobertura por risco e itens que exigem ambiente externo. Não declare go-live se algum gate obrigatório estiver ausente ou falhando.
 ```
+
+**Gate para continuar:** CI e suítes obrigatórias passam; restore/migration/rollback foram ensaiados; hash da Copa é preservado; nenhum P0/P1 permanece aberto.
 
 ---
 
-## Prompt 12 — Auditoria final, testes end-to-end e ensaio de migração
+<a id="prompt-final"></a>
+
+## Prompt final — auditoria de go-live
+
+Este prompt é opcional e somente deve ser executado após a aprovação do Prompt 9. Ele não autoriza deploy.
 
 ```text
-Continue na mesma branch.
+Faça a auditoria final de go-live do plano de expansão do bolao-copa-2026 em modo somente leitura.
 
-Nesta etapa, não adicione novas funcionalidades. Faça uma auditoria completa da
-entrega.
+Revise evidências dos Prompts 0–9, diffs, ADRs, migrations, hashes, relatórios de teste, audit de dependências, reconciliação da fonte oficial, feature flags, observabilidade, backup/restore e rollback. Reconsulte a fonte oficial vigente da CBF e compare os dados que serão expostos. Não altere código, banco, configuração externa ou flags.
 
-Execute um ensaio em ambiente isolado:
+Entregue:
+1. decisão GO ou NO-GO fundamentada por gate;
+2. checklist de preservação da Copa;
+3. divergências de dados/agenda/regulamento;
+4. P0/P1/P2 residuais com owner e ação;
+5. sequência operacional de canário, abertura, monitoramento e rollback;
+6. evidências que ainda precisam ser coletadas em produção.
 
-1. restaure uma cópia do banco atual;
-2. gere snapshot baseline da Copa;
-3. aplique todas as migrações;
-4. execute o backfill;
-5. importe o Brasileirão;
-6. execute a sincronização;
-7. gere snapshot pós-migração;
-8. compare a Copa;
-9. execute os fluxos do Brasileirão;
-10. restaure novamente para provar o rollback.
-
-Cenários end-to-end obrigatórios:
-
-- login de usuário existente;
-- Copa do Mundo acessível;
-- ranking da Copa inalterado;
-- seleção do Brasileirão;
-- visualização da Rodada 19 completa;
-- envio de palpite;
-- edição antes do fechamento;
-- bloqueio depois do fechamento;
-- publicação dos palpites;
-- atualização de placar ao vivo;
-- finalização da partida;
-- cálculo 15/3/1/0;
-- ranking geral;
-- ranking da rodada;
-- classificação dos clubes;
-- mudança de horário;
-- adiamento;
-- usuário sem vínculo;
-- administrador;
-- SSE;
-- mobile;
-- desktop;
-- reinício da API;
-- indisponibilidade do provider com uso do cache local;
-- importação de contingência.
-
-Verificações de dados:
-
-- 20 clubes;
-- 38 rodadas;
-- 10 partidas na Rodada 19;
-- ausência de duplicidades;
-- nenhuma partida sem seasonId;
-- nenhum snapshot novo sem seasonId;
-- nenhum vazamento de ranking;
-- nenhum segredo em logs;
-- índices usados nas consultas críticas;
-- tempo de resposta aceitável para o volume atual.
-
-Produza:
-- relatório de testes;
-- relatório de migração;
-- relatório de rollback;
-- lista de bloqueadores;
-- checklist de go-live;
-- lista de itens postergados.
-
-Não considere a etapa aprovada se qualquer teste de regressão da Copa falhar.
-
-Commit:
-test: validate multi-competition rollout and rollback
+Se qualquer gate estiver ausente, declare NO-GO e indique exatamente qual prompt/critério precisa ser retomado. Não execute deploy, push, merge, restore ou abertura de feature flag sem nova autorização explícita.
 ```
 
----
+## Regra para retomadas
 
-## Prompt 13 — Preparação de release e feature flag
-
-```text
-Continue na mesma branch.
-
-Prepare a release candidata, sem ligar a feature flag em produção
-automaticamente.
-
-Tarefas:
-
-1. Atualize README e documentação operacional.
-2. Crie RELEASE_CHECKLIST_BRASILEIRAO_2026.md.
-3. Documente:
-   - backup;
-   - snapshot;
-   - migração;
-   - backfill;
-   - importação;
-   - smoke tests;
-   - ativação da feature flag;
-   - desativação;
-   - rollback;
-   - contatos e responsabilidades operacionais;
-   - logs a monitorar.
-4. Defina versão e notas de release.
-5. Liste variáveis de ambiente novas.
-6. Garanta que MULTI_COMPETITION_ENABLED permaneça false por padrão.
-7. Gere comandos exatos de implantação, sem incluir segredos.
-8. Faça uma última execução:
-   - npm run lint;
-   - npm run test;
-   - npm run build;
-   - prisma validate;
-   - prisma generate.
-9. Compare o snapshot da Copa.
-10. Valide que a Rodada 19 contém os dez jogos.
-11. Abra ou prepare o texto de um pull request, contendo:
-    - resumo;
-    - arquitetura;
-    - migrações;
-    - testes;
-    - riscos;
-    - rollback;
-    - escopo postergado.
-12. Não faça merge automático.
-13. Não ative a feature flag.
-
-Commit:
-docs: prepare brasileirao 2026 release checklist
-```
-
----
-
-## Prompt 14 — Revisão independente do pull request
-
-```text
-Atue agora como revisor independente. Não implemente funcionalidades novas.
-
-Revise todo o diff da branch codex/multicompeticao-brasileirao-2026 contra
-main.
-
-Procure especificamente:
-
-1. consultas sem seasonId;
-2. queries de ranking global;
-3. snapshots sem poolSeasonId;
-4. MatchDay ainda global por data;
-5. risco de exclusão ou recriação de dados;
-6. regressão do mata-mata da Copa;
-7. alteração involuntária da regra 15/3/1/0;
-8. fechamento de palpite baseado no dia em vez da partida;
-9. eventos SSE sem contexto;
-10. condicionais por slug;
-11. chamadas externas no frontend;
-12. importação não idempotente;
-13. identificação de jogo baseada apenas em nome;
-14. partidas históricas gerando pontos;
-15. ausência de auditoria administrativa;
-16. migrações com lock ou downtime excessivo;
-17. credenciais ou dados sensíveis;
-18. ausência de fallback;
-19. escudos quebrados;
-20. problemas em mobile;
-21. falta dos dez jogos da Rodada 19;
-22. timezone incorreto;
-23. rotas legadas quebradas.
-
-Classifique os achados em:
-- bloqueador;
-- alto;
-- médio;
-- baixo.
-
-Para cada achado, informe arquivo, linha, impacto e correção recomendada.
-
-Não aprove o PR se houver qualquer bloqueador ou risco alto de perda de dados.
-Não altere arquivos nesta execução.
-```
-
----
-
-## Prompt 15 — Correção dos achados da revisão
-
-```text
-Continue na branch codex/multicompeticao-brasileirao-2026.
-
-Leia integralmente a revisão independente do prompt anterior.
-
-Corrija somente achados classificados como bloqueador, alto ou médio que afetem:
-
-- integridade de dados;
-- segurança;
-- regressão da Copa;
-- escopo de temporada;
-- palpites;
-- pontuação;
-- ranking;
-- classificação;
-- sincronização;
-- Rodada 19;
-- operação do go-live.
-
-Para cada correção:
-
-1. crie ou ajuste teste que reproduza o problema;
-2. faça a menor alteração possível;
-3. não introduza novas funcionalidades;
-4. execute lint, testes e build;
-5. gere novamente os snapshots;
-6. atualize o checklist de release.
-
-Faça um único commit:
-
-fix: resolve pre-release multi-competition blockers
-```
-
----
-
-## Prompt 16 — Checklist operacional de go-live
-
-```text
-Não faça alterações de código nesta etapa.
-
-Gere um roteiro operacional numerado para o responsável pela implantação,
-considerando que a primeira partida da rodada está prevista para
-16/07/2026 às 19:30 no horário de Brasília.
-
-O roteiro deve conter:
-
-1. congelamento de alterações;
-2. verificação do commit e PR aprovados;
-3. backup;
-4. checksum;
-5. snapshot da Copa;
-6. migrações;
-7. backfill;
-8. importação e conferência da Rodada 19;
-9. inicialização da aplicação com feature flag false;
-10. smoke tests da Copa;
-11. smoke tests do Brasileirão;
-12. conferência dos dez jogos;
-13. conferência dos horários e predictionClosesAt;
-14. teste com usuário comum;
-15. teste com administrador;
-16. teste mobile;
-17. teste SSE;
-18. ativação de MULTI_COMPETITION_ENABLED;
-19. nova rodada de smoke tests;
-20. monitoramento de logs;
-21. janela e critérios de rollback;
-22. procedimento de desativação da feature;
-23. comunicação aos participantes.
-
-Defina como meta operacional:
-- release candidata concluída até 15/07/2026;
-- implantação e smoke tests finais com ampla antecedência;
-- nenhuma alteração estrutural de última hora perto do início da rodada.
-
-Inclua campos para registrar:
-- horário de cada ação;
-- responsável;
-- resultado;
-- evidência;
-- decisão de prosseguir ou reverter.
-```
-
----
-
-# Gate final de aceite
-
-A expansão somente poderá ser considerada pronta quando todos os itens abaixo
-estiverem confirmados:
-
-- [ ] Backup criado e restaurado em ambiente de teste.
-- [ ] Snapshot da Copa antes e depois idêntico.
-- [ ] Copa do Mundo 2026 acessível.
-- [ ] Ranking da Copa inalterado.
-- [ ] Mata-mata da Copa funcional.
-- [ ] Feature flag presente e desligada por padrão.
-- [ ] Competition e CompetitionSeason criados.
-- [ ] Todas as partidas possuem escopo de temporada.
-- [ ] Pool e PoolSeason padrão criados.
-- [ ] Brasileirão Série A 2026 criado.
-- [ ] Vinte clubes cadastrados.
-- [ ] Trinta e oito rodadas cadastradas.
-- [ ] Rodada 19 com exatamente dez jogos.
-- [ ] Horários conferidos em fonte verificada.
-- [ ] Partidas históricas não geram pontos.
-- [ ] Palpites fecham individualmente por partida.
-- [ ] Regra 15/3/1/0 preservada.
-- [ ] Ranking geral isolado.
-- [ ] Ranking por rodada funcional.
-- [ ] Classificação esportiva funcional.
-- [ ] SSE isolado por temporada.
-- [ ] Importação idempotente.
-- [ ] Fallback CSV/manual funcional.
-- [ ] Painel administrativo mínimo funcional.
-- [ ] Testes, lint e build aprovados.
-- [ ] Migração ensaiada em cópia do banco.
-- [ ] Rollback ensaiado.
-- [ ] PR revisado sem bloqueadores.
-- [ ] Checklist de go-live preenchido.
-- [ ] Feature flag ativada somente após smoke tests.
-
----
-
-# Plano de contingência para o dia da rodada
-
-Caso a sincronização automática não esteja estável, a aplicação poderá entrar em
-produção somente se:
-
-1. os dez jogos da Rodada 19 estiverem cadastrados e conferidos;
-2. os palpites estiverem funcionando;
-3. os horários e fechamentos estiverem corretos;
-4. houver atualização manual auditada de placares;
-5. o ranking puder ser recalculado manualmente;
-6. a Copa permanecer preservada;
-7. houver backup e rollback testados.
-
-Não adie a proteção dos dados para priorizar automação. No corte de lançamento,
-uma atualização manual segura e auditável é preferível a um scraper instável.
-
----
-
-# Escopo posterior ao go-live
-
-Após a estabilização do Brasileirão:
-
-1. concluir a refatoração modular do frontend;
-2. remover gradualmente aliases legados;
-3. tornar FKs novas obrigatórias;
-4. executar a etapa contract das migrações;
-5. unificar o mata-mata;
-6. criar Tie e partidas de ida/volta;
-7. implementar Copa do Brasil;
-8. implementar Libertadores;
-9. implementar Sul-Americana;
-10. criar ranking histórico e múltiplos pools;
-11. ampliar testes automatizados do frontend;
-12. melhorar observabilidade, métricas e alertas.
+Se uma etapa falhar ou ficar parcial, reenvie **o mesmo prompt**, acrescentando no início as evidências da execução anterior e pedindo apenas a conclusão dos itens pendentes. Não avance para o número seguinte até o gate estar atendido. Se o código mudar substancialmente ou a documentação ficar dessincronizada, execute novamente a [Pré-execução](#pre-execucao).

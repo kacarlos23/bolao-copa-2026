@@ -1,41 +1,63 @@
-Etapa 3 — Camada genérica de competições
+# Etapa 3 — Camada genérica de competições
 
-Criar módulos no backend:
+## Objetivo
 
+Criar APIs e serviços com escopo explícito, mantendo a Copa como alias compatível e evitando “service god objects”.
+
+## Estrutura sugerida
+
+```text
 apps/api/src/modules/
-├── competitions/
-├── seasons/
-├── stages/
-├── rounds/
-├── teams/
-├── matches/
-├── predictions/
-├── standings/
-├── rankings/
-├── scoring/
-├── providers/
-└── pools/
+├── competitions  ├── seasons      ├── pools
+├── stages        ├── rounds       ├── matches
+├── predictions   ├── standings   ├── rankings
+├── scoring       └── providers
+```
 
-A API deve abandonar gradualmente rotas específicas como /api/cup.
+Cada módulo deve separar route/controller, schema, service/use-case e repository/queries. Não criar camadas vazias: a divisão deve refletir regras reais.
 
-Rotas recomendadas
+## Rotas iniciais
+
+```http
 GET /api/competitions
-GET /api/competitions/:competitionSlug/seasons
+GET /api/competitions/:slug/seasons
 GET /api/seasons/:seasonId
 GET /api/seasons/:seasonId/rounds
 GET /api/seasons/:seasonId/matches
 GET /api/seasons/:seasonId/standings
-
 GET /api/pools/:poolSlug/seasons/:seasonId/ranking
 GET /api/pools/:poolSlug/seasons/:seasonId/predictions
 PUT /api/pools/:poolSlug/seasons/:seasonId/predictions
+GET /api/pools/:poolSlug/seasons/:seasonId/awards
+```
 
-GET /api/seasons/:seasonId/awards
+## Regras de domínio
 
-Os endpoints devem sempre validar:
+- Validar params/query/body com Zod estrito.
+- Revalidar sessão e membership; admin global não participa automaticamente do pool.
+- Comprovar match → season e PoolSeason → season antes de ler/gravar.
+- Aplicar fechamento dentro da transação.
+- Rotas da Copa chamam os mesmos use cases com IDs resolvidos por configuração.
+- Paginar listas e não retornar relações completas por padrão.
+- Erros possuem status, code, message segura, issues e requestId.
+- Eventos SSE/outbox carregam IDs de contexto e versão.
 
-se a partida pertence à temporada;
-se a temporada está habilitada no bolão;
-se o usuário é membro;
-se o palpite ainda está aberto;
-se o resultado pertence à mesma competição.
+## Arquivos principais
+
+Novos módulos, `packages/shared` para DTOs/schemas, `app.ts` para composição, serviços legados como adapters temporários e testes de contrato das rotas antigas/novas.
+
+## Melhores práticas
+
+SOLID, ports/repositories apenas onde isolam infraestrutura, DRY em contratos, autorização server-side, queries seletivas, paginação, transações e observabilidade. Remover `any`; não misturar DTO de API com modelo Prisma.
+
+## Critérios de aceite
+
+- Toda rota nova exige contexto completo e rejeita cruzamento.
+- Rotas antigas da Copa retornam conteúdo equivalente.
+- Nenhum `if (slug === ...)` decide regra esportiva.
+- Eventos e logs podem ser filtrados por season/pool.
+- OpenAPI/contratos ou testes de schema documentam respostas e erros.
+
+## Execução
+
+Este documento é a especificação da etapa. Para implementá-la, use exclusivamente o [Prompt 3 — camada genérica de competições](PROMPTS_CODEX_EXPANSAO_BRASILEIRAO_2026.md#prompt-3) no arquivo canônico de prompts.
