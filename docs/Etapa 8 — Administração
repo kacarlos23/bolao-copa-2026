@@ -1,0 +1,27 @@
+O painel administrativo deverá permitir:
+
+criar competição;
+criar temporada;
+escolher formato;
+habilitar temporada no bolão;
+importar equipes;
+importar tabela;
+acompanhar sincronização;
+corrigir horários e resultados;
+cadastrar aliases de equipes;
+suspender palpites de uma partida;
+definir regra de pontuação;
+escolher rodada inicial;
+recalcular classificação;
+recalcular ranking;
+arquivar temporada;
+conferir divergências entre fornecedores.
+
+Toda alteração de resultado deve registrar:
+
+valor anterior
+valor novo
+administrador
+data
+justificativa
+origem
