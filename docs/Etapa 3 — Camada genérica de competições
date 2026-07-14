@@ -1,0 +1,41 @@
+Etapa 3 — Camada genérica de competições
+
+Criar módulos no backend:
+
+apps/api/src/modules/
+├── competitions/
+├── seasons/
+├── stages/
+├── rounds/
+├── teams/
+├── matches/
+├── predictions/
+├── standings/
+├── rankings/
+├── scoring/
+├── providers/
+└── pools/
+
+A API deve abandonar gradualmente rotas específicas como /api/cup.
+
+Rotas recomendadas
+GET /api/competitions
+GET /api/competitions/:competitionSlug/seasons
+GET /api/seasons/:seasonId
+GET /api/seasons/:seasonId/rounds
+GET /api/seasons/:seasonId/matches
+GET /api/seasons/:seasonId/standings
+
+GET /api/pools/:poolSlug/seasons/:seasonId/ranking
+GET /api/pools/:poolSlug/seasons/:seasonId/predictions
+PUT /api/pools/:poolSlug/seasons/:seasonId/predictions
+
+GET /api/seasons/:seasonId/awards
+
+Os endpoints devem sempre validar:
+
+se a partida pertence à temporada;
+se a temporada está habilitada no bolão;
+se o usuário é membro;
+se o palpite ainda está aberto;
+se o resultado pertence à mesma competição.
