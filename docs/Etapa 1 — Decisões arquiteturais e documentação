@@ -1,0 +1,21 @@
+Etapa 1 — Decisões arquiteturais e documentação
+
+Criar documentos em docs/architecture:
+
+ADR-001-multi-competition-domain.md
+ADR-002-season-and-stage-model.md
+ADR-003-scoring-rule-versioning.md
+ADR-004-provider-adapters.md
+ADR-005-knockout-unification.md
+ADR-006-pool-and-membership.md
+
+Também atualizar:
+
+README;
+diagrama de entidades;
+fluxo de sincronização;
+regras de pontuação;
+estratégia de migração;
+política de fechamento dos palpites.
+
+Decisão central: o Brasileirão deve ser a primeira utilização da nova arquitetura, mas a Copa do Mundo deve continuar acessível como temporada arquivada.
