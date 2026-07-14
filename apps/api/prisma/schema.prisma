@@ -32,6 +32,51 @@ enum MatchDayStatus {
   FINISHED
 }
 
+enum TeamType {
+  NATIONAL_TEAM
+  CLUB
+}
+
+enum CompetitionSeasonStatus {
+  DRAFT
+  ACTIVE
+  FINISHED
+  ARCHIVED
+}
+
+enum StageType {
+  LEAGUE
+  GROUP
+  KNOCKOUT
+}
+
+enum RoundStatus {
+  SCHEDULED
+  ACTIVE
+  FINISHED
+}
+
+enum PoolMembershipRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum PoolMembershipStatus {
+  ACTIVE
+  INACTIVE
+  REMOVED
+}
+
+enum ProviderEntityType {
+  COMPETITION
+  COMPETITION_SEASON
+  STAGE
+  ROUND
+  TEAM
+  MATCH
+}
+
 enum ScoreType {
   EXACT_SCORE
   RESULT
@@ -91,9 +136,95 @@ model User {
   knockoutBrackets KnockoutBracket[]
   knockoutScores   KnockoutPredictionScore[]
   groupSimulations KnockoutGroupSimulationScore[]
+  poolMemberships  PoolMembership[]
 
   @@index([role, status])
   @@index([nickname])
+}
+
+model Competition {
+  id           String              @id @default(cuid())
+  slug         String              @unique
+  name         String
+  capabilities Json?
+  metadata     Json?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  seasons      CompetitionSeason[]
+
+  @@index([name])
+}
+
+model CompetitionSeason {
+  id                  String                  @id @default(cuid())
+  competitionId       String
+  slug                String
+  name                String
+  year                Int?
+  timezone            String
+  status              CompetitionSeasonStatus @default(DRAFT)
+  startsAt            DateTime?
+  endsAt              DateTime?
+  capabilities        Json?
+  metadata            Json?
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  competition         Competition             @relation(fields: [competitionId], references: [id])
+  stages              Stage[]
+  rounds              Round[]
+  teams               SeasonTeam[]
+  matchDays           MatchDay[]
+  matches             Match[]
+  knockoutFixtures    KnockoutFixture[]
+  knockoutGenerations KnockoutGeneration[]
+  poolSeasons         PoolSeason[]
+  providerMappings    ProviderEntityMapping[]
+  rankingSnapshots    RankingSnapshot[]
+
+  @@unique([competitionId, slug])
+  @@index([competitionId, status])
+  @@index([status, startsAt])
+}
+
+model Stage {
+  id        String            @id @default(cuid())
+  seasonId  String
+  slug      String
+  name      String
+  type      StageType
+  order     Int
+  metadata  Json?
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  season    CompetitionSeason @relation(fields: [seasonId], references: [id])
+  rounds    Round[]
+  matches   Match[]
+
+  @@unique([seasonId, slug])
+  @@unique([seasonId, order])
+  @@index([seasonId, type])
+}
+
+model Round {
+  id               String            @id @default(cuid())
+  seasonId         String
+  stageId          String
+  name             String
+  order            Int
+  status           RoundStatus       @default(SCHEDULED)
+  startsAt         DateTime?
+  endsAt           DateTime?
+  metadata         Json?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  season           CompetitionSeason @relation(fields: [seasonId], references: [id])
+  stage            Stage             @relation(fields: [stageId], references: [id])
+  matches          Match[]
+  rankingSnapshots RankingSnapshot[]
+
+  @@unique([stageId, order])
+  @@index([seasonId, status, startsAt])
+  @@index([stageId, status, startsAt])
 }
 
 model Team {
@@ -102,6 +233,8 @@ model Team {
   name                  String
   code                  String?
   flagUrl               String?
+  type                  TeamType?
+  crestUrl              String?
   metadata              Json?
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
@@ -114,60 +247,185 @@ model Team {
   knockoutPickHome      KnockoutPick[]    @relation("KnockoutPickHomeTeam")
   knockoutPickAway      KnockoutPick[]    @relation("KnockoutPickAwayTeam")
   knockoutPickAdvancing KnockoutPick[]    @relation("KnockoutPickAdvancingTeam")
+  seasons               SeasonTeam[]
 
   @@index([name])
   @@index([code])
   @@index([fifaRank])
 }
 
+model SeasonTeam {
+  id        String            @id @default(cuid())
+  seasonId  String
+  teamId    String
+  seed      Int?
+  groupName String?
+  metadata  Json?
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  season    CompetitionSeason @relation(fields: [seasonId], references: [id])
+  team      Team              @relation(fields: [teamId], references: [id])
+
+  @@unique([seasonId, teamId])
+  @@index([teamId, seasonId])
+  @@index([seasonId, groupName])
+}
+
+model Pool {
+  id          String           @id @default(cuid())
+  slug        String           @unique
+  name        String
+  description String?
+  isPublic    Boolean          @default(false)
+  metadata    Json?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  memberships PoolMembership[]
+  seasons     PoolSeason[]
+
+  @@index([name])
+}
+
+model PoolMembership {
+  id        String               @id @default(cuid())
+  poolId    String
+  userId    String
+  role      PoolMembershipRole   @default(MEMBER)
+  status    PoolMembershipStatus @default(ACTIVE)
+  joinedAt  DateTime             @default(now())
+  metadata  Json?
+  updatedAt DateTime             @updatedAt
+  pool      Pool                 @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([poolId, userId])
+  @@index([poolId, status])
+  @@index([userId, status])
+}
+
+model PoolSeason {
+  id                         String            @id @default(cuid())
+  poolId                     String
+  seasonId                   String
+  scoringRuleSetId           String?
+  scoreableFromRound         Int?
+  historicalMatchesScoreable Boolean           @default(false)
+  metadata                   Json?
+  createdAt                  DateTime          @default(now())
+  updatedAt                  DateTime          @updatedAt
+  pool                       Pool              @relation(fields: [poolId], references: [id])
+  season                     CompetitionSeason @relation(fields: [seasonId], references: [id])
+  scoringRuleSet             ScoringRuleSet?   @relation(fields: [scoringRuleSetId], references: [id])
+  predictions                Prediction[]
+  predictionScores           PredictionScore[]
+  rankingSnapshots           RankingSnapshot[]
+  knockoutBrackets           KnockoutBracket[]
+
+  @@unique([poolId, seasonId])
+  @@index([seasonId])
+  @@index([scoringRuleSetId])
+}
+
+model ScoringRuleSet {
+  id          String       @id @default(cuid())
+  key         String
+  name        String
+  version     Int
+  rules       Json
+  tieBreakers Json?
+  effectiveAt DateTime?
+  metadata    Json?
+  createdAt   DateTime     @default(now())
+  poolSeasons PoolSeason[]
+
+  @@unique([key, version])
+  @@index([effectiveAt])
+}
+
+model ProviderEntityMapping {
+  id          String             @id @default(cuid())
+  provider    String
+  entityType  ProviderEntityType
+  externalId  String
+  internalId  String
+  seasonId    String?
+  sourceUrl   String?
+  collectedAt DateTime?
+  checksum    String?
+  metadata    Json?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  season      CompetitionSeason? @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, entityType, externalId])
+  @@index([seasonId, entityType])
+  @@index([entityType, internalId])
+}
+
 model MatchDay {
-  id                 String         @id @default(cuid())
+  id                 String             @id @default(cuid())
   date               DateTime
   firstMatchStartsAt DateTime
   predictionsCloseAt DateTime
-  status             MatchDayStatus @default(OPEN)
-  createdAt          DateTime       @default(now())
-  updatedAt          DateTime       @updatedAt
+  status             MatchDayStatus     @default(OPEN)
+  seasonId           String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
   matches            Match[]
+  season             CompetitionSeason? @relation(fields: [seasonId], references: [id], onDelete: SetNull)
 
   @@unique([date])
   @@index([status, predictionsCloseAt])
   @@index([firstMatchStartsAt])
+  @@index([seasonId, date])
+  @@index([seasonId, status, predictionsCloseAt])
 }
 
 model Match {
-  id               String                         @id @default(cuid())
-  externalId       String                         @unique
-  matchDayId       String
-  homeTeamId       String
-  awayTeamId       String
-  startsAt         DateTime
-  status           MatchStatus                    @default(SCHEDULED)
-  homeScore        Int?
-  awayScore        Int?
-  finalHomeScore   Int?
-  finalAwayScore   Int?
-  rawPayload       Json?
-  lastSyncedAt     DateTime?
-  createdAt        DateTime                       @default(now())
-  updatedAt        DateTime                       @updatedAt
-  matchDay         MatchDay                       @relation(fields: [matchDayId], references: [id], onDelete: Cascade)
-  homeTeam         Team                           @relation("HomeTeam", fields: [homeTeamId], references: [id])
-  awayTeam         Team                           @relation("AwayTeam", fields: [awayTeamId], references: [id])
-  predictions      Prediction[]
-  scores           PredictionScore[]
-  groupSimulations KnockoutGroupSimulationScore[]
+  id                 String                         @id @default(cuid())
+  externalId         String                         @unique
+  matchDayId         String
+  seasonId           String?
+  stageId            String?
+  roundId            String?
+  homeTeamId         String
+  awayTeamId         String
+  startsAt           DateTime
+  predictionClosesAt DateTime?
+  status             MatchStatus                    @default(SCHEDULED)
+  homeScore          Int?
+  awayScore          Int?
+  finalHomeScore     Int?
+  finalAwayScore     Int?
+  rawPayload         Json?
+  lastSyncedAt       DateTime?
+  createdAt          DateTime                       @default(now())
+  updatedAt          DateTime                       @updatedAt
+  matchDay           MatchDay                       @relation(fields: [matchDayId], references: [id], onDelete: Cascade)
+  season             CompetitionSeason?             @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+  stage              Stage?                         @relation(fields: [stageId], references: [id], onDelete: SetNull)
+  round              Round?                         @relation(fields: [roundId], references: [id], onDelete: SetNull)
+  homeTeam           Team                           @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam           Team                           @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  predictions        Prediction[]
+  scores             PredictionScore[]
+  groupSimulations   KnockoutGroupSimulationScore[]
 
   @@index([matchDayId, startsAt])
   @@index([status, startsAt])
   @@index([homeTeamId])
   @@index([awayTeamId])
+  @@index([seasonId, status, startsAt])
+  @@index([seasonId, roundId, status, startsAt])
+  @@index([stageId, startsAt])
+  @@index([roundId, startsAt])
 }
 
 model Prediction {
   id                 String           @id @default(cuid())
   userId             String
   matchId            String
+  poolSeasonId       String?
   predictedHomeScore Int
   predictedAwayScore Int
   createdAt          DateTime         @default(now())
@@ -175,32 +433,40 @@ model Prediction {
   user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   match              Match            @relation(fields: [matchId], references: [id], onDelete: Cascade)
   score              PredictionScore?
+  poolSeason         PoolSeason?      @relation(fields: [poolSeasonId], references: [id], onDelete: SetNull)
 
   @@unique([userId, matchId])
   @@index([matchId])
   @@index([userId])
+  @@index([poolSeasonId, matchId])
+  @@index([poolSeasonId, userId])
 }
 
 model PredictionScore {
-  id           String     @id @default(cuid())
-  predictionId String     @unique
+  id           String      @id @default(cuid())
+  predictionId String      @unique
   matchId      String
   userId       String
+  poolSeasonId String?
   points       Int
   scoreType    ScoreType
-  isFinal      Boolean    @default(false)
-  calculatedAt DateTime   @default(now())
-  prediction   Prediction @relation(fields: [predictionId], references: [id], onDelete: Cascade)
-  match        Match      @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isFinal      Boolean     @default(false)
+  calculatedAt DateTime    @default(now())
+  prediction   Prediction  @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+  match        Match       @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  poolSeason   PoolSeason? @relation(fields: [poolSeasonId], references: [id], onDelete: SetNull)
 
   @@index([userId, isFinal])
   @@index([matchId, isFinal])
   @@index([points])
+  @@index([poolSeasonId, userId, isFinal])
+  @@index([poolSeasonId, matchId, isFinal])
 }
 
 model KnockoutFixture {
   id             String                    @id @default(cuid())
+  seasonId       String?
   matchNumber    Int                       @unique
   stage          KnockoutStage
   startsAt       DateTime
@@ -221,6 +487,7 @@ model KnockoutFixture {
   homeTeam       Team?                     @relation("KnockoutHomeTeam", fields: [homeTeamId], references: [id])
   awayTeam       Team?                     @relation("KnockoutAwayTeam", fields: [awayTeamId], references: [id])
   winnerTeam     Team?                     @relation("KnockoutWinnerTeam", fields: [winnerTeamId], references: [id])
+  season         CompetitionSeason?        @relation(fields: [seasonId], references: [id], onDelete: SetNull)
   picks          KnockoutPick[]
   scores         KnockoutPredictionScore[]
 
@@ -228,10 +495,12 @@ model KnockoutFixture {
   @@index([status, startsAt])
   @@index([homeTeamId])
   @@index([awayTeamId])
+  @@index([seasonId, stage, status, startsAt])
 }
 
 model KnockoutGeneration {
   id               String                         @id @default(cuid())
+  seasonId         String?
   sequence         Int                            @unique
   mode             KnockoutGenerationMode
   status           KnockoutGenerationStatus       @default(ACTIVE)
@@ -241,25 +510,30 @@ model KnockoutGeneration {
   updatedAt        DateTime                       @updatedAt
   brackets         KnockoutBracket[]
   groupSimulations KnockoutGroupSimulationScore[]
+  season           CompetitionSeason?             @relation(fields: [seasonId], references: [id], onDelete: SetNull)
 
   @@index([mode, status])
   @@index([closesAt])
+  @@index([seasonId, mode, status])
 }
 
 model KnockoutBracket {
   id           String             @id @default(cuid())
   userId       String
   generationId String
+  poolSeasonId String?
   submittedAt  DateTime           @default(now())
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
   user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   generation   KnockoutGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
+  poolSeason   PoolSeason?        @relation(fields: [poolSeasonId], references: [id], onDelete: SetNull)
   picks        KnockoutPick[]
 
   @@unique([userId, generationId])
   @@index([generationId, submittedAt])
   @@index([userId])
+  @@index([poolSeasonId, userId])
 }
 
 model KnockoutPick {
@@ -323,21 +597,29 @@ model KnockoutPredictionScore {
 }
 
 model RankingSnapshot {
-  id           String   @id @default(cuid())
+  id           String             @id @default(cuid())
   userId       String
+  seasonId     String?
+  poolSeasonId String?
+  roundId      String?
   points       Int
   finalPoints  Int
   exactScores  Int
   resultHits   Int
   oneGoalHits  Int
   rank         Int
-  hasLiveData  Boolean  @default(false)
-  calculatedAt DateTime @default(now())
+  hasLiveData  Boolean            @default(false)
+  calculatedAt DateTime           @default(now())
+  season       CompetitionSeason? @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+  poolSeason   PoolSeason?        @relation(fields: [poolSeasonId], references: [id], onDelete: SetNull)
+  round        Round?             @relation(fields: [roundId], references: [id], onDelete: SetNull)
 
   @@index([rank])
   @@index([points])
   @@index([userId])
   @@index([calculatedAt])
+  @@index([seasonId, roundId, calculatedAt])
+  @@index([poolSeasonId, roundId, calculatedAt])
 }
 
 model ApiSyncLog {
