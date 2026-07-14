@@ -1,0 +1,33 @@
+Etapa 4 — Abstração da fonte de dados
+
+Criar um contrato:
+
+interface CompetitionDataProvider {
+  syncTeams(context: ProviderContext): Promise<NormalizedTeam[]>;
+  syncSchedule(context: ProviderContext): Promise<NormalizedMatch[]>;
+  syncResults(context: ProviderContext): Promise<NormalizedResult[]>;
+  syncStandings?(context: ProviderContext): Promise<NormalizedStanding[]>;
+  healthCheck(): Promise<ProviderHealth>;
+}
+
+Implementações possíveis:
+
+CbfProvider
+GeProvider
+CsvProvider
+ManualProvider
+Regras de sincronização
+A identificação primária será o ID do fornecedor, não o nome normalizado.
+A sincronização será idempotente.
+Alterações de horário atualizarão a partida existente.
+Jogos adiados não serão recriados.
+Resultado final nunca poderá regredir automaticamente para “agendado”.
+Correção manual terá precedência registrada e auditada.
+Cada execução será vinculada a:
+fornecedor;
+competição;
+temporada;
+tipo de sincronização.
+Deve existir importação CSV como contingência.
+
+O atual scraper pode ser preservado como primeiro adaptador, mas sua lógica de Copa deve ser extraída do serviço genérico. O nome da equipe deve servir apenas como fallback de reconciliação.
