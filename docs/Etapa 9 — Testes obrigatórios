@@ -1,0 +1,31 @@
+Etapa 9 — Testes obrigatórios
+Testes unitários
+Pontuação por conjunto de regras.
+Classificação por pontos corridos.
+Critérios de desempate.
+Resultado ao vivo versus resultado final.
+Partida adiada.
+Partida cancelada.
+Mudança de horário.
+Fechamento individual por partida.
+Agregado de ida e volta.
+Disputa por pênaltis.
+Testes de integração
+Ranking filtrado por temporada.
+Palpite não pode cruzar competição.
+Importação idempotente.
+Usuário não inscrito não pontua.
+Rodadas históricas não geram pontos.
+World Cup 2026 continua com o mesmo ranking.
+Snapshot de uma temporada não altera outra.
+SSE informa seasonId e poolSeasonId.
+Testes de interface
+Troca de competição.
+Exibição de escudos.
+Navegação específica de liga.
+Navegação específica de mata-mata.
+Ranking da rodada.
+Classificação esportiva.
+Mobile e desktop.
+
+O frontend atualmente declara que ainda não possui testes próprios; essa lacuna deve ser corrigida antes das competições eliminatórias.
