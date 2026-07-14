@@ -9,9 +9,12 @@ coverage/
 .env.*
 !.env.example
 *.log
-backups/*.dump
-backups/*.sql
-backups/*.gz
+backups/
+snapshots/
+*.dump
+*.backup
+*.pgpass
+.pgpass
 .postgres-data/
 logs/
 uploads/

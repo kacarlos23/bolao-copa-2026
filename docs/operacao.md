@@ -1,4 +1,4 @@
-# Operacao
+# Operação
 
 ## Portas
 
@@ -34,11 +34,11 @@ pm2 save
 pm2 startup
 ```
 
-Depois de rodar `pm2 startup`, execute o comando que o PM2 imprimir para registrar o servico no Windows.
+Depois de rodar `pm2 startup`, execute o comando que o PM2 imprimir para registrar o serviço no Windows.
 
-## Cloudflare Tunnel como servico
+## Cloudflare Tunnel como serviço
 
-Se o tunnel ja existe, confirme que ele esta instalado como servico:
+Se o tunnel já existe, confirme que ele está instalado como serviço:
 
 ```powershell
 cloudflared service install
@@ -50,43 +50,112 @@ Verifique o status no Windows Services ou com:
 Get-Service cloudflared
 ```
 
-O tunnel deve encaminhar o subdominio para:
+O tunnel deve encaminhar o subdomínio para `http://localhost:8080`.
 
-```text
-http://localhost:8080
+## Baseline de preservação da Copa 2026
+
+Todos os comandos abaixo devem ser executados na raiz do repositório. Use variáveis de ambiente da sessão, um cofre de segredos ou um arquivo `.env` local ignorado. Nunca grave a URL real do banco, senha, `.pgpass`, dumps, manifestos ou snapshots no Git. A verificação `npm run lint:preservation` falha se uma dessas classes de arquivo estiver rastreada.
+
+Os scripts não exibem a URL nem passam a senha na linha de comando dos utilitários PostgreSQL. A senha existe apenas no ambiente do processo filho durante a execução. Restrinja também as permissões de leitura do diretório de backup no sistema operacional.
+
+Configuração da sessão:
+
+```powershell
+$env:BACKUP_DATABASE_URL = "postgresql://<usuario>:<senha>@<host>:<porta>/<banco-da-copa>"
+$env:BACKUP_DIR = "C:\Backups\bolao-copa-2026"
+$env:RESTORE_MAINTENANCE_DATABASE_URL = "postgresql://<usuario-com-createdb>:<senha>@<host>:<porta>/postgres"
+$env:SNAPSHOT_DATABASE_URL = $env:BACKUP_DATABASE_URL
 ```
 
-## Backups
+Se os binários PostgreSQL não estiverem no `PATH`, configure `PG_DUMP_PATH`, `PG_RESTORE_PATH`, `CREATEDB_PATH` e `DROPDB_PATH`. No Windows, os scripts também procuram automaticamente a versão mais recente em `C:\Program Files\PostgreSQL`.
 
-Backup manual:
+### 1. Snapshot lógico anterior
+
+O snapshot abre uma transação `REPEATABLE READ READ ONLY`. Ele não contém horário de geração nem dados de conexão; com o banco inalterado, duas execuções produzem o mesmo JSON byte a byte.
+
+```powershell
+npm run snapshot:copa -- --output .\snapshots\world-cup-2026-before.json
+Get-FileHash .\snapshots\world-cup-2026-before.json -Algorithm SHA256
+```
+
+O arquivo registra:
+
+- usuários ativos, partidas, palpites, pontuações e fixtures do mata-mata;
+- palpites separados entre partidas, chaves e simulações, e pontuações separadas entre fase de grupos e mata-mata;
+- ranking atual — ou final quando não houver placares ao vivo — dos participantes ativos;
+- pontos, pontos finais e acertos de cada participante, inclusive participantes bloqueados para fins de auditoria.
+
+Além dos totais, `contentHashes` guarda SHA-256 determinístico do conteúdo de cada tabela pública. Assim, uma troca de palpite ou outro valor persistido é detectada mesmo quando as contagens e o ranking continuam iguais. Os valores das linhas, inclusive hashes de senha, não são gravados no snapshot.
+
+O desempate do ranking replica pontos, placares exatos, resultados, um gol de uma equipe, menor número de erros e apelido; `userId` é o desempate final determinístico quando todos os campos anteriores coincidirem.
+
+### 2. Backup completo e validação
 
 ```powershell
 npm run backup
 ```
 
-Agendamento recomendado no Windows Task Scheduler:
+O comando produz um dump custom completo do banco, sem ownership/ACL, e um manifesto adjacente `*.metadata.json` com data UTC, tamanho e SHA-256. Antes de concluir, ele exige que `pg_restore --list` consiga ler o catálogo e confere novamente tamanho e checksum.
 
-- Todos os dias as 12:00.
-- Todos os dias as 19:00.
-- Acao: `powershell.exe`
-- Argumentos: `-ExecutionPolicy Bypass -File C:\caminho\do\projeto\scripts\backup-postgres.ps1`
-
-Configure no ambiente:
-
-```text
-BACKUP_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/bolao_copa_2026
-BACKUP_DIR=C:\Backups\bolao-copa-2026
-```
-
-## Restore
-
-Para restaurar:
+Para validar outra vez, de forma independente:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\restore-postgres.ps1 -BackupFile C:\Backups\bolao-copa-2026\bolao-YYYYMMDD-HHMMSS.dump
+npm run backup:validate -- -BackupFile "C:\Backups\bolao-copa-2026\bolao-world-cup-2026-YYYYMMDD-HHMMSSfffZ.dump"
 ```
 
-Antes de restaurar em producao local, pare a API para evitar escrita concorrente.
+O dump cobre schema e dados do banco da Copa. Objetos globais do cluster, como roles e tablespaces, não pertencem ao dump; devem ser provisionados pela infraestrutura. Avatares em filesystem também não fazem parte do PostgreSQL e precisam de cópia separada se o ambiente os utiliza.
+
+### 3. Restore drill em banco temporário
+
+O restore cria exclusivamente um banco novo cujo nome começa com `bolao_restore_verify_`. Ele não usa `--clean`, não aceita como destino o banco de manutenção e remove o banco temporário ao terminar. A conta de manutenção precisa de permissão `CREATEDB`.
+
+```powershell
+npm run restore -- `
+  -BackupFile "C:\Backups\bolao-copa-2026\bolao-world-cup-2026-YYYYMMDD-HHMMSSfffZ.dump" `
+  -ExpectedSnapshot ".\snapshots\world-cup-2026-before.json" `
+  -VerificationSnapshotFile ".\snapshots\world-cup-2026-restored.json"
+```
+
+O fluxo valida dump e manifesto, cria o banco temporário, restaura com `--exit-on-error`, gera o snapshot lógico do restore, compara com o snapshot esperado e só então remove o banco. Use `-KeepTemporaryDatabase` apenas para diagnóstico explícito; nesse caso, o operador assume a remoção posterior.
+
+### 4. Comparação antes/depois e prova de não mutação
+
+Depois das mudanças ou de uma verificação operacional, gere um segundo snapshot do banco original e compare:
+
+```powershell
+npm run snapshot:copa -- --output .\snapshots\world-cup-2026-after.json
+npm run snapshot:compare -- `
+  .\snapshots\world-cup-2026-before.json `
+  .\snapshots\world-cup-2026-after.json
+```
+
+O comparador retorna código `0` apenas para snapshots semanticamente idênticos, `1` para divergência e `2` para arquivo/uso inválido. O teste automatizado do contrato roda em `npm run test`.
+
+### 5. Tag de baseline — somente após confirmação do operador
+
+Não crie nem mova a tag durante a preparação da baseline. Após backup validado, restore drill aprovado, snapshots idênticos e confirmação humana, fixe a tag no commit revisado:
+
+```powershell
+git status --short --branch
+git show --stat --oneline HEAD
+git tag --list world-cup-2026-final
+git tag -a world-cup-2026-final HEAD -m "World Cup 2026 final preservation baseline"
+git show --no-patch --decorate world-cup-2026-final
+git push origin world-cup-2026-final
+```
+
+Se `git tag --list` já retornar a tag, pare. Não use `-f`, não apague e não mova a referência sem um procedimento de mudança aprovado.
+
+## Agendamento de backup
+
+Agendamento recomendado no Windows Task Scheduler:
+
+- Todos os dias às 12:00.
+- Todos os dias às 19:00.
+- Ação: `powershell.exe`.
+- Argumentos: `-ExecutionPolicy Bypass -File C:\caminho\do\projeto\scripts\backup-postgres.ps1`.
+
+As variáveis e permissões necessárias devem existir no contexto da conta que executa a tarefa.
 
 ## Healthcheck
 
@@ -96,5 +165,5 @@ powershell -ExecutionPolicy Bypass -File .\scripts\healthcheck.ps1
 
 Endpoints:
 
-- API: `GET /health`
-- Web: `http://localhost:8080`
+- API: `GET /health`.
+- Web: `http://localhost:8080`.
