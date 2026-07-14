@@ -17,7 +17,12 @@ const forbidden = tracked.filter((file) => {
     lower.startsWith('backups/') ||
     lower.startsWith('snapshots/') ||
     lower.endsWith('.dump') ||
-    lower.endsWith('.backup')
+    lower.endsWith('.backup') ||
+    lower.endsWith('.globals.sql') ||
+    lower.endsWith('.avatars.zip') ||
+    lower.endsWith('.dump.metadata.json') ||
+    lower.endsWith('.avatars.zip.metadata.json') ||
+    lower.endsWith('.dump.restore-snapshot.json')
   );
 });
 

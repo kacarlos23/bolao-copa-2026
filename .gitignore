@@ -13,6 +13,11 @@ backups/
 snapshots/
 *.dump
 *.backup
+*.globals.sql
+*.avatars.zip
+*.dump.metadata.json
+*.avatars.zip.metadata.json
+*.dump.restore-snapshot.json
 *.pgpass
 .pgpass
 .postgres-data/

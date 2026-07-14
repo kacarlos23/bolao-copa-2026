@@ -5,7 +5,10 @@ param(
   [string]$TempDatabaseName = "bolao_restore_verify_$((Get-Date).ToUniversalTime().ToString('yyyyMMdd_HHmmss'))",
   [string]$ExpectedSnapshot,
   [string]$VerificationSnapshotFile,
+  [string]$AvatarArchive,
+  [string]$AvatarVerificationDir,
   [switch]$KeepTemporaryDatabase,
+  [switch]$KeepAvatarVerificationDir,
   [string]$PgRestorePath = $env:PG_RESTORE_PATH,
   [string]$CreatedbPath = $env:CREATEDB_PATH,
   [string]$DropdbPath = $env:DROPDB_PATH
@@ -35,6 +38,17 @@ if ([string]::IsNullOrWhiteSpace($VerificationSnapshotFile)) {
   $VerificationSnapshotFile = "$BackupFile.restore-snapshot.json"
 }
 
+$backupMetadataFile = "$BackupFile.metadata.json"
+if ([string]::IsNullOrWhiteSpace($AvatarArchive) -and (Test-Path -LiteralPath $backupMetadataFile)) {
+  $backupMetadata = Get-Content -LiteralPath $backupMetadataFile -Raw | ConvertFrom-Json
+  if ($backupMetadata.PSObject.Properties.Name -contains "avatars") {
+    $AvatarArchive = Join-Path (Split-Path $BackupFile -Parent) ([string]$backupMetadata.avatars.archiveFileName)
+  }
+}
+if ([string]::IsNullOrWhiteSpace($AvatarVerificationDir)) {
+  $AvatarVerificationDir = "$BackupFile.restore-avatars"
+}
+
 $connection = Get-PgConnection -DatabaseUrl $MaintenanceDatabaseUrl
 if ($connection.Database -eq $TempDatabaseName) {
   throw "O banco de manutencao nao pode ser o proprio banco temporario."
@@ -44,6 +58,7 @@ $pgRestore = Resolve-PgExecutable -ConfiguredPath $PgRestorePath -ToolName "pg_r
 $createdb = Resolve-PgExecutable -ConfiguredPath $CreatedbPath -ToolName "createdb"
 $dropdb = Resolve-PgExecutable -ConfiguredPath $DropdbPath -ToolName "dropdb"
 $databaseCreated = $false
+$avatarDirectoryCreated = $false
 
 & (Join-Path $PSScriptRoot "validate-postgres-backup.ps1") `
   -BackupFile $BackupFile -PgRestorePath $pgRestore
@@ -87,8 +102,17 @@ try {
     }
   }
 
+  if (-not [string]::IsNullOrWhiteSpace($AvatarArchive)) {
+    & (Join-Path $PSScriptRoot "restore-avatar-backup.ps1") `
+      -ArchiveFile $AvatarArchive -DestinationDir $AvatarVerificationDir
+    $avatarDirectoryCreated = $true
+  }
+
   Write-Output "Restore verificado no banco temporario: $TempDatabaseName"
   Write-Output "Snapshot restaurado: $VerificationSnapshotFile"
+  if ($avatarDirectoryCreated) {
+    Write-Output "Restore de avatares verificado: $AvatarVerificationDir"
+  }
 } finally {
   if ($databaseCreated -and -not $KeepTemporaryDatabase) {
     Invoke-PgCommand -Executable $dropdb -Connection $connection -Arguments @(
@@ -102,5 +126,17 @@ try {
     Write-Output "Banco temporario removido: $TempDatabaseName"
   } elseif ($databaseCreated) {
     Write-Warning "Banco temporario preservado por solicitacao do operador: $TempDatabaseName"
+  }
+  if ($avatarDirectoryCreated -and -not $KeepAvatarVerificationDir) {
+    $resolvedAvatarVerificationDir = [IO.Path]::GetFullPath($AvatarVerificationDir)
+    $resolvedBackupParent = [IO.Path]::GetFullPath((Split-Path $BackupFile -Parent))
+    $backupParentPrefix = $resolvedBackupParent.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+    if (-not $resolvedAvatarVerificationDir.StartsWith($backupParentPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+      throw "Diretorio de verificacao de avatares fora do diretorio de backup; remova-o manualmente: $resolvedAvatarVerificationDir"
+    }
+    Remove-Item -LiteralPath $resolvedAvatarVerificationDir -Recurse -Force
+    Write-Output "Diretorio temporario de avatares removido: $resolvedAvatarVerificationDir"
+  } elseif ($avatarDirectoryCreated) {
+    Write-Warning "Diretorio de verificacao de avatares preservado: $AvatarVerificationDir"
   }
 }

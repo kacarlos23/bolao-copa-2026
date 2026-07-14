@@ -39,6 +39,25 @@ if (Test-Path -LiteralPath $MetadataFile -PathType Leaf) {
   if ([string]$metadata.sha256 -ne $checksum) {
     throw "O checksum SHA-256 diverge do manifesto."
   }
+
+  if ($metadata.PSObject.Properties.Name -contains "globals") {
+    $globalsFile = Join-Path $backupInfo.DirectoryName ([string]$metadata.globals.fileName)
+    if (-not (Test-Path -LiteralPath $globalsFile -PathType Leaf)) {
+      throw "Inventario de objetos globais nao encontrado: $globalsFile"
+    }
+    $globalsInfo = Get-Item -LiteralPath $globalsFile
+    $globalsChecksum = (Get-FileHash -LiteralPath $globalsFile -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($globalsInfo.Length -ne [int64]$metadata.globals.sizeBytes -or $globalsChecksum -ne [string]$metadata.globals.sha256) {
+      throw "O inventario de objetos globais diverge do manifesto."
+    }
+  }
+
+  if ($metadata.PSObject.Properties.Name -contains "avatars") {
+    $avatarArchive = Join-Path $backupInfo.DirectoryName ([string]$metadata.avatars.archiveFileName)
+    $avatarMetadata = Join-Path $backupInfo.DirectoryName ([string]$metadata.avatars.metadataFileName)
+    & (Join-Path $PSScriptRoot "validate-avatar-backup.ps1") `
+      -ArchiveFile $avatarArchive -MetadataFile $avatarMetadata
+  }
 } else {
   Write-Warning "Manifesto nao encontrado; catalogo e checksum foram calculados, mas nao comparados."
 }

@@ -58,6 +58,28 @@ Todos os comandos abaixo devem ser executados na raiz do repositório. Use vari�
 
 Os scripts não exibem a URL nem passam a senha na linha de comando dos utilitários PostgreSQL. A senha existe apenas no ambiente do processo filho durante a execução. Restrinja também as permissões de leitura do diretório de backup no sistema operacional.
 
+### Credenciais locais de desenvolvimento e teste
+
+Estas credenciais são públicas e deliberadamente fracas. Use-as somente nesta máquina de desenvolvimento, limitada a `localhost`; nunca as reutilize em produção ou em um servidor acessível pela rede.
+
+| Serviço                     | Usuário    | Senha            | Destino                          |
+| --------------------------- | ---------- | ---------------- | -------------------------------- |
+| PostgreSQL local            | `postgres` | `postgres`       | `localhost:5432/bolao_copa_2026` |
+| Administrador do aplicativo | `admin`    | `dev-admin-2026` | Login local da aplicação         |
+
+Para aplicar migrations e semear/redefinir o administrador local:
+
+```powershell
+$env:DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/bolao_copa_2026?schema=public"
+$env:ADMIN_USERNAME = "admin"
+$env:ADMIN_NICKNAME = "Administrador Local"
+$env:ADMIN_PASSWORD = "dev-admin-2026"
+npm run prisma:migrate
+npm run seed
+```
+
+O seed faz `upsert` do administrador e troca seu hash de senha. Portanto, gere a baseline somente depois do seed.
+
 Configuração da sessão:
 
 ```powershell
@@ -65,9 +87,10 @@ $env:BACKUP_DATABASE_URL = "postgresql://<usuario>:<senha>@<host>:<porta>/<banco
 $env:BACKUP_DIR = "C:\Backups\bolao-copa-2026"
 $env:RESTORE_MAINTENANCE_DATABASE_URL = "postgresql://<usuario-com-createdb>:<senha>@<host>:<porta>/postgres"
 $env:SNAPSHOT_DATABASE_URL = $env:BACKUP_DATABASE_URL
+$env:BACKUP_AVATAR_DIR = ".\apps\api\uploads\avatars"
 ```
 
-Se os binários PostgreSQL não estiverem no `PATH`, configure `PG_DUMP_PATH`, `PG_RESTORE_PATH`, `CREATEDB_PATH` e `DROPDB_PATH`. No Windows, os scripts também procuram automaticamente a versão mais recente em `C:\Program Files\PostgreSQL`.
+Se os binários PostgreSQL não estiverem no `PATH`, configure `PG_DUMP_PATH`, `PG_DUMPALL_PATH`, `PG_RESTORE_PATH`, `CREATEDB_PATH` e `DROPDB_PATH`. No Windows, os scripts também procuram automaticamente a versão mais recente em `C:\Program Files\PostgreSQL`.
 
 ### 1. Snapshot lógico anterior
 
@@ -91,11 +114,20 @@ O desempate do ranking replica pontos, placares exatos, resultados, um gol de um
 
 ### 2. Backup completo e validação
 
+Para uma baseline final consistente entre referências do banco e arquivos, interrompa gravações da API e jobs locais durante snapshot e backup.
+
 ```powershell
 npm run backup
 ```
 
-O comando produz um dump custom completo do banco, sem ownership/ACL, e um manifesto adjacente `*.metadata.json` com data UTC, tamanho e SHA-256. Antes de concluir, ele exige que `pg_restore --list` consiga ler o catálogo e confere novamente tamanho e checksum.
+O comando produz um conjunto timestampado e indivisível de preservação:
+
+- dump custom completo do banco, sem ownership/ACL;
+- `*.globals.sql` com roles, memberships e tablespaces, deliberadamente sem hashes de senha;
+- `*.avatars.zip` com todos os arquivos de `apps/api/uploads/avatars` e manifesto contendo tamanho/SHA-256 de cada avatar;
+- manifesto principal `*.dump.metadata.json` com data UTC, tamanho, SHA-256 e referências cruzadas dos artefatos.
+
+Antes de concluir, o script exige que `pg_restore --list` leia o catálogo, valida ZIP e arquivos de avatar e confere todos os tamanhos e checksums.
 
 Para validar outra vez, de forma independente:
 
@@ -103,7 +135,7 @@ Para validar outra vez, de forma independente:
 npm run backup:validate -- -BackupFile "C:\Backups\bolao-copa-2026\bolao-world-cup-2026-YYYYMMDD-HHMMSSfffZ.dump"
 ```
 
-O dump cobre schema e dados do banco da Copa. Objetos globais do cluster, como roles e tablespaces, não pertencem ao dump; devem ser provisionados pela infraestrutura. Avatares em filesystem também não fazem parte do PostgreSQL e precisam de cópia separada se o ambiente os utiliza.
+As senhas das roles não são exportadas no arquivo global para evitar material autenticador no backup. Em recuperação para um cluster novo, aplique o `*.globals.sql` como superusuário e defina as senhas a partir do cofre do ambiente; nesta máquina local, use as credenciais públicas de teste documentadas acima.
 
 ### 3. Restore drill em banco temporário
 
@@ -116,7 +148,7 @@ npm run restore -- `
   -VerificationSnapshotFile ".\snapshots\world-cup-2026-restored.json"
 ```
 
-O fluxo valida dump e manifesto, cria o banco temporário, restaura com `--exit-on-error`, gera o snapshot lógico do restore, compara com o snapshot esperado e só então remove o banco. Use `-KeepTemporaryDatabase` apenas para diagnóstico explícito; nesse caso, o operador assume a remoção posterior.
+O fluxo valida dump, globais, avatares e manifestos, cria o banco temporário, restaura com `--exit-on-error`, gera o snapshot lógico do restore, compara com o snapshot esperado, extrai e confere os avatares em diretório isolado e só então remove os destinos temporários. Use `-KeepTemporaryDatabase` ou `-KeepAvatarVerificationDir` apenas para diagnóstico explícito; nesse caso, o operador assume a remoção posterior.
 
 ### 4. Comparação antes/depois e prova de não mutação
 
@@ -145,6 +177,10 @@ git push origin world-cup-2026-final
 ```
 
 Se `git tag --list` já retornar a tag, pare. Não use `-f`, não apague e não mova a referência sem um procedimento de mudança aprovado.
+
+### Evidência do ensaio local
+
+O seed, backup completo, restore temporário, comparação de snapshots, verificação de avatares e limpeza executados em 2026-07-14 estão registrados em [evidencia-preservacao-local.md](evidencia-preservacao-local.md).
 
 ## Agendamento de backup
 
