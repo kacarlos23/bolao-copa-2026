@@ -3,6 +3,7 @@ import process from 'node:process';
 
 const env = {
   ...process.env,
+  EXPO_PUBLIC_APP_IA_V2: '1',
   EXPO_PUBLIC_BRASILEIRAO_UI: '1',
   EXPO_PUBLIC_COMPETITION_UI_V2: '1',
   EXPO_PUBLIC_LEGACY_ADMIN_MUTATIONS: '1',

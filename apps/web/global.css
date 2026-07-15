@@ -8,16 +8,48 @@
 }
 
 * {
+  box-sizing: border-box;
   scrollbar-color: rgba(70, 139, 190, 0.78) transparent;
   scrollbar-width: thin;
 }
 
-:where(button, input, select, textarea, [role='button'], [role='tab']):focus-visible {
+.skip-link {
+  background: #ffffff;
+  border-radius: 0 0 8px 8px;
+  color: #00143a;
+  font-weight: 800;
+  left: 16px;
+  padding: 12px 16px;
+  position: fixed;
+  top: 0;
+  transform: translateY(-120%);
+  transition: transform 120ms ease;
+  z-index: 9999;
+}
+
+.skip-link:focus {
+  outline: 3px solid #34d17b;
+  outline-offset: 2px;
+  transform: translateY(0);
+}
+
+:where(
+  button,
+  input,
+  select,
+  textarea,
+  [role='button'],
+  [role='link'],
+  [role='menuitem'],
+  [role='switch'],
+  [role='tab'],
+  [tabindex='0']
+):focus-visible {
   outline: 3px solid #ffffff !important;
   outline-offset: 3px !important;
 }
 
-:where(button, [role='button'], [role='tab']) {
+:where(button, [role='button'], [role='link'], [role='tab']) {
   min-height: 44px;
   min-width: 44px;
 }

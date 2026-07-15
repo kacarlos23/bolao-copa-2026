@@ -1,11 +1,4 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { CompetitionCapabilities, CompetitionDto, SeasonDto } from '@bolao/shared';
 import { api, errorMessage, LatestRequest } from '../api';
 
@@ -19,7 +12,8 @@ export function normalizeCapabilities(
   const values = new Set<Capability>();
   if (source.format) values.add(source.format);
   if (source.groupStage || source.format === 'GROUPS') values.add('GROUPS');
-  if (source.knockoutBracket || source.knockout || source.format === 'KNOCKOUT') values.add('KNOCKOUT');
+  if (source.knockoutBracket || source.knockout || source.format === 'KNOCKOUT')
+    values.add('KNOCKOUT');
   if (source.standings || source.format === 'LEAGUE') values.add('LEAGUE');
   if (source.twoLegs || source.format === 'TWO_LEGS') values.add('TWO_LEGS');
   return values;
@@ -54,7 +48,9 @@ export function CompetitionProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     setError('');
     try {
-      const result = await competitionRequest.run((signal) => api.competitionSeasons(selected.slug, signal));
+      const result = await competitionRequest.run((signal) =>
+        api.competitionSeasons(selected.slug, signal),
+      );
       if (!result) return;
       const preferred = result.seasons.find((item) => item.id === preferredSeasonId);
       const active = result.seasons.find((item) => item.status === 'ACTIVE');
@@ -81,15 +77,20 @@ export function CompetitionProvider({ children }: { children: ReactNode }) {
       .then(async (result) => {
         if (!active) return;
         setCompetitions(result.competitions);
-        const preferredId = typeof window !== 'undefined'
-          ? window.localStorage.getItem('bolao:selected-competition')
-          : null;
-        const preferredSeasonId = typeof window !== 'undefined'
-          ? window.localStorage.getItem('bolao:selected-season')
-          : null;
-        const selected = result.competitions.find((item) => item.id === preferredId)
-          ?? result.competitions.find((item) => item.capabilities?.groupStage)
-          ?? result.competitions[0];
+        const preferredId =
+          typeof window !== 'undefined'
+            ? window.localStorage.getItem('bolao:selected-competition')
+            : null;
+        const preferredSeasonId =
+          typeof window !== 'undefined'
+            ? window.localStorage.getItem('bolao:selected-season')
+            : null;
+        const selected =
+          result.competitions.find((item) => item.id === preferredId) ??
+          result.competitions.find((item) =>
+            normalizeCapabilities(item.capabilities, null).has('LEAGUE'),
+          ) ??
+          result.competitions[0];
         if (selected) await loadSeasons(selected, preferredSeasonId);
         else setLoading(false);
       })
@@ -115,7 +116,8 @@ export function CompetitionProvider({ children }: { children: ReactNode }) {
     const selected = seasons.find((item) => item.id === seasonId);
     if (!selected) return;
     setSeason(selected);
-    if (typeof window !== 'undefined') window.localStorage.setItem('bolao:selected-season', selected.id);
+    if (typeof window !== 'undefined')
+      window.localStorage.setItem('bolao:selected-season', selected.id);
   }
 
   return (

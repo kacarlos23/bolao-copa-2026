@@ -23,6 +23,12 @@ const leagueSeason = {
   timezone: 'America/Sao_Paulo', status: 'ACTIVE', startsAt: '2026-01-01T00:00:00.000Z', endsAt: null,
   capabilities: { format: 'LEAGUE', rounds: 38, teams: 20, lastFiveUnit: 'MATCH' },
 };
+const leagueSeason2025 = {
+  ...leagueSeason,
+  id: 'season-league-2025', slug: 'brasileirao-serie-a-2025', name: 'Brasileirão Série A 2025', year: 2025,
+  status: 'FINISHED', startsAt: '2025-01-01T00:00:00.000Z',
+};
+
 const round = {
   id: 'round-20', seasonId: leagueSeason.id, stageId: stage.id, name: 'Rodada 20', order: 20, status: 'ACTIVE',
   startsAt: '2026-12-01T00:00:00.000Z', endsAt: '2026-12-08T00:00:00.000Z', stage,
@@ -104,7 +110,7 @@ export async function installApiMocks(page: Page, options: { authenticated?: boo
       { id: 'competition-league', slug: 'brasileirao-serie-a', name: 'Brasileirão Série A', capabilities: { format: 'LEAGUE', standings: true, knockout: false, rankingScopes: ['OVERALL', 'ROUND', 'MONTH', 'TURN'] } },
     ], pagination: { ...pagination, total: 2 } });
     if (path.includes('/api/competitions/world-cup/seasons')) return json({ competition: { id: 'competition-world', slug: 'world-cup', name: 'Copa do Mundo', capabilities: { groupStage: true, knockoutBracket: true, liveScoring: true } }, seasons: [worldSeason], pagination });
-    if (path.includes('/api/competitions/brasileirao-serie-a/seasons')) return json({ competition: { id: 'competition-league', slug: 'brasileirao-serie-a', name: 'Brasileirão Série A', capabilities: { format: 'LEAGUE', standings: true, knockout: false, rankingScopes: ['OVERALL', 'ROUND', 'MONTH', 'TURN'] } }, seasons: [leagueSeason], pagination });
+    if (path.includes('/api/competitions/brasileirao-serie-a/seasons')) return json({ competition: { id: 'competition-league', slug: 'brasileirao-serie-a', name: 'Brasileirão Série A', capabilities: { format: 'LEAGUE', standings: true, knockout: false, rankingScopes: ['OVERALL', 'ROUND', 'MONTH', 'TURN'] } }, seasons: [leagueSeason, leagueSeason2025], pagination: { ...pagination, total: 2 } });
     if (path === `/api/seasons/${leagueSeason.id}/features`) return json({ uiEnabled: true });
     if (path === `/api/seasons/${leagueSeason.id}/rounds`) return json({ rounds: [round], pagination });
     if (path === `/api/seasons/${leagueSeason.id}/matches`) return json({ matches: [genericMatch], pagination });
@@ -120,6 +126,19 @@ export async function installApiMocks(page: Page, options: { authenticated?: boo
       preferences: { inAppEnabled: true, pushEnabled: false, emailEnabled: false, quietHoursEnabled: false, quietHoursStart: null, quietHoursEnd: null, timezone: 'America/Sao_Paulo' },
     });
     if (path.includes(`/api/pools/${POOL_SLUG}/seasons/${leagueSeason.id}/ranking`)) return json({ ranking, pagination: { ...pagination, total: 2 } });
+    if (path === `/api/seasons/${leagueSeason2025.id}/rounds`) return json({ rounds: [], pagination: { ...pagination, total: 0, totalPages: 0 } });
+    if (path === `/api/seasons/${leagueSeason2025.id}/matches`) return json({ matches: [], pagination: { ...pagination, total: 0, totalPages: 0 } });
+    if (path === `/api/seasons/${leagueSeason2025.id}/standings`) return json({ standingsByGroup: [], pagination: { ...pagination, total: 0, totalPages: 0 } });
+    if (path.includes(`/api/pools/${POOL_SLUG}/seasons/${leagueSeason2025.id}/predictions`) && method === 'GET') return json({ predictions: [], pagination: { ...pagination, total: 0, totalPages: 0 } });
+    if (path === `/api/pools/${POOL_SLUG}/seasons/${leagueSeason2025.id}/rules`) return json({
+      scoring: { id: 'rules-v1', key: 'classic', name: 'Pontuação clássica', version: 1, rules: { exactScore: 15, correctOutcome: 3, oneTeamGoals: 1, miss: 0 } },
+      tieBreakers: { id: 'tie-v1', key: 'classic', name: 'Desempate clássico', version: 1, allowSharedPositions: false, criteria: [{ field: 'exactScores', direction: 'desc', label: 'Placares exatos' }] },
+    });
+    if (path === `/api/pools/${POOL_SLUG}/seasons/${leagueSeason2025.id}/engagement`) return json({
+      achievements: [], streaks: [], notifications: [],
+      preferences: { inAppEnabled: true, pushEnabled: false, emailEnabled: false, quietHoursEnabled: false, quietHoursStart: null, quietHoursEnd: null, timezone: 'America/Sao_Paulo' },
+    });
+    if (path.includes(`/api/pools/${POOL_SLUG}/seasons/${leagueSeason2025.id}/ranking`)) return json({ ranking: [], pagination: { ...pagination, total: 0, totalPages: 0 } });
     if (path === '/api/match-days') return json({ predictionCloseMinutes: 5, matchDays: [{ id: 'day-1', date: '2026-12-02', firstMatchStartsAt: genericMatch.startsAt, predictionsCloseAt: genericMatch.predictionClosesAt, status: options.closed ? 'CLOSED' : 'OPEN', isOpenForPredictions: !options.closed, predictionsArePublic: Boolean(options.closed), matches: [{ ...genericMatch, predictionsCloseAt: genericMatch.predictionClosesAt, isOpenForPredictions: !options.closed, predictionsArePublic: Boolean(options.closed), predictions: [], rawPayload: null }] }] });
     if (path === '/api/match-days/day-1' && method === 'GET') return json({ predictionCloseMinutes: 5, matchDay: { id: 'day-1', date: '2026-12-02', firstMatchStartsAt: genericMatch.startsAt, predictionsCloseAt: genericMatch.predictionClosesAt, status: options.closed ? 'CLOSED' : 'OPEN', isOpenForPredictions: !options.closed, predictionsArePublic: Boolean(options.closed), matches: [{ ...genericMatch, predictionsCloseAt: genericMatch.predictionClosesAt, isOpenForPredictions: !options.closed, predictionsArePublic: Boolean(options.closed), predictions: [], rawPayload: null }] } });
     if (path === '/api/match-days/day-1/predictions' && method === 'PUT') return json({ predictions: [{ id: 'legacy-prediction', userId: currentUser.id, matchId: genericMatch.id, predictedHomeScore: 2, predictedAwayScore: 1 }] });

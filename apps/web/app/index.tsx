@@ -5,7 +5,11 @@ export default function Index() {
   return (
     <>
       <Head>
-        <title>Bolão Copa 2026</title>
+        <title>Bolão Sirel</title>
+        <meta
+          name="description"
+          content="Bolão Sirel: palpites, competições e ranking em um só lugar."
+        />
       </Head>
       <App />
     </>

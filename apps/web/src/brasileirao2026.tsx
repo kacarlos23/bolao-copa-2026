@@ -1,4 +1,7 @@
-import { SeasonWorkspace } from './features/competitions/SeasonWorkspace';
+import {
+  SeasonWorkspace,
+  type SeasonWorkspaceSection,
+} from './features/competitions/SeasonWorkspace';
 
 /**
  * Compatibility facade kept while the Brasileirão canary and the generic
@@ -7,9 +10,17 @@ import { SeasonWorkspace } from './features/competitions/SeasonWorkspace';
 export function Brasileirao2026Screen({
   currentUserId,
   refreshVersion,
+  section = 'all',
 }: {
   currentUserId: string;
   refreshVersion: number;
+  section?: SeasonWorkspaceSection;
 }) {
-  return <SeasonWorkspace currentUserId={currentUserId} refreshVersion={refreshVersion} />;
+  return (
+    <SeasonWorkspace
+      currentUserId={currentUserId}
+      refreshVersion={refreshVersion}
+      section={section}
+    />
+  );
 }

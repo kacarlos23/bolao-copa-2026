@@ -30,30 +30,36 @@ import {
   User,
 } from './src/api';
 import { flagSources } from './src/flagSources';
-import { teamCatalogByCode } from './src/teamCatalog';
+import type { TeamCatalogEntry } from './src/teamCatalog';
 import { DrawerReveal, SoftReveal, usePrefersReducedMotion } from './src/motion';
 import { CompetitionProvider, normalizeCapabilities } from './src/app/CompetitionContext';
 import { CompetitionSelector } from './src/features/competitions/CompetitionSelector';
+import { CompetitionHub } from './src/features/competitions/CompetitionHub';
+import { HomeScreen } from './src/features/home/HomeScreen';
 import { ToastProvider } from './src/components/Toast';
+import { RouteState } from './src/components/RouteState';
 import { hasStoredDirtyDraft } from './src/services/drafts';
 import { AppShell } from './src/app/AppShell';
+import { RoutedWorkspace } from './src/app/RoutedWorkspace';
+import {
+  leagueScreens,
+  pageTitle,
+  pathForScreen,
+  screenForCompetitionSlug,
+  screenFromPath,
+  type AppScreen,
+} from './src/navigation/routes';
 
-type Screen =
-  | 'days'
-  | 'predictions'
-  | 'knockout'
-  | 'ranking'
-  | 'cup'
-  | 'brasileirao'
-  | 'teams'
-  | 'admin';
+type Screen = AppScreen;
 type RankingStatusFilter = 'all' | 'live' | 'final';
 
 const competitionUiV2 = process.env.EXPO_PUBLIC_COMPETITION_UI_V2 === '1';
+const appIaV2 = process.env.EXPO_PUBLIC_APP_IA_V2 !== '0';
 const legacyAdminMutations = process.env.EXPO_PUBLIC_LEGACY_ADMIN_MUTATIONS === '1';
 const legacyPredictionsUi =
-  process.env.EXPO_PUBLIC_LEGACY_PREDICTIONS === '1'
-  || (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('predictions') === 'v1');
+  process.env.EXPO_PUBLIC_LEGACY_PREDICTIONS === '1' ||
+  (typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('predictions') === 'v1');
 const brasileiraoUi = process.env.EXPO_PUBLIC_BRASILEIRAO_UI === '1';
 const PredictionBoardScreen = lazy(() =>
   import('./src/predictionBoard').then((module) => ({ default: module.PredictionBoardScreen })),
@@ -74,6 +80,11 @@ const AdminOperationsPanel = lazy(() =>
   import('./src/adminOperations').then((module) => ({ default: module.AdminOperationsPanel })),
 );
 const knockoutDeadline = new Date('2026-06-18T23:59:59-03:00').getTime();
+
+function initialAppScreen(): Screen {
+  if (!appIaV2 || Platform.OS !== 'web' || typeof window === 'undefined') return 'days';
+  return screenFromPath(window.location.pathname);
+}
 
 const colors = {
   bg: '#00143a',
@@ -417,7 +428,11 @@ function TeamNameButton({
 }) {
   const isPlaceholder = team.id.startsWith('placeholder-');
   if (!onOpenTeam || isPlaceholder) {
-    return <Text numberOfLines={singleLine ? 1 : undefined} style={styles.matchTitle}>{team.name}</Text>;
+    return (
+      <Text numberOfLines={singleLine ? 1 : undefined} style={styles.matchTitle}>
+        {team.name}
+      </Text>
+    );
   }
 
   return (
@@ -429,11 +444,7 @@ function TeamNameButton({
     >
       <Text
         numberOfLines={singleLine ? 1 : undefined}
-        style={[
-          styles.matchTitle,
-          styles.teamNameLink,
-          singleLine && styles.teamNameSingleLine,
-        ]}
+        style={[styles.matchTitle, styles.teamNameLink, singleLine && styles.teamNameSingleLine]}
       >
         {team.name}
       </Text>
@@ -443,12 +454,14 @@ function TeamNameButton({
 
 function PrimaryButton({
   label,
+  accessibilityLabel,
   onPress,
   disabled,
   tone = 'primary',
   icon,
 }: {
   label: string;
+  accessibilityLabel?: string;
   onPress: () => void;
   disabled?: boolean;
   tone?: 'primary' | 'secondary' | 'danger';
@@ -458,6 +471,7 @@ function PrimaryButton({
 
   return (
     <Pressable
+      accessibilityLabel={accessibilityLabel ?? label}
       accessibilityRole="button"
       accessibilityState={{ disabled: Boolean(disabled) }}
       disabled={disabled}
@@ -495,7 +509,13 @@ function HeaderNav({
     onPress: () => void;
     active?: boolean;
   }> = [
-    { key: 'days', label: 'Dias', icon: 'calendar-outline', onPress: () => setScreen('days'), active: screen === 'days' },
+    {
+      key: 'days',
+      label: 'Dias',
+      icon: 'calendar-outline',
+      onPress: () => setScreen('days'),
+      active: screen === 'days',
+    },
     {
       key: 'predictions',
       label: 'Palpites',
@@ -510,9 +530,27 @@ function HeaderNav({
       onPress: () => setScreen('knockout'),
       active: screen === 'knockout',
     },
-    { key: 'ranking', label: 'Ranking', icon: 'podium-outline', onPress: () => setScreen('ranking'), active: screen === 'ranking' },
-    { key: 'cup', label: 'Copa', icon: 'football-outline', onPress: () => setScreen('cup'), active: screen === 'cup' },
-    { key: 'teams', label: 'Times', icon: 'people-outline', onPress: () => setScreen('teams'), active: screen === 'teams' },
+    {
+      key: 'ranking',
+      label: 'Ranking',
+      icon: 'podium-outline',
+      onPress: () => setScreen('ranking'),
+      active: screen === 'ranking',
+    },
+    {
+      key: 'cup',
+      label: 'Copa',
+      icon: 'football-outline',
+      onPress: () => setScreen('cup'),
+      active: screen === 'cup',
+    },
+    {
+      key: 'teams',
+      label: 'Times',
+      icon: 'people-outline',
+      onPress: () => setScreen('teams'),
+      active: screen === 'teams',
+    },
   ];
 
   if (showBrasileirao) {
@@ -553,7 +591,9 @@ function HeaderNav({
               ]}
             >
               <Ionicons name={item.icon} size={18} color={active ? colors.gold : colors.text} />
-              <Text style={[styles.navItemText, active && styles.navItemTextActive]}>{item.label}</Text>
+              <Text style={[styles.navItemText, active && styles.navItemTextActive]}>
+                {item.label}
+              </Text>
               <View style={styles.navItemDivider} />
             </Pressable>
           );
@@ -838,20 +878,27 @@ function AuthScreen({ onAuth }: { onAuth: (user: User) => void }) {
 
   return (
     <AppShell>
-      <ScrollView contentContainerStyle={styles.authScroll}>
+      <ScrollView
+        nativeID="conteudo-principal"
+        role="main"
+        contentContainerStyle={styles.authScroll}
+      >
         <View style={styles.authHero}>
-          <Text style={styles.brand}>Bolão Copa 2026</Text>
-          <Text style={styles.authTitle}>Palpites Copa do Mundo 2026</Text>
+          <Text style={styles.brand}>Bolão Sirel</Text>
+          <Text role="heading" aria-level={1} style={styles.authTitle}>
+            Seu bolão em um só lugar
+          </Text>
           <Text style={styles.authSubtitle}>
-            Cadastre seu nome real, escolha um nickname público e acompanhe o ranking ao vivo.
+            Entre para palpitar nas competições, acompanhar seus pontos e disputar o ranking.
           </Text>
         </View>
 
         <View style={styles.authCard}>
-          <View style={styles.segment} accessibilityRole="tablist">
+          <View style={styles.segment} accessibilityLabel="Acesso à conta">
             <Pressable
-              accessibilityRole="tab"
-              accessibilityState={{ selected: mode === 'login' }}
+              {...({ 'aria-pressed': mode === 'login' } as never)}
+              accessibilityLabel="Usar login"
+              accessibilityRole="button"
               onPress={() => {
                 setMode('login');
                 setError('');
@@ -863,8 +910,9 @@ function AuthScreen({ onAuth }: { onAuth: (user: User) => void }) {
               </Text>
             </Pressable>
             <Pressable
-              accessibilityRole="tab"
-              accessibilityState={{ selected: mode === 'register' }}
+              {...({ 'aria-pressed': mode === 'register' } as never)}
+              accessibilityLabel="Criar conta"
+              accessibilityRole="button"
               onPress={() => {
                 setMode('register');
                 setError('');
@@ -917,6 +965,7 @@ function AuthScreen({ onAuth }: { onAuth: (user: User) => void }) {
 
           <PrimaryButton
             label={loading ? 'Aguarde...' : mode === 'login' ? 'Entrar' : 'Criar conta'}
+            accessibilityLabel={mode === 'login' ? 'Entrar no Bolão Sirel' : 'Concluir cadastro'}
             onPress={submit}
             disabled={loading}
             icon={mode === 'login' ? 'log-in-outline' : 'person-add-outline'}
@@ -999,7 +1048,7 @@ function HeaderLayout({
           <UserAvatar nickname={user.nickname} avatarUrl={user.avatarUrl} size={50} />
         </View>
         <View style={styles.headerUserText}>
-          <Text style={styles.brandSmall}>Bolao Copa 2026</Text>
+          <Text style={styles.brandSmall}>Bolão Sirel</Text>
           <Text style={styles.headerTitle}>{user.nickname}</Text>
         </View>
         <View style={[styles.avatarActions, wideHeader && styles.avatarActionsWide]}>
@@ -1123,7 +1172,7 @@ function Header({
       <View style={styles.headerIdentity}>
         <UserAvatar nickname={user.nickname} avatarUrl={user.avatarUrl} size={50} />
         <View style={styles.headerUserText}>
-          <Text style={styles.brandSmall}>Bolão Copa 2026</Text>
+          <Text style={styles.brandSmall}>Bolão Sirel</Text>
           <Text style={styles.headerTitle}>{user.nickname}</Text>
         </View>
         <View style={styles.avatarActions}>
@@ -1246,7 +1295,9 @@ function DaysScreen({
       <View style={styles.panel}>
         <View style={styles.calendarHeader}>
           <View>
-            <Text style={styles.sectionTitle}>Dias de jogos</Text>
+            <Text role="heading" aria-level={1} style={styles.sectionTitle}>
+              Dias de jogos
+            </Text>
             <Text style={styles.muted}>Calendário mensal dos jogos cadastrados.</Text>
           </View>
           <View style={styles.monthNav}>
@@ -2058,214 +2109,225 @@ function AdminScreen({
       <Suspense fallback={<ActivityIndicator color={colors.green} style={styles.loader} />}>
         <AdminOperationsPanel />
       </Suspense>
-      {legacyAdminMutations ? <>
-      <BrasileiraoCanaryAdmin />
-      <View style={styles.panel}>
-        <View style={styles.panelHeader}>
-          <Text style={styles.sectionTitle}>Admin</Text>
-          <Text style={styles.muted}>
-            A tabela fica salva no banco. A API externa foi removida do fluxo ativo.
-          </Text>
-        </View>
-        <PrimaryButton
-          label={saving ? 'Aguarde...' : 'Importar Copa 2026'}
-          icon="download-outline"
-          onPress={seedOfficialData}
-          disabled={saving}
-        />
-        <Text style={styles.muted}>
-          Fonte usada para a carga local: calendário publicado pelo GE e conferência na página de
-          jogos da FIFA.
-        </Text>
-      </View>
-
-      <View style={styles.panel}>
-        <View style={styles.panelHeader}>
-          <Text style={styles.sectionTitle}>Prazo dos palpites</Text>
-          <Text style={styles.muted}>
-            Aplica o fechamento antes de cada partida e ao primeiro jogo da chave oficial.
-          </Text>
-        </View>
-        <View style={styles.deadlinePresetRow}>
-          {[5, 10, 15, 30].map((minutes) => {
-            const selected = predictionCloseMinutes === String(minutes);
-            return (
-              <Pressable
-                key={minutes}
-                onPress={() => {
-                  setPredictionCloseMinutes(String(minutes));
-                  void savePredictionDeadline(String(minutes));
-                }}
-                disabled={settingSaving}
-                style={[styles.deadlinePreset, selected && styles.deadlinePresetActive]}
-              >
-                <Text
-                  style={[styles.deadlinePresetText, selected && styles.deadlinePresetTextActive]}
-                >
-                  {minutes} min
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        <Field
-          label="Prazo personalizado"
-          value={predictionCloseMinutes}
-          onChangeText={setPredictionCloseMinutes}
-          placeholder="5"
-          keyboardType="number-pad"
-          help="Aceita valores inteiros de 1 a 120 minutos. A alteração entra em vigor imediatamente."
-        />
-        <PrimaryButton
-          label={settingSaving ? 'Atualizando...' : 'Aplicar prazo'}
-          icon="time-outline"
-          onPress={() => savePredictionDeadline()}
-          disabled={settingSaving}
-        />
-        {settingMessage ? <Text style={styles.successText}>{settingMessage}</Text> : null}
-        {settingError ? <Text style={styles.errorText}>{settingError}</Text> : null}
-      </View>
-
-      <View style={styles.panel}>
-        <View style={styles.panelHeader}>
-          <Text style={styles.sectionTitle}>Atualização dos dados</Text>
-          <Text style={styles.muted}>
-            Controla a raspagem automática dos placares e da artilharia no GE. Quando estiver
-            desativada, o script pode continuar rodando, mas ficará em pausa.
-          </Text>
-        </View>
-        <View style={styles.rowBetween}>
-          <View style={styles.statusSummary}>
-            <Pill
-              label={scoreSyncEnabled ? 'Atualização ativa' : 'Atualização pausada'}
-              tone={scoreSyncEnabled ? 'ok' : 'warn'}
+      {legacyAdminMutations ? (
+        <>
+          <BrasileiraoCanaryAdmin />
+          <View style={styles.panel}>
+            <View style={styles.panelHeader}>
+              <Text style={styles.sectionTitle}>Admin</Text>
+              <Text style={styles.muted}>
+                A tabela fica salva no banco. A API externa foi removida do fluxo ativo.
+              </Text>
+            </View>
+            <PrimaryButton
+              label={saving ? 'Aguarde...' : 'Importar Copa 2026'}
+              icon="download-outline"
+              onPress={seedOfficialData}
+              disabled={saving}
             />
             <Text style={styles.muted}>
-              {scoreSyncUpdatedAt ? `Última alteração: ${dateTime(scoreSyncUpdatedAt)}` : 'Sem alteração registrada.'}
+              Fonte usada para a carga local: calendário publicado pelo GE e conferência na página
+              de jogos da FIFA.
             </Text>
           </View>
-          <PrimaryButton
-            label={
-              scoreSyncSaving
-                ? 'Atualizando...'
-                : scoreSyncEnabled
-                  ? 'Desativar atualização'
-                  : 'Ativar atualização'
-            }
-            icon={scoreSyncEnabled ? 'pause-circle-outline' : 'play-circle-outline'}
-            tone={scoreSyncEnabled ? 'danger' : 'primary'}
-            onPress={() => toggleScoreSync(!scoreSyncEnabled)}
-            disabled={scoreSyncSaving}
-          />
-        </View>
-        <PrimaryButton
-          label="Rodar uma vez pelo terminal"
-          icon="terminal-outline"
-          tone="secondary"
-          onPress={() =>
-            setScoreSyncMessage(
-              'Use o arquivo scripts\\\\rodar-atualizacao-ge-uma-vez.bat ou o comando npm run scrape:ge-scores:once.',
-            )
-          }
-        />
-        {scoreSyncMessage ? <Text style={styles.successText}>{scoreSyncMessage}</Text> : null}
-        {scoreSyncError ? <Text style={styles.errorText}>{scoreSyncError}</Text> : null}
-      </View>
 
-      <View style={styles.panel}>
-        <Text style={styles.sectionTitle}>Cadastrar jogo</Text>
-        <Field
-          label="Data e hora de Brasília"
-          value={startsAt}
-          onChangeText={setStartsAt}
-          placeholder="2026-06-11T16:00"
-          help="Formato: AAAA-MM-DDTHH:mm. Exemplo: 2026-06-13T19:00."
-        />
-        <TeamSelector
-          label="Mandante"
-          teams={teams}
-          selectedCode={homeTeamCode}
-          onSelect={setHomeTeamCode}
-        />
-        <TeamSelector
-          label="Visitante"
-          teams={teams}
-          selectedCode={awayTeamCode}
-          onSelect={setAwayTeamCode}
-        />
-        <PrimaryButton
-          label={saving ? 'Salvando...' : 'Cadastrar jogo'}
-          icon="add-circle-outline"
-          onPress={createMatch}
-          disabled={saving || !homeTeamCode || !awayTeamCode}
-        />
-        {message ? <Text style={styles.successText}>{message}</Text> : null}
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
-      </View>
+          <View style={styles.panel}>
+            <View style={styles.panelHeader}>
+              <Text style={styles.sectionTitle}>Prazo dos palpites</Text>
+              <Text style={styles.muted}>
+                Aplica o fechamento antes de cada partida e ao primeiro jogo da chave oficial.
+              </Text>
+            </View>
+            <View style={styles.deadlinePresetRow}>
+              {[5, 10, 15, 30].map((minutes) => {
+                const selected = predictionCloseMinutes === String(minutes);
+                return (
+                  <Pressable
+                    key={minutes}
+                    onPress={() => {
+                      setPredictionCloseMinutes(String(minutes));
+                      void savePredictionDeadline(String(minutes));
+                    }}
+                    disabled={settingSaving}
+                    style={[styles.deadlinePreset, selected && styles.deadlinePresetActive]}
+                  >
+                    <Text
+                      style={[
+                        styles.deadlinePresetText,
+                        selected && styles.deadlinePresetTextActive,
+                      ]}
+                    >
+                      {minutes} min
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Field
+              label="Prazo personalizado"
+              value={predictionCloseMinutes}
+              onChangeText={setPredictionCloseMinutes}
+              placeholder="5"
+              keyboardType="number-pad"
+              help="Aceita valores inteiros de 1 a 120 minutos. A alteração entra em vigor imediatamente."
+            />
+            <PrimaryButton
+              label={settingSaving ? 'Atualizando...' : 'Aplicar prazo'}
+              icon="time-outline"
+              onPress={() => savePredictionDeadline()}
+              disabled={settingSaving}
+            />
+            {settingMessage ? <Text style={styles.successText}>{settingMessage}</Text> : null}
+            {settingError ? <Text style={styles.errorText}>{settingError}</Text> : null}
+          </View>
 
-      <View style={styles.panel}>
-        <View style={styles.panelHeader}>
-          <Text style={styles.sectionTitle}>Usuarios</Text>
-          <Text style={styles.muted}>
-            Administradores visualizam e gerenciam contas, mas não entram no ranking nem participam
-            dos palpites.
-          </Text>
-        </View>
-        <View style={styles.userList}>
-          {users.map((managedUser) => {
-            const isSelf = managedUser.id === currentUserId;
-            const isBlocked = managedUser.status === 'BLOCKED';
-            const busy = userSaving === managedUser.id;
-            return (
-              <View key={managedUser.id} style={styles.userAdminRow}>
-                <View style={styles.userAdminInfo}>
-                  <View style={styles.rowBetween}>
-                    <Text style={styles.matchTitle}>{managedUser.nickname}</Text>
-                    <Pill
-                      label={
-                        managedUser.role === 'ADMIN' ? 'Admin' : isBlocked ? 'Bloqueado' : 'Usuário'
-                      }
-                      tone={managedUser.role === 'ADMIN' ? 'warn' : isBlocked ? 'live' : 'ok'}
-                    />
-                  </View>
-                  <Text style={styles.muted}>{managedUser.username}</Text>
-                </View>
-                <View style={styles.userAdminActions}>
-                  <Field
-                    label="Nova senha"
-                    value={passwords[managedUser.id] ?? ''}
-                    onChangeText={(value) =>
-                      setPasswords((current) => ({ ...current, [managedUser.id]: value }))
-                    }
-                    secureTextEntry
-                    placeholder="mínimo 6 caracteres"
-                  />
-                  <View style={styles.userActionButtons}>
-                    <PrimaryButton
-                      label={busy ? 'Salvando...' : 'Alterar senha'}
-                      icon="key-outline"
-                      onPress={() => resetPassword(managedUser)}
-                      disabled={busy}
-                    />
-                    <PrimaryButton
-                      label={isBlocked ? 'Desbloquear' : 'Bloquear'}
-                      icon={isBlocked ? 'lock-open-outline' : 'lock-closed-outline'}
-                      onPress={() => toggleUserStatus(managedUser)}
-                      disabled={busy || isSelf}
-                    />
-                  </View>
-                  {isSelf ? (
-                    <Text style={styles.muted}>Sua própria conta não pode ser bloqueada.</Text>
-                  ) : null}
-                </View>
+          <View style={styles.panel}>
+            <View style={styles.panelHeader}>
+              <Text style={styles.sectionTitle}>Atualização dos dados</Text>
+              <Text style={styles.muted}>
+                Controla a raspagem automática dos placares e da artilharia no GE. Quando estiver
+                desativada, o script pode continuar rodando, mas ficará em pausa.
+              </Text>
+            </View>
+            <View style={styles.rowBetween}>
+              <View style={styles.statusSummary}>
+                <Pill
+                  label={scoreSyncEnabled ? 'Atualização ativa' : 'Atualização pausada'}
+                  tone={scoreSyncEnabled ? 'ok' : 'warn'}
+                />
+                <Text style={styles.muted}>
+                  {scoreSyncUpdatedAt
+                    ? `Última alteração: ${dateTime(scoreSyncUpdatedAt)}`
+                    : 'Sem alteração registrada.'}
+                </Text>
               </View>
-            );
-          })}
-        </View>
-        {userMessage ? <Text style={styles.successText}>{userMessage}</Text> : null}
-        {userError ? <Text style={styles.errorText}>{userError}</Text> : null}
-      </View>
-      </> : null}
+              <PrimaryButton
+                label={
+                  scoreSyncSaving
+                    ? 'Atualizando...'
+                    : scoreSyncEnabled
+                      ? 'Desativar atualização'
+                      : 'Ativar atualização'
+                }
+                icon={scoreSyncEnabled ? 'pause-circle-outline' : 'play-circle-outline'}
+                tone={scoreSyncEnabled ? 'danger' : 'primary'}
+                onPress={() => toggleScoreSync(!scoreSyncEnabled)}
+                disabled={scoreSyncSaving}
+              />
+            </View>
+            <PrimaryButton
+              label="Rodar uma vez pelo terminal"
+              icon="terminal-outline"
+              tone="secondary"
+              onPress={() =>
+                setScoreSyncMessage(
+                  'Use o arquivo scripts\\\\rodar-atualizacao-ge-uma-vez.bat ou o comando npm run scrape:ge-scores:once.',
+                )
+              }
+            />
+            {scoreSyncMessage ? <Text style={styles.successText}>{scoreSyncMessage}</Text> : null}
+            {scoreSyncError ? <Text style={styles.errorText}>{scoreSyncError}</Text> : null}
+          </View>
+
+          <View style={styles.panel}>
+            <Text style={styles.sectionTitle}>Cadastrar jogo</Text>
+            <Field
+              label="Data e hora de Brasília"
+              value={startsAt}
+              onChangeText={setStartsAt}
+              placeholder="2026-06-11T16:00"
+              help="Formato: AAAA-MM-DDTHH:mm. Exemplo: 2026-06-13T19:00."
+            />
+            <TeamSelector
+              label="Mandante"
+              teams={teams}
+              selectedCode={homeTeamCode}
+              onSelect={setHomeTeamCode}
+            />
+            <TeamSelector
+              label="Visitante"
+              teams={teams}
+              selectedCode={awayTeamCode}
+              onSelect={setAwayTeamCode}
+            />
+            <PrimaryButton
+              label={saving ? 'Salvando...' : 'Cadastrar jogo'}
+              icon="add-circle-outline"
+              onPress={createMatch}
+              disabled={saving || !homeTeamCode || !awayTeamCode}
+            />
+            {message ? <Text style={styles.successText}>{message}</Text> : null}
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          </View>
+
+          <View style={styles.panel}>
+            <View style={styles.panelHeader}>
+              <Text style={styles.sectionTitle}>Usuarios</Text>
+              <Text style={styles.muted}>
+                Administradores visualizam e gerenciam contas, mas não entram no ranking nem
+                participam dos palpites.
+              </Text>
+            </View>
+            <View style={styles.userList}>
+              {users.map((managedUser) => {
+                const isSelf = managedUser.id === currentUserId;
+                const isBlocked = managedUser.status === 'BLOCKED';
+                const busy = userSaving === managedUser.id;
+                return (
+                  <View key={managedUser.id} style={styles.userAdminRow}>
+                    <View style={styles.userAdminInfo}>
+                      <View style={styles.rowBetween}>
+                        <Text style={styles.matchTitle}>{managedUser.nickname}</Text>
+                        <Pill
+                          label={
+                            managedUser.role === 'ADMIN'
+                              ? 'Admin'
+                              : isBlocked
+                                ? 'Bloqueado'
+                                : 'Usuário'
+                          }
+                          tone={managedUser.role === 'ADMIN' ? 'warn' : isBlocked ? 'live' : 'ok'}
+                        />
+                      </View>
+                      <Text style={styles.muted}>{managedUser.username}</Text>
+                    </View>
+                    <View style={styles.userAdminActions}>
+                      <Field
+                        label="Nova senha"
+                        value={passwords[managedUser.id] ?? ''}
+                        onChangeText={(value) =>
+                          setPasswords((current) => ({ ...current, [managedUser.id]: value }))
+                        }
+                        secureTextEntry
+                        placeholder="mínimo 6 caracteres"
+                      />
+                      <View style={styles.userActionButtons}>
+                        <PrimaryButton
+                          label={busy ? 'Salvando...' : 'Alterar senha'}
+                          icon="key-outline"
+                          onPress={() => resetPassword(managedUser)}
+                          disabled={busy}
+                        />
+                        <PrimaryButton
+                          label={isBlocked ? 'Desbloquear' : 'Bloquear'}
+                          icon={isBlocked ? 'lock-open-outline' : 'lock-closed-outline'}
+                          onPress={() => toggleUserStatus(managedUser)}
+                          disabled={busy || isSelf}
+                        />
+                      </View>
+                      {isSelf ? (
+                        <Text style={styles.muted}>Sua própria conta não pode ser bloqueada.</Text>
+                      ) : null}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+            {userMessage ? <Text style={styles.successText}>{userMessage}</Text> : null}
+            {userError ? <Text style={styles.errorText}>{userError}</Text> : null}
+          </View>
+        </>
+      ) : null}
     </View>
   );
 }
@@ -2525,7 +2587,11 @@ function TrophyAwardCard({ award, featured = false }: { award: RankingAward; fea
       <View style={styles.trophyWinnerRow}>
         {winner ? (
           <>
-            <UserAvatar nickname={winner.nickname} avatarUrl={winner.avatarUrl} size={featured ? 42 : 30} />
+            <UserAvatar
+              nickname={winner.nickname}
+              avatarUrl={winner.avatarUrl}
+              size={featured ? 42 : 30}
+            />
             <View style={styles.trophyWinnerCopy}>
               <Text style={styles.trophyWinnerName} numberOfLines={1}>
                 {winner.nickname}
@@ -2587,7 +2653,13 @@ function TrophyShelf({
   const totalCount = awards.length || 11;
 
   return (
-    <View style={[styles.rankingSidePanel, styles.trophyShelfPanel, wide && styles.trophyShelfPanelWide]}>
+    <View
+      style={[
+        styles.rankingSidePanel,
+        styles.trophyShelfPanel,
+        wide && styles.trophyShelfPanelWide,
+      ]}
+    >
       <View style={styles.trophyShelfHeader}>
         <View style={styles.trophyShelfTitleBlock}>
           <Text style={styles.rankingSideTitle}>Estante de Trofeus</Text>
@@ -2647,9 +2719,7 @@ function RankingScreenLayout({
 
       try {
         const [result, overallResult, awardsResult] = await Promise.all([
-          mode === 'refresh'
-            ? api.refreshRanking(periodFilter)
-            : api.ranking(periodFilter),
+          mode === 'refresh' ? api.refreshRanking(periodFilter) : api.ranking(periodFilter),
           periodFilter === 'all' ? Promise.resolve(null) : api.ranking('all'),
           api.rankingAwards(),
         ]);
@@ -2733,11 +2803,7 @@ function RankingScreenLayout({
   );
   const showMovement = periodFilter !== 'all' || statusFilter === 'live';
   const movementBaseMap =
-    statusFilter !== 'all'
-      ? periodRankMap
-      : periodFilter !== 'all'
-        ? overallRankMap
-        : null;
+    statusFilter !== 'all' ? periodRankMap : periodFilter !== 'all' ? overallRankMap : null;
   const currentMovementRankMap = statusFilter !== 'all' ? scopedRankMap : periodRankMap;
   const movementByUserId = useMemo(() => {
     const next = new Map<string, number | null>();
@@ -2812,12 +2878,12 @@ function RankingScreenLayout({
         style={[styles.rankingHead, stackTools && styles.rankingHeadCompact]}
       >
         <View style={styles.rankingHeadCopy}>
-          <Text style={styles.sectionTitle}>{scopeTitle}</Text>
+          <Text role="heading" aria-level={1} style={styles.sectionTitle}>
+            {scopeTitle}
+          </Text>
           <Text style={styles.rankingHeadText}>{scopeDescription}</Text>
           <View style={styles.rankingBadgeRow}>
-            <Animated.View
-              style={[styles.rankingLiveBadge, { transform: [{ scale: pulse }] }]}
-            >
+            <Animated.View style={[styles.rankingLiveBadge, { transform: [{ scale: pulse }] }]}>
               <Text style={styles.rankingLiveBadgeText}>{scopeRefreshText}</Text>
             </Animated.View>
             <View
@@ -2919,9 +2985,7 @@ function RankingScreenLayout({
           label="Sua posicao"
           value={currentUserRow ? `#${currentUserRow.rank}` : '--'}
           detail={
-            currentUserRow
-              ? `${currentUserRow.points} pts no recorte`
-              : 'Sem pontuacao no recorte'
+            currentUserRow ? `${currentUserRow.points} pts no recorte` : 'Sem pontuacao no recorte'
           }
         />
         <RankingStatCard
@@ -2976,7 +3040,9 @@ function RankingScreenLayout({
               {error ? <Text style={styles.errorText}>{error}</Text> : null}
             </View>
 
-            {loading ? <ActivityIndicator color={colors.green} style={styles.loaderInline} /> : null}
+            {loading ? (
+              <ActivityIndicator color={colors.green} style={styles.loaderInline} />
+            ) : null}
 
             {filteredRanking.length > 0 ? (
               <ScrollView
@@ -3034,9 +3100,15 @@ function RankingScreenLayout({
                         </View>
                       </View>
                       <Text style={[styles.rankingCell, styles.numericColumn]}>{row.played}</Text>
-                      <Text style={[styles.rankingCell, styles.numericColumn]}>{row.exactScores}</Text>
-                      <Text style={[styles.rankingCell, styles.numericColumn]}>{row.resultHits}</Text>
-                      <Text style={[styles.rankingCell, styles.numericColumn]}>{row.oneGoalHits}</Text>
+                      <Text style={[styles.rankingCell, styles.numericColumn]}>
+                        {row.exactScores}
+                      </Text>
+                      <Text style={[styles.rankingCell, styles.numericColumn]}>
+                        {row.resultHits}
+                      </Text>
+                      <Text style={[styles.rankingCell, styles.numericColumn]}>
+                        {row.oneGoalHits}
+                      </Text>
                       <Text style={[styles.rankingCell, styles.numericColumn]}>{row.misses}</Text>
                       <View style={[styles.rankingCellBox, styles.formColumn]}>
                         <LastFive values={row.lastFive} matches={row.lastFiveMatches} />
@@ -3091,7 +3163,11 @@ function RankingScreenLayout({
             </View>
           </View>
 
-          <TrophyShelf awards={awards} loading={loading && awards.length === 0} wide={sidebarBelow} />
+          <TrophyShelf
+            awards={awards}
+            loading={loading && awards.length === 0}
+            wide={sidebarBelow}
+          />
           <View style={[styles.rankingSidePanel, sidebarBelow && styles.rankingSidePanelBelow]}>
             <Text style={styles.rankingSideTitle}>Criterios da tabela</Text>
             <View style={styles.rankingCriteriaList}>
@@ -3133,7 +3209,9 @@ function RankingScreen({ refreshVersion }: { refreshVersion: number }) {
   return (
     <View style={styles.panel}>
       <View style={styles.panelHeader}>
-        <Text style={styles.sectionTitle}>Ranking ao vivo</Text>
+        <Text role="heading" aria-level={1} style={styles.sectionTitle}>
+          Ranking ao vivo
+        </Text>
         <Pill label="Atualização ativa" tone="live" />
       </View>
 
@@ -3263,11 +3341,7 @@ function CupStandingTable({
           <View style={[styles.cupTableRow, styles.cupTableHeader]}>
             <Text style={[styles.cupCell, styles.cupRankColumn]}>#</Text>
             <Text
-              style={[
-                styles.cupCell,
-                styles.cupTeamColumn,
-                fullWidth && styles.cupTeamColumnFull,
-              ]}
+              style={[styles.cupCell, styles.cupTeamColumn, fullWidth && styles.cupTeamColumnFull]}
             >
               Time
             </Text>
@@ -3425,7 +3499,9 @@ function CupOverviewScreen({
     <View style={styles.contentGrid}>
       <View style={[styles.panel, styles.cupPanel]}>
         <View style={styles.panelHeader}>
-          <Text style={styles.sectionTitle}>Copa do Mundo 2026</Text>
+          <Text role="heading" aria-level={1} style={styles.sectionTitle}>
+            Copa do Mundo 2026
+          </Text>
           <Text style={styles.muted}>Classificação por grupos, resultados e artilharia.</Text>
         </View>
         {overview ? (
@@ -3573,14 +3649,29 @@ function TeamCatalogScreen({
   selectedCode: string | null;
   onSelectTeamCode: (code: string) => void;
 }) {
-  const teams = useMemo(() => Object.values(teamCatalogByCode), []);
-  const selected = selectedCode ? teamCatalogByCode[selectedCode] : null;
+  const [catalog, setCatalog] = useState<Record<string, TeamCatalogEntry> | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    import('./src/teamCatalog').then((module) => {
+      if (active) setCatalog(module.teamCatalogByCode);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (!catalog) return <ActivityIndicator color={colors.green} style={styles.loader} />;
+  const teams = Object.values(catalog);
+  const selected = selectedCode ? catalog[selectedCode] : null;
 
   return (
     <View style={styles.contentGridSingle}>
       <View style={styles.panel}>
         <View style={styles.panelHeader}>
-          <Text style={styles.sectionTitle}>Times participantes</Text>
+          <Text role="heading" aria-level={1} style={styles.sectionTitle}>
+            Times participantes
+          </Text>
           <Text style={styles.muted}>
             Selecione um país para abrir ou fechar o elenco cadastrado.
           </Text>
@@ -3686,7 +3777,7 @@ function TeamCatalogScreen({
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [screen, setScreen] = useState<Screen>('days');
+  const [screen, setScreen] = useState<Screen>(initialAppScreen);
   const [selectedTeamCode, setSelectedTeamCode] = useState<string | null>('KOR');
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [booting, setBooting] = useState(true);
@@ -3697,7 +3788,11 @@ export default function App() {
   const appScrollRef = useRef<ScrollView>(null);
   const appScrollY = useRef(0);
   const inactiveSince = useRef<number | null>(null);
+  const screenRef = useRef<Screen>(screen);
+  const userRef = useRef<User | null>(user);
   const appScrollStyle = [styles.appScroll, viewportWidth < 760 && styles.appScrollCompact];
+  screenRef.current = screen;
+  userRef.current = user;
 
   const triggerRefresh = useCallback(() => {
     setRefreshVersion((current) => current + 1);
@@ -3707,16 +3802,32 @@ export default function App() {
     return !user?.id || !hasStoredDirtyDraft(user.id);
   }
 
+  function confirmContextChange() {
+    if (canLeaveCurrentScreen()) return true;
+    if (typeof window === 'undefined') return false;
+    return window.confirm(
+      'Há alterações não salvas. Deseja sair e manter o rascunho neste navegador?',
+    );
+  }
+
+  function focusMainContent() {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    window.requestAnimationFrame(() => {
+      document.getElementById('conteudo-principal')?.focus();
+    });
+  }
+
   function navigate(nextScreen: Screen) {
-    if (nextScreen === screen) return;
-    if (
-      !canLeaveCurrentScreen()
-      && typeof window !== 'undefined'
-      && !window.confirm('Há alterações não salvas. Deseja sair e manter o rascunho neste navegador?')
-    ) {
-      return;
+    if (nextScreen === screen) return true;
+    if (!confirmContextChange()) return false;
+    if (appIaV2 && Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.history.pushState({ screen: nextScreen }, '', pathForScreen(nextScreen));
     }
     setScreen(nextScreen);
+    appScrollY.current = 0;
+    appScrollRef.current?.scrollTo({ y: 0, animated: false });
+    focusMainContent();
+    return true;
   }
 
   useEffect(() => {
@@ -3735,6 +3846,45 @@ export default function App() {
       document.head.appendChild(meta);
     }
     meta.content = 'notranslate';
+  }, []);
+
+  useEffect(() => {
+    if (!appIaV2 || Platform.OS !== 'web' || typeof document === 'undefined') return;
+    document.title = pageTitle(screen);
+  }, [screen]);
+
+  useEffect(() => {
+    if (!appIaV2 || Platform.OS !== 'web' || typeof window === 'undefined') return undefined;
+    if (!window.history.state?.screen) {
+      window.history.replaceState({ screen: screenRef.current }, '', window.location.href);
+    }
+    const handlePopState = () => {
+      const nextScreen = screenFromPath(window.location.pathname);
+      if (nextScreen === screenRef.current) return;
+      const currentUser = userRef.current;
+      if (
+        currentUser?.id &&
+        hasStoredDirtyDraft(currentUser.id) &&
+        !window.confirm(
+          'Há alterações não salvas. Deseja sair e manter o rascunho neste navegador?',
+        )
+      ) {
+        window.history.pushState(
+          { screen: screenRef.current },
+          '',
+          pathForScreen(screenRef.current),
+        );
+        return;
+      }
+      setScreen(nextScreen);
+      appScrollY.current = 0;
+      appScrollRef.current?.scrollTo({ y: 0, animated: false });
+      window.requestAnimationFrame(() => {
+        document.getElementById('conteudo-principal')?.focus();
+      });
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
   function adjustAppScroll(delta: number) {
@@ -3769,9 +3919,7 @@ export default function App() {
     let cancelled = false;
     api
       .brasileiraoSeasons()
-      .then((result) =>
-        result.seasons.find((season) => season.slug === 'brasileirao-serie-a-2026'),
-      )
+      .then((result) => result.seasons.find((season) => season.slug === 'brasileirao-serie-a-2026'))
       .then(async (season) => {
         if (!season) return false;
         if (user.role === 'ADMIN') return true;
@@ -3819,8 +3967,78 @@ export default function App() {
   }, [triggerRefresh]);
 
   const content = useMemo(() => {
-    if (screen === 'brasileirao' && brasileiraoNavEnabled) {
-      return <Brasileirao2026Screen currentUserId={user?.id ?? ''} refreshVersion={refreshVersion} />;
+    if (appIaV2 && screen === 'home') {
+      return <HomeScreen user={user as User} onNavigate={navigate} />;
+    }
+    if (appIaV2 && screen === 'competitions') {
+      return (
+        <CompetitionHub
+          onOpen={(competition) => {
+            const destination = screenForCompetitionSlug(competition.slug);
+            if (!destination) {
+              if (typeof window !== 'undefined') {
+                window.alert('Esta competição ainda não possui uma área publicada.');
+              }
+              return false;
+            }
+            return navigate(destination);
+          }}
+        />
+      );
+    }
+    if (appIaV2 && screen === 'not-found') {
+      return (
+        <RouteState
+          title="Página não encontrada"
+          message="Este endereço não pertence a uma página publicada do Bolão Sirel."
+          actionLabel="Voltar ao início"
+          onAction={() => navigate('home')}
+        />
+      );
+    }
+    if (appIaV2 && screen === 'admin' && user?.role !== 'ADMIN') {
+      return (
+        <RouteState
+          tone="warning"
+          title="Acesso restrito"
+          message="Esta página está disponível somente para administradores do Bolão Sirel."
+          actionLabel="Voltar ao início"
+          onAction={() => navigate('home')}
+        />
+      );
+    }
+    if (appIaV2 && leagueScreens.has(screen)) {
+      if (!brasileiraoNavEnabled) {
+        return (
+          <RouteState
+            tone="warning"
+            title="Competição indisponível"
+            message="O Brasileirão ainda não está liberado para este participante."
+            actionLabel="Ver competições"
+            onAction={() => navigate('competitions')}
+          />
+        );
+      }
+      const section =
+        screen === 'brasileirao-predictions'
+          ? 'predictions'
+          : screen === 'brasileirao-standings'
+            ? 'standings'
+            : screen === 'brasileirao-ranking'
+              ? 'ranking'
+              : 'overview';
+      return (
+        <Brasileirao2026Screen
+          currentUserId={user?.id ?? ''}
+          refreshVersion={refreshVersion}
+          section={section}
+        />
+      );
+    }
+    if (!appIaV2 && screen === 'brasileirao' && brasileiraoNavEnabled) {
+      return (
+        <Brasileirao2026Screen currentUserId={user?.id ?? ''} refreshVersion={refreshVersion} />
+      );
     }
     if (screen === 'ranking')
       return <RankingScreenLayout refreshVersion={refreshVersion} currentUserId={user?.id ?? ''} />;
@@ -3831,9 +4049,9 @@ export default function App() {
           refreshVersion={refreshVersion}
           onOpenTeam={(team) => {
             setSelectedTeamCode(team.code ?? null);
-            setScreen('teams');
+            navigate('teams');
           }}
-          onOpenKnockout={() => setScreen('knockout')}
+          onOpenKnockout={() => navigate('knockout')}
         />
       );
     }
@@ -3850,7 +4068,7 @@ export default function App() {
           onAdjustScroll={adjustAppScroll}
           onOpenTeam={(team) => {
             setSelectedTeamCode(team.code ?? null);
-            setScreen('teams');
+            navigate('teams');
           }}
         />
       );
@@ -3872,13 +4090,22 @@ export default function App() {
         refreshVersion={refreshVersion}
         onOpenTeam={(team) => {
           setSelectedTeamCode(team.code ?? null);
-          setScreen('teams');
+          navigate('teams');
         }}
       />
     );
-  }, [brasileiraoNavEnabled, refreshVersion, screen, selectedTeamCode, user?.id, user?.role]);
+  }, [
+    brasileiraoNavEnabled,
+    refreshVersion,
+    screen,
+    selectedTeamCode,
+    user?.id,
+    user?.nickname,
+    user?.role,
+  ]);
 
   async function logout() {
+    if (!confirmContextChange()) return;
     await api.logout().catch(() => undefined);
     setUser(null);
   }
@@ -3886,7 +4113,9 @@ export default function App() {
   if (booting) {
     return (
       <AppShell>
-        <ActivityIndicator color={colors.green} style={styles.loader} />
+        <View nativeID="conteudo-principal" role="main" style={styles.bootMain}>
+          <ActivityIndicator color={colors.green} style={styles.loader} />
+        </View>
       </AppShell>
     );
   }
@@ -3898,46 +4127,73 @@ export default function App() {
     <ToastProvider>
       <AppShell>
         <CompetitionProvider>
-          <HeaderLayout
-            user={user}
-            screen={screen}
-            setScreen={navigate}
-            onRefresh={triggerRefresh}
-            onUserChange={setUser}
-            showBrasileirao={brasileiraoNavEnabled}
-            onLogout={logout}
-          />
-          {competitionUiV2 ? (
-            <CompetitionSelector
-              canLeave={canLeaveCurrentScreen}
-              onCompetitionChange={(competition) => {
-                const capabilities = normalizeCapabilities(competition.capabilities, null);
-                if (capabilities.has('LEAGUE') && brasileiraoNavEnabled) navigate('brasileirao');
-                else if (capabilities.has('KNOCKOUT') || capabilities.has('GROUPS')) navigate('days');
+          {appIaV2 ? (
+            <RoutedWorkspace
+              user={user}
+              screen={screen}
+              content={content}
+              scrollRef={appScrollRef}
+              onScroll={(event) => {
+                appScrollY.current = event.nativeEvent.contentOffset.y;
               }}
-              onSeasonChange={(season) => {
-                const capabilities = normalizeCapabilities(null, season.capabilities);
-                if (capabilities.has('LEAGUE') && brasileiraoNavEnabled) navigate('brasileirao');
-                else if (capabilities.has('KNOCKOUT')) navigate('knockout');
-                else navigate('days');
-              }}
+              onNavigate={navigate}
+              onRefresh={triggerRefresh}
+              onUserChange={setUser}
+              canChangeContext={confirmContextChange}
+              onLogout={logout}
             />
-          ) : null}
-          <ScrollView
-            ref={appScrollRef}
-            style={styles.appScrollView}
-            contentContainerStyle={appScrollStyle}
-            onScroll={(event) => {
-              appScrollY.current = event.nativeEvent.contentOffset.y;
-            }}
-            scrollEventThrottle={16}
-          >
-            <SoftReveal key={screen} style={styles.screenTransition}>
-              <Suspense fallback={<ActivityIndicator color={colors.green} style={styles.loader} />}>
-                {content}
-              </Suspense>
-            </SoftReveal>
-          </ScrollView>
+          ) : (
+            <>
+              <HeaderLayout
+                user={user}
+                screen={screen}
+                setScreen={navigate}
+                onRefresh={triggerRefresh}
+                onUserChange={setUser}
+                showBrasileirao={brasileiraoNavEnabled}
+                onLogout={logout}
+              />
+              {competitionUiV2 ? (
+                <CompetitionSelector
+                  canLeave={canLeaveCurrentScreen}
+                  onCompetitionChange={(competition) => {
+                    const capabilities = normalizeCapabilities(competition.capabilities, null);
+                    if (capabilities.has('LEAGUE') && brasileiraoNavEnabled)
+                      navigate('brasileirao');
+                    else if (capabilities.has('KNOCKOUT') || capabilities.has('GROUPS'))
+                      navigate('days');
+                  }}
+                  onSeasonChange={(season) => {
+                    const capabilities = normalizeCapabilities(null, season.capabilities);
+                    if (capabilities.has('LEAGUE') && brasileiraoNavEnabled)
+                      navigate('brasileirao');
+                    else if (capabilities.has('KNOCKOUT')) navigate('knockout');
+                    else navigate('days');
+                  }}
+                />
+              ) : null}
+              <ScrollView
+                {...({ tabIndex: -1 } as never)}
+                ref={appScrollRef}
+                nativeID="conteudo-principal"
+                role="main"
+                style={styles.appScrollView}
+                contentContainerStyle={appScrollStyle}
+                onScroll={(event) => {
+                  appScrollY.current = event.nativeEvent.contentOffset.y;
+                }}
+                scrollEventThrottle={16}
+              >
+                <SoftReveal key={screen} style={styles.screenTransition}>
+                  <Suspense
+                    fallback={<ActivityIndicator color={colors.green} style={styles.loader} />}
+                  >
+                    {content}
+                  </Suspense>
+                </SoftReveal>
+              </ScrollView>
+            </>
+          )}
           <KnockoutCalloutModal
             visible={knockoutCalloutVisible}
             now={nowTime}
@@ -4397,8 +4653,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: 'rgba(4, 24, 54, 0.78)' as never,
     backdropFilter: 'blur(14px)' as never,
-    boxShadow:
-      '0 8px 28px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.06)' as never,
+    boxShadow: '0 8px 28px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.06)' as never,
   },
   navTabs: {
     flexDirection: 'row',
@@ -4854,8 +5109,7 @@ const styles = StyleSheet.create({
     borderRadius: 13,
     padding: 18,
     gap: 14,
-    boxShadow:
-      '0 20px 70px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255,255,255,0.08)' as never,
+    boxShadow: '0 20px 70px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255,255,255,0.08)' as never,
     backgroundImage:
       'linear-gradient(145deg, rgba(3, 39, 94, 0.72), rgba(0, 26, 70, 0.78) 62%, rgba(0, 73, 64, 0.20))' as never,
   },
@@ -5234,7 +5488,8 @@ const styles = StyleSheet.create({
     minHeight: 76,
     borderColor: 'rgba(98, 164, 255, 0.24)' as never,
     borderWidth: 1,
-    backgroundImage: 'linear-gradient(180deg, rgba(5, 35, 82, 0.9), rgba(2, 22, 55, 0.94))' as never,
+    backgroundImage:
+      'linear-gradient(180deg, rgba(5, 35, 82, 0.9), rgba(2, 22, 55, 0.94))' as never,
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -5305,13 +5560,11 @@ const styles = StyleSheet.create({
   },
   rankingPodiumCardSecond: {
     borderColor: 'rgba(160, 188, 224, 0.32)' as never,
-    backgroundImage:
-      'linear-gradient(135deg, rgba(185,205,226,0.12), rgba(4,36,86,0.9))' as never,
+    backgroundImage: 'linear-gradient(135deg, rgba(185,205,226,0.12), rgba(4,36,86,0.9))' as never,
   },
   rankingPodiumCardThird: {
     borderColor: '#9c6b36',
-    backgroundImage:
-      'linear-gradient(135deg, rgba(227,139,68,0.14), rgba(4,36,86,0.9))' as never,
+    backgroundImage: 'linear-gradient(135deg, rgba(227,139,68,0.14), rgba(4,36,86,0.9))' as never,
   },
   rankingPodiumGhostRank: {
     position: 'absolute',
@@ -5454,7 +5707,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   leaderCard: {
-    backgroundImage: 'linear-gradient(180deg, rgba(5, 38, 88, 0.9), rgba(2, 22, 55, 0.94))' as never,
+    backgroundImage:
+      'linear-gradient(180deg, rgba(5, 38, 88, 0.9), rgba(2, 22, 55, 0.94))' as never,
   },
   lastCard: {
     backgroundColor: 'rgba(4, 24, 54, 0.86)' as never,
@@ -5519,8 +5773,7 @@ const styles = StyleSheet.create({
     borderLeftColor: colors.green,
     borderLeftWidth: 3,
     boxShadow: 'inset 0 0 0 1px rgba(50,210,139,0.45)' as never,
-    backgroundImage:
-      'linear-gradient(90deg, rgba(50,210,139,0.12), rgba(5,34,82,0.34))' as never,
+    backgroundImage: 'linear-gradient(90deg, rgba(50,210,139,0.12), rgba(5,34,82,0.34))' as never,
   },
   rankingTableHeader: {
     minHeight: 42,
@@ -5614,7 +5867,8 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(98, 164, 255, 0.24)' as never,
     borderWidth: 1,
     borderRadius: 14,
-    backgroundImage: 'linear-gradient(180deg, rgba(5, 35, 82, 0.9), rgba(2, 22, 55, 0.94))' as never,
+    backgroundImage:
+      'linear-gradient(180deg, rgba(5, 35, 82, 0.9), rgba(2, 22, 55, 0.94))' as never,
     padding: 13,
     gap: 10,
   },
@@ -5637,8 +5891,7 @@ const styles = StyleSheet.create({
   },
   trophyShelfPanel: {
     borderColor: 'rgba(229,186,82,0.34)' as never,
-    backgroundImage:
-      'linear-gradient(180deg, rgba(5,35,82,0.96), rgba(2,22,55,0.98))' as never,
+    backgroundImage: 'linear-gradient(180deg, rgba(5,35,82,0.96), rgba(2,22,55,0.98))' as never,
   },
   trophyShelfPanelWide: {
     flexGrow: 2,
@@ -5706,16 +5959,14 @@ const styles = StyleSheet.create({
   trophyAwardCardMajor: {
     flexBasis: '100%',
     minHeight: 108,
-    backgroundImage:
-      'linear-gradient(120deg, rgba(229,186,82,0.13), rgba(5,35,82,0.94))' as never,
+    backgroundImage: 'linear-gradient(120deg, rgba(229,186,82,0.13), rgba(5,35,82,0.94))' as never,
   },
   trophyAwardLocked: {
     borderColor: 'rgba(229,186,82,0.42)' as never,
   },
   trophyAwardLive: {
     borderColor: 'rgba(47,191,122,0.55)' as never,
-    backgroundImage:
-      'linear-gradient(160deg, rgba(47,191,122,0.10), rgba(5,35,82,0.96))' as never,
+    backgroundImage: 'linear-gradient(160deg, rgba(47,191,122,0.10), rgba(5,35,82,0.96))' as never,
   },
   trophyAwardPending: {
     borderColor: 'rgba(168,187,179,0.22)' as never,
@@ -6255,6 +6506,12 @@ const styles = StyleSheet.create({
     color: colors.gold,
     fontSize: 13,
     fontWeight: '900',
+  },
+  bootMain: {
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: '100vh',
   },
   loader: {
     marginTop: 40,

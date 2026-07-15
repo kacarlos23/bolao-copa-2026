@@ -30,12 +30,7 @@ import { AsyncState } from './components/AsyncState';
 import { ConnectionIndicator } from './components/ConnectionIndicator';
 import { ScoreInput } from './components/ScoreInput';
 import { TeamBadge } from './components/TeamBadge';
-import {
-  draftStorageKey,
-  loadDraft,
-  persistDraft,
-  type DraftState,
-} from './services/drafts';
+import { draftStorageKey, loadDraft, persistDraft, type DraftState } from './services/drafts';
 import type { ConnectionStatus } from './services/realtime';
 
 const c = {
@@ -97,7 +92,9 @@ function fullDateTime(value: string) {
 }
 
 function TeamFlag({ team, size = 18 }: { team?: Team | null; size?: number }) {
-  return <TeamBadge team={team as Parameters<typeof TeamBadge>[0]['team']} size={size} kind="flag" />;
+  return (
+    <TeamBadge team={team as Parameters<typeof TeamBadge>[0]['team']} size={size} kind="flag" />
+  );
 }
 
 function TeamName({ team }: { team?: Team | null }) {
@@ -179,9 +176,14 @@ function RulesBar({ closeMinutes }: { closeMinutes: number }) {
           <Text style={styles.ruleLabel}>{label}</Text>
         </View>
       ))}
-      <View style={styles.ruleItem} accessibilityLabel="Desempate: pontos, placares exatos, resultados, gols de uma equipe e menos erros; empate completo compartilha posição">
+      <View
+        style={styles.ruleItem}
+        accessibilityLabel="Desempate: pontos, placares exatos, resultados, gols de uma equipe e menos erros; empate completo compartilha posição"
+      >
         <Text style={styles.rulePoints}>V1</Text>
-        <Text style={styles.ruleLabel}>Desempate exibido no ranking · empate completo compartilha posição</Text>
+        <Text style={styles.ruleLabel}>
+          Desempate exibido no ranking · empate completo compartilha posição
+        </Text>
       </View>
     </View>
   );
@@ -372,15 +374,12 @@ export function DailyPredictionsV2({
 
   useEffect(() => {
     void loadDays();
-    const events = createPredictionBoardEvents(
-      () => {
-        if (Date.now() > skipNextDaysRefreshUntil.current) {
-          void loadDays(true);
-        }
-        if (selectedId) void loadDay(selectedId, true);
-      },
-      setConnectionStatus,
-    );
+    const events = createPredictionBoardEvents(() => {
+      if (Date.now() > skipNextDaysRefreshUntil.current) {
+        void loadDays(true);
+      }
+      if (selectedId) void loadDay(selectedId, true);
+    }, setConnectionStatus);
     const timer = setInterval(() => {
       void loadDays(true);
       if (selectedId) void loadDay(selectedId, true);
@@ -1106,7 +1105,9 @@ export function CupOverviewV2({ refreshVersion }: { refreshVersion: number }) {
     <View style={styles.page}>
       <View style={styles.cupHeader}>
         <View>
-          <Text style={styles.pageTitle}>Copa do Mundo 2026</Text>
+          <Text role="heading" aria-level={1} style={styles.pageTitle}>
+            Copa do Mundo 2026
+          </Text>
           <Text style={styles.pageSubtitle}>
             Classificação e resultados oficiais em um único quadro.
           </Text>

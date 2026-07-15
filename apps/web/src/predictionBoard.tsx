@@ -507,11 +507,7 @@ function SimulationMatchRow({
           maxLength={2}
           value={displayHome}
           onChangeText={(text) => onChange(match.id, 'home', text.replace(/\D/g, ''))}
-          style={[
-            styles.compactScoreInput,
-            styles.simScoreInput,
-            locked && styles.simScoreLocked,
-          ]}
+          style={[styles.compactScoreInput, styles.simScoreInput, locked && styles.simScoreLocked]}
         />
         <Text style={styles.scoreSeparator}>x</Text>
         <TextInput
@@ -520,11 +516,7 @@ function SimulationMatchRow({
           maxLength={2}
           value={displayAway}
           onChangeText={(text) => onChange(match.id, 'away', text.replace(/\D/g, ''))}
-          style={[
-            styles.compactScoreInput,
-            styles.simScoreInput,
-            locked && styles.simScoreLocked,
-          ]}
+          style={[styles.compactScoreInput, styles.simScoreInput, locked && styles.simScoreLocked]}
         />
       </View>
       <Text style={styles.simMatchState}>
@@ -608,10 +600,22 @@ function KnockoutGuide() {
   return (
     <View style={styles.knockoutGuide}>
       {[
-        ['1', 'A base vem dos seus palpites da fase de grupos e dos resultados reais que ja entrarem.'],
-        ['2', 'Use o simulador para testar os jogos ainda em aberto sem trocar seus palpites oficiais.'],
-        ['3', 'Preencha a chave ate final e terceiro lugar; em empate, toque na selecao que avanca.'],
-        ['4', 'Salve a chave parcial ou completa. Confronto exato vale 15 pts; uma selecao correta vale 7 pts.'],
+        [
+          '1',
+          'A base vem dos seus palpites da fase de grupos e dos resultados reais que ja entrarem.',
+        ],
+        [
+          '2',
+          'Use o simulador para testar os jogos ainda em aberto sem trocar seus palpites oficiais.',
+        ],
+        [
+          '3',
+          'Preencha a chave ate final e terceiro lugar; em empate, toque na selecao que avanca.',
+        ],
+        [
+          '4',
+          'Salve a chave parcial ou completa. Confronto exato vale 15 pts; uma selecao correta vale 7 pts.',
+        ],
       ].map(([step, text]) => (
         <View key={step} style={styles.guideStep}>
           <Text style={styles.guideStepNumber}>{step}</Text>
@@ -823,7 +827,7 @@ function knockoutActualWinnerId(fixture: KnockoutFixture) {
   const homeScore = fixture.finalHomeScore ?? fixture.homeScore;
   const awayScore = fixture.finalAwayScore ?? fixture.awayScore;
   if (homeScore == null || awayScore == null || homeScore === awayScore) return null;
-  return homeScore > awayScore ? fixture.homeTeam?.id ?? null : fixture.awayTeam?.id ?? null;
+  return homeScore > awayScore ? (fixture.homeTeam?.id ?? null) : (fixture.awayTeam?.id ?? null);
 }
 
 function knockoutStageWinnerIds(fixtures: KnockoutFixture[]) {
@@ -920,12 +924,7 @@ function KnockoutMatchCard({
   const advancingMissing = tied && !value.advancingTeamId;
   const tone = knockoutPickTone(fixture, value, winnersByStage, teams);
   return (
-    <View
-      style={[
-        styles.knockoutCard,
-        !open && styles.knockoutCardLocked,
-      ]}
-    >
+    <View style={[styles.knockoutCard, !open && styles.knockoutCardLocked]}>
       <View style={styles.knockoutCardHeader}>
         <Text style={styles.knockoutMatchNumber}>Jogo {fixture.matchNumber}</Text>
         <Text style={styles.knockoutDate}>{compactDateTime(fixture.startsAt)}</Text>
@@ -937,38 +936,36 @@ function KnockoutMatchCard({
           tone === 'wrong' && styles.knockoutScorePairWrong,
         ]}
       >
-      {[
-        { team: homeTeam, side: 'home' as const },
-        { team: awayTeam, side: 'away' as const },
-      ].map(({ team, side }) => {
-        const teamId = side === 'home' ? participants?.homeTeamId : participants?.awayTeamId;
-        const selected = teamId && value.advancingTeamId === teamId;
-        return (
-          <View
-            key={side}
-            style={[styles.knockoutTeamRow, selected && tied && styles.knockoutTeamSelected]}
-          >
-            <TeamLabel team={team} dense tone="light" />
-            <View style={styles.knockoutScoreArea}>
-              <ScoreInput
-                editable={open && matchupReady}
-                teamName={team?.name ?? 'Time a definir'}
-                side={side}
-                showLabel={false}
-                compact
-                value={side === 'home' ? value.home : value.away}
-                error={advancingMissing && side === 'away' ? 'Escolha quem avança' : undefined}
-                onChange={(text) => onChangeScore(side, text)}
-              />
-              <View style={styles.knockoutAdvanceMarker}>
-                {selected ? (
-                  <Ionicons name="checkmark-circle" size={10} color="#6cffb1" />
-                ) : null}
+        {[
+          { team: homeTeam, side: 'home' as const },
+          { team: awayTeam, side: 'away' as const },
+        ].map(({ team, side }) => {
+          const teamId = side === 'home' ? participants?.homeTeamId : participants?.awayTeamId;
+          const selected = teamId && value.advancingTeamId === teamId;
+          return (
+            <View
+              key={side}
+              style={[styles.knockoutTeamRow, selected && tied && styles.knockoutTeamSelected]}
+            >
+              <TeamLabel team={team} dense tone="light" />
+              <View style={styles.knockoutScoreArea}>
+                <ScoreInput
+                  editable={open && matchupReady}
+                  teamName={team?.name ?? 'Time a definir'}
+                  side={side}
+                  showLabel={false}
+                  compact
+                  value={side === 'home' ? value.home : value.away}
+                  error={advancingMissing && side === 'away' ? 'Escolha quem avança' : undefined}
+                  onChange={(text) => onChangeScore(side, text)}
+                />
+                <View style={styles.knockoutAdvanceMarker}>
+                  {selected ? <Ionicons name="checkmark-circle" size={10} color="#6cffb1" /> : null}
+                </View>
               </View>
             </View>
-          </View>
-        );
-      })}
+          );
+        })}
       </View>
       {tied ? (
         <View style={styles.penaltyAdvanceRow}>
@@ -982,7 +979,10 @@ function KnockoutMatchCard({
               <Pressable
                 key={teamId ?? team?.name ?? 'empty'}
                 accessibilityRole="radio"
-                accessibilityState={{ selected: Boolean(selected), disabled: !open || !matchupReady || !teamId }}
+                accessibilityState={{
+                  selected: Boolean(selected),
+                  disabled: !open || !matchupReady || !teamId,
+                }}
                 accessibilityLabel={`${team?.name ?? 'Time a definir'} avança nos pênaltis`}
                 disabled={!open || !matchupReady || !teamId}
                 onPress={() => teamId && onChoose(teamId)}
@@ -1027,8 +1027,12 @@ function PublicBracketsModal({
         [pick.homeTeam.id, pick.homeTeam] as const,
         [pick.awayTeam.id, pick.awayTeam] as const,
         [pick.advancingTeam.id, pick.advancingTeam] as const,
-        ...(pick.fixture.homeTeam ? ([[pick.fixture.homeTeam.id, pick.fixture.homeTeam] as const] as const) : []),
-        ...(pick.fixture.awayTeam ? ([[pick.fixture.awayTeam.id, pick.fixture.awayTeam] as const] as const) : []),
+        ...(pick.fixture.homeTeam
+          ? ([[pick.fixture.homeTeam.id, pick.fixture.homeTeam] as const] as const)
+          : []),
+        ...(pick.fixture.awayTeam
+          ? ([[pick.fixture.awayTeam.id, pick.fixture.awayTeam] as const] as const)
+          : []),
         ...(pick.fixture.winnerTeam
           ? ([[pick.fixture.winnerTeam.id, pick.fixture.winnerTeam] as const] as const)
           : []),
@@ -1087,7 +1091,9 @@ function PublicBracketsModal({
                         tone === 'wrong' && styles.publicBracketPickWrong,
                       ]}
                     >
-                      <Text style={styles.knockoutMatchNumber}>Jogo {pick.fixture.matchNumber}</Text>
+                      <Text style={styles.knockoutMatchNumber}>
+                        Jogo {pick.fixture.matchNumber}
+                      </Text>
                       <Text style={styles.publicBracketTeams} numberOfLines={1}>
                         {pick.homeTeam.name} {pick.predictedHomeScore} x {pick.predictedAwayScore}{' '}
                         {pick.awayTeam.name}
@@ -1184,10 +1190,7 @@ async function createBracketShareImage(picks: FilledKnockoutPick[], teams: Map<s
     }))
     .filter((group) => group.picks.length);
   const width = 1080;
-  const height = Math.max(
-    640,
-    190 + grouped.length * 46 + picks.length * 70 + 86,
-  );
+  const height = Math.max(640, 190 + grouped.length * 46 + picks.length * 70 + 86);
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -1200,7 +1203,7 @@ async function createBracketShareImage(picks: FilledKnockoutPick[], teams: Map<s
   drawCanvasRoundRect(context, 48, 40, 984, 110, 22, palette.shellSoft, palette.bracketBorder);
   context.fillStyle = palette.yellow;
   context.font = '900 22px Arial, sans-serif';
-  context.fillText('BOLAO COPA 2026', 78, 65);
+  context.fillText('BOLAO SIREL', 78, 65);
   context.fillStyle = palette.white;
   context.font = '900 42px Arial, sans-serif';
   context.fillText('Meu chaveamento palpitado', 78, 94);
@@ -1241,18 +1244,18 @@ async function createBracketShareImage(picks: FilledKnockoutPick[], teams: Map<s
         '900',
         palette.white,
       );
+      drawFitCanvasText(context, `Avanca: ${winnerName}`, 176, y + 39, 600, 16, '800', '#b7c6bf');
+      drawCanvasRoundRect(context, 814, y + 14, 182, 30, 15, palette.green, undefined);
       drawFitCanvasText(
         context,
-        `Avanca: ${winnerName}`,
-        176,
-        y + 39,
-        600,
-        16,
-        '800',
-        '#b7c6bf',
+        stageLabels[pick.fixture.stage],
+        838,
+        y + 21,
+        134,
+        14,
+        '900',
+        palette.white,
       );
-      drawCanvasRoundRect(context, 814, y + 14, 182, 30, 15, palette.green, undefined);
-      drawFitCanvasText(context, stageLabels[pick.fixture.stage], 838, y + 21, 134, 14, '900', palette.white);
       y += 70;
     });
     y += 12;
@@ -1260,7 +1263,11 @@ async function createBracketShareImage(picks: FilledKnockoutPick[], teams: Map<s
 
   context.fillStyle = '#b7c6bf';
   context.font = '800 17px Arial, sans-serif';
-  context.fillText('Compartilhe a imagem e acompanhe as eliminatorias no ranking.', 60, height - 58);
+  context.fillText(
+    'Compartilhe a imagem e acompanhe as eliminatorias no ranking.',
+    60,
+    height - 58,
+  );
   return canvasToPngBlob(canvas);
 }
 
@@ -1316,9 +1323,9 @@ function KnockoutBoard({
     if (typeof window !== 'undefined') {
       try {
         const stored = JSON.parse(
-          window.localStorage.getItem(draftKey)
-            ?? window.localStorage.getItem(legacyDraftKey)
-            ?? '{}',
+          window.localStorage.getItem(draftKey) ??
+            window.localStorage.getItem(legacyDraftKey) ??
+            '{}',
         ) as KnockoutDraft;
         if (Object.keys(stored).length) return stored;
       } catch {
@@ -1328,14 +1335,18 @@ function KnockoutBoard({
     return {};
   });
   const [saving, setSaving] = useState(false);
-  const [saveState, setSaveState] = useState<'clean' | 'dirty' | 'saving' | 'saved' | 'failed'>('clean');
+  const [saveState, setSaveState] = useState<'clean' | 'dirty' | 'saving' | 'saved' | 'failed'>(
+    'clean',
+  );
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const partialConfirmation = useRef(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [shareReady, setShareReady] = useState(Boolean(board.knockout.savedBracket?.picks.length));
   const [shareBusy, setShareBusy] = useState(false);
-  const [savedPickCount, setSavedPickCount] = useState(board.knockout.savedBracket?.picks.length ?? 0);
+  const [savedPickCount, setSavedPickCount] = useState(
+    board.knockout.savedBracket?.picks.length ?? 0,
+  );
   const [publicVisible, setPublicVisible] = useState(false);
   const [publicLoading, setPublicLoading] = useState(false);
   const [publicBrackets, setPublicBrackets] = useState<PublicKnockoutBracket[]>([]);
@@ -1540,7 +1551,7 @@ function KnockoutBoard({
     try {
       const blob = await createBracketShareImage(filledPicks, teams);
       const fileName = `chaveamento-bolao-${new Date().toISOString().slice(0, 10)}.png`;
-      const shareText = `Meu chaveamento palpitado no Bolao Copa 2026: ${filledPicks.length}/32 jogos preenchidos.`;
+      const shareText = `Meu chaveamento palpitado no Bolao Sirel: ${filledPicks.length}/32 jogos preenchidos.`;
       const shareNavigator = navigator as Navigator & {
         canShare?: (data: { files?: File[]; text?: string; title?: string }) => boolean;
         share?: (data: { files?: File[]; text?: string; title?: string }) => Promise<void>;
@@ -1551,7 +1562,7 @@ function KnockoutBoard({
         if (shareNavigator.share && shareNavigator.canShare?.({ files: [file] })) {
           await shareNavigator.share({
             files: [file],
-            title: 'Meu chaveamento - Bolao Copa 2026',
+            title: 'Meu chaveamento - Bolao Sirel',
             text: shareText,
           });
           return;
@@ -1566,7 +1577,9 @@ function KnockoutBoard({
       );
     } catch (caught) {
       if (caught instanceof Error && caught.name === 'AbortError') return;
-      setError(caught instanceof Error ? caught.message : 'Nao foi possivel compartilhar a imagem.');
+      setError(
+        caught instanceof Error ? caught.message : 'Nao foi possivel compartilhar a imagem.',
+      );
     } finally {
       setShareBusy(false);
     }
@@ -1787,7 +1800,11 @@ function KnockoutBoard({
             >
               <Ionicons name="cloud-upload-outline" size={18} color={palette.shell} />
               <Text style={styles.submitBracketText}>
-                {saving ? 'Salvando...' : complete ? 'Salvar chave completa' : 'Salvar chave parcial'}
+                {saving
+                  ? 'Salvando...'
+                  : complete
+                    ? 'Salvar chave completa'
+                    : 'Salvar chave parcial'}
               </Text>
             </Pressable>
             {shareReady && filledPicks.length ? (
@@ -1847,23 +1864,26 @@ export function PredictionBoardScreen({
   const [publicMatch, setPublicMatch] = useState<PredictionBoardMatch | null>(null);
   const [success, setSuccess] = useState(false);
 
-  const applyBoard = useCallback((next: PredictionBoard) => {
-    setBoard(next);
-    setDraft((current) => {
-      const values = { ...current };
-      for (const match of next.groups.flatMap((group) => group.matches)) {
-        if (values[match.id]) continue;
-        const savedScore = standaloneKnockout
-          ? match.simulationScore ?? match.ownPrediction
-          : match.ownPrediction;
-        values[match.id] = {
-          home: savedScore ? String(savedScore.predictedHomeScore) : '',
-          away: savedScore ? String(savedScore.predictedAwayScore) : '',
-        };
-      }
-      return values;
-    });
-  }, [standaloneKnockout]);
+  const applyBoard = useCallback(
+    (next: PredictionBoard) => {
+      setBoard(next);
+      setDraft((current) => {
+        const values = { ...current };
+        for (const match of next.groups.flatMap((group) => group.matches)) {
+          if (values[match.id]) continue;
+          const savedScore = standaloneKnockout
+            ? (match.simulationScore ?? match.ownPrediction)
+            : match.ownPrediction;
+          values[match.id] = {
+            home: savedScore ? String(savedScore.predictedHomeScore) : '',
+            away: savedScore ? String(savedScore.predictedAwayScore) : '',
+          };
+        }
+        return values;
+      });
+    },
+    [standaloneKnockout],
+  );
 
   const load = useCallback(
     async (quiet = false) => {
@@ -1910,10 +1930,7 @@ export function PredictionBoardScreen({
   const groupScoreSignature = useMemo(
     () =>
       groupScorePayload
-        .map(
-          (score) =>
-            `${score.matchId}:${score.predictedHomeScore}:${score.predictedAwayScore}`,
-        )
+        .map((score) => `${score.matchId}:${score.predictedHomeScore}:${score.predictedAwayScore}`)
         .join('|'),
     [groupScorePayload],
   );
@@ -1942,13 +1959,7 @@ export function PredictionBoardScreen({
     }, 450);
 
     return () => clearTimeout(timer);
-  }, [
-    applyBoard,
-    groupScoreSignature,
-    loading,
-    simulationOpen,
-    standaloneKnockout,
-  ]);
+  }, [applyBoard, groupScoreSignature, loading, simulationOpen, standaloneKnockout]);
 
   async function saveMatch(match: PredictionBoardMatch) {
     const value = draft[match.id];
@@ -1982,53 +1993,53 @@ export function PredictionBoardScreen({
     <View style={[styles.screen, standaloneKnockout && styles.knockoutStandaloneShell]}>
       <View style={styles.boardHeader}>
         <View style={[styles.boardHeaderCopy, width < 760 && styles.boardHeaderCopyMobile]}>
-          <Text style={styles.screenTitle}>
+          <Text role="heading" aria-level={1} style={styles.screenTitle}>
             {standaloneKnockout
               ? 'Eliminatorias'
               : view === 'knockout'
-              ? 'Eliminatórias'
-              : competitionUiV2
-                ? 'Palpites'
-                : 'Palpites da Copa'}
+                ? 'Eliminatórias'
+                : competitionUiV2
+                  ? 'Palpites'
+                  : 'Palpites da Copa'}
           </Text>
           <Text style={styles.screenSubtitle}>
             {standaloneKnockout
               ? 'Simule os jogos em aberto, confira o chaveamento projetado e salve sua previsao das eliminatorias.'
               : view === 'knockout'
-              ? 'Monte todos os confrontos e salve a chave completa em uma única operação.'
-              : competitionUiV2
-                ? 'Agenda compacta para preencher os placares de cada dia.'
-                : 'Placares e classificação projetada da fase de grupos.'}
+                ? 'Monte todos os confrontos e salve a chave completa em uma única operação.'
+                : competitionUiV2
+                  ? 'Agenda compacta para preencher os placares de cada dia.'
+                  : 'Placares e classificação projetada da fase de grupos.'}
           </Text>
         </View>
         {!standaloneKnockout ? (
           <View style={[styles.phaseTabs, width < 760 && styles.phaseTabsMobile]}>
-          <Pressable
-            onPress={() => setView('groups')}
-            style={[styles.phaseTab, view === 'groups' && styles.phaseTabActive]}
-          >
-            <Ionicons
-              name="grid-outline"
-              size={17}
-              color={view === 'groups' ? palette.shell : palette.white}
-            />
-            <Text style={[styles.phaseTabText, view === 'groups' && styles.phaseTabTextActive]}>
-              {competitionUiV2 ? 'Jogos por dia' : 'Fase de grupos'}
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => setView('knockout')}
-            style={[styles.phaseTab, view === 'knockout' && styles.phaseTabActive]}
-          >
-            <Ionicons
-              name="git-network-outline"
-              size={17}
-              color={view === 'knockout' ? palette.shell : palette.white}
-            />
-            <Text style={[styles.phaseTabText, view === 'knockout' && styles.phaseTabTextActive]}>
-              Eliminatórias
-            </Text>
-          </Pressable>
+            <Pressable
+              onPress={() => setView('groups')}
+              style={[styles.phaseTab, view === 'groups' && styles.phaseTabActive]}
+            >
+              <Ionicons
+                name="grid-outline"
+                size={17}
+                color={view === 'groups' ? palette.shell : palette.white}
+              />
+              <Text style={[styles.phaseTabText, view === 'groups' && styles.phaseTabTextActive]}>
+                {competitionUiV2 ? 'Jogos por dia' : 'Fase de grupos'}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setView('knockout')}
+              style={[styles.phaseTab, view === 'knockout' && styles.phaseTabActive]}
+            >
+              <Ionicons
+                name="git-network-outline"
+                size={17}
+                color={view === 'knockout' ? palette.shell : palette.white}
+              />
+              <Text style={[styles.phaseTabText, view === 'knockout' && styles.phaseTabTextActive]}>
+                Eliminatórias
+              </Text>
+            </Pressable>
           </View>
         ) : null}
       </View>
@@ -2177,7 +2188,13 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 8,
   },
-  screenSubtitle: { maxWidth: 680, color: palette.muted, fontSize: 14, lineHeight: 20, marginTop: 3 },
+  screenSubtitle: {
+    maxWidth: 680,
+    color: palette.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 3,
+  },
   phaseTabs: {
     flexDirection: 'row',
     padding: 3,
@@ -2545,8 +2562,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#9d842e',
     borderRadius: 12,
-    backgroundImage:
-      'linear-gradient(135deg, rgba(227,185,68,0.12), rgba(16,47,38,0.92))' as never,
+    backgroundImage: 'linear-gradient(135deg, rgba(227,185,68,0.12), rgba(16,47,38,0.92))' as never,
   },
   knockoutInfoText: { flex: 1, color: '#bed7ce', fontSize: 11, lineHeight: 15, fontWeight: '700' },
   qualifierProgress: {
@@ -2738,7 +2754,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#143a2f',
   },
-  knockoutTeamSelected: { borderColor: '#2ed085', backgroundColor: 'rgba(46,208,133,0.18)' as never },
+  knockoutTeamSelected: {
+    borderColor: '#2ed085',
+    backgroundColor: 'rgba(46,208,133,0.18)' as never,
+  },
   knockoutScorePairBox: {
     gap: 2,
     borderRadius: 4,

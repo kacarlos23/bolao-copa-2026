@@ -5,10 +5,7 @@ export default defineConfig({
   outputDir: '../../output/playwright/test-results',
   fullyParallel: true,
   retries: 0,
-  reporter: [
-    ['line'],
-    ['json', { outputFile: '../../output/release-gates/playwright.json' }],
-  ],
+  reporter: [['line'], ['json', { outputFile: '../../output/release-gates/playwright.json' }]],
   projects: [
     {
       name: 'desktop-chromium',
@@ -28,6 +25,7 @@ export default defineConfig({
   webServer: {
     command: 'npm run serve:e2e',
     env: {
+      EXPO_PUBLIC_APP_IA_V2: '1',
       EXPO_PUBLIC_BRASILEIRAO_UI: '1',
       EXPO_PUBLIC_COMPETITION_UI_V2: '1',
       EXPO_PUBLIC_LEGACY_ADMIN_MUTATIONS: '1',
