@@ -118,6 +118,8 @@ function Invoke-PgCommand {
       [Environment]::SetEnvironmentVariable("PGPASSWORD", $Connection.Password, "Process")
       if (-not [string]::IsNullOrWhiteSpace($Connection.SslMode)) {
         [Environment]::SetEnvironmentVariable("PGSSLMODE", $Connection.SslMode, "Process")
+      } else {
+        [Environment]::SetEnvironmentVariable("PGSSLMODE", $null, "Process")
       }
     }
 
@@ -129,7 +131,11 @@ function Invoke-PgCommand {
     $exitCode = $LASTEXITCODE
   } finally {
     [Environment]::SetEnvironmentVariable("PGPASSWORD", $previousPassword, "Process")
-    [Environment]::SetEnvironmentVariable("PGSSLMODE", $previousSslMode, "Process")
+    [Environment]::SetEnvironmentVariable(
+      "PGSSLMODE",
+      $(if ([string]::IsNullOrWhiteSpace($previousSslMode)) { $null } else { $previousSslMode }),
+      "Process"
+    )
   }
 
   if ($exitCode -ne 0) {
