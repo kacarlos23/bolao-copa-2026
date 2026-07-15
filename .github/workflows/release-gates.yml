@@ -33,6 +33,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 24, cache: npm }
       - run: npm ci
+      - run: npm run prisma:generate
       - run: npm run gate:pr
       - uses: actions/upload-artifact@v4
         if: always()
@@ -65,6 +66,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y postgresql-client-18
       - run: npm ci
+      - run: npm run prisma:generate
       - name: Gerar manifesto imutável do candidato
         run: npm run manifest:release
         env:
@@ -103,6 +105,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y postgresql-client-18
       - run: npm ci
+      - run: npm run prisma:generate
       - run: npm run gate:migration
       - uses: actions/upload-artifact@v4
         if: always()
@@ -125,6 +128,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 24, cache: npm }
       - run: npm ci
+      - run: npm run prisma:generate
       - name: Materializar evidÃªncias sanitizadas do ambiente protegido
         shell: bash
         env:
