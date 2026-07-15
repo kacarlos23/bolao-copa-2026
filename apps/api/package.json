@@ -12,6 +12,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "seed": "tsx prisma/seed.ts",
+    "backfill:world-cup-2026": "tsx prisma/backfill-world-cup-2026.ts",
     "scrape:ge-scores": "tsx src/scripts/scrape-ge-scores.ts",
     "scrape:ge-scores:once": "tsx src/scripts/scrape-ge-scores.ts --once",
     "scrape:ge-scores:watch": "tsx src/scripts/scrape-ge-scores.ts --watch"

@@ -88,7 +88,37 @@ async function createContentHashes(client) {
   return contentHashes;
 }
 
-async function createSnapshot(client) {
+const BUSINESS_HASH_TABLES = {
+  User: [],
+  Team: ['type', 'crestUrl', 'updatedAt'],
+  MatchDay: ['seasonId', 'updatedAt'],
+  Match: ['seasonId', 'stageId', 'roundId', 'predictionClosesAt', 'updatedAt'],
+  Prediction: ['poolSeasonId', 'updatedAt'],
+  PredictionScore: ['poolSeasonId'],
+  KnockoutFixture: ['seasonId', 'updatedAt'],
+  KnockoutGeneration: ['seasonId', 'updatedAt'],
+  KnockoutBracket: ['poolSeasonId', 'updatedAt'],
+  KnockoutPick: [],
+  KnockoutGroupSimulationScore: [],
+  KnockoutPredictionScore: [],
+  RankingSnapshot: ['seasonId', 'poolSeasonId', 'roundId'],
+};
+
+async function createBusinessContentHashes(client) {
+  const hashes = {};
+  for (const [tableName, ignoredColumns] of Object.entries(BUSINESS_HASH_TABLES)) {
+    const identifier = tableName.replaceAll('"', '""');
+    const rows = await client.query(
+      `SELECT (to_jsonb(source_row) - $1::text[])::text AS row
+       FROM public."${identifier}" source_row`,
+      [ignoredColumns],
+    );
+    hashes[tableName] = sha256Rows(rows.rows);
+  }
+  return hashes;
+}
+
+async function createSnapshot(client, { includeBusinessHashes = false } = {}) {
   const countsResult = await client.query(`
     SELECT
       (SELECT COUNT(*)::text FROM "User" WHERE "status" = 'ACTIVE') AS "activeUsers",
@@ -161,6 +191,9 @@ async function createSnapshot(client) {
     }));
 
   const contentHashes = await createContentHashes(client);
+  const businessContentHashes = includeBusinessHashes
+    ? await createBusinessContentHashes(client)
+    : null;
 
   return {
     formatVersion: 1,
@@ -186,6 +219,7 @@ async function createSnapshot(client) {
     },
     contentHashAlgorithm: 'sha256',
     contentHashes,
+    ...(businessContentHashes ? { businessContentHashes } : {}),
     ranking,
     userTotals,
   };
@@ -211,7 +245,9 @@ async function main() {
       throw new Error('A transacao do snapshot nao esta em modo somente leitura.');
     }
 
-    const snapshot = await createSnapshot(client);
+    const snapshot = await createSnapshot(client, {
+      includeBusinessHashes: process.argv.slice(2).includes('--backfill'),
+    });
     await client.query('COMMIT');
 
     await mkdir(path.dirname(output), { recursive: true });

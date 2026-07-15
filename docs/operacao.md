@@ -163,6 +163,18 @@ npm run snapshot:compare -- `
 
 O comparador retorna código `0` apenas para snapshots semanticamente idênticos, `1` para divergência e `2` para arquivo/uso inválido. O teste automatizado do contrato roda em `npm run test`.
 
+Backfills que preenchem as novas FKs devem usar o modo de preservação de dados
+de negócio. Ele mantém o snapshot físico existente e acrescenta hashes que
+desconsideram somente os campos estruturais esperados:
+
+```powershell
+npm run snapshot:copa -- --backfill --output .\snapshots\before.json
+npm run snapshot:compare -- --backfill .\snapshots\before.json .\snapshots\after.json
+```
+
+O procedimento completo do backfill da Copa está em
+[backfill-world-cup-2026.md](backfill-world-cup-2026.md).
+
 ### 5. Tag de baseline — somente após confirmação do operador
 
 Não crie nem mova a tag durante a preparação da baseline. Após backup validado, restore drill aprovado, snapshots idênticos e confirmação humana, fixe a tag no commit revisado:

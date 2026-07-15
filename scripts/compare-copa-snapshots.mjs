@@ -32,6 +32,10 @@ export function compareSnapshots(before, after) {
   validateSnapshot(before, 'before');
   validateSnapshot(after, 'after');
 
+  return compareValues(before, after);
+}
+
+function compareValues(before, after) {
   const differences = [];
 
   function visit(left, right, currentPath) {
@@ -69,19 +73,45 @@ export function compareSnapshots(before, after) {
   return differences;
 }
 
+export function compareBackfillSnapshots(before, after) {
+  validateSnapshot(before, 'before');
+  validateSnapshot(after, 'after');
+  if (!before.businessContentHashes || !after.businessContentHashes) {
+    throw new Error('Snapshots de backfill devem conter businessContentHashes.');
+  }
+
+  const projection = (snapshot) => ({
+    formatVersion: snapshot.formatVersion,
+    scope: snapshot.scope,
+    counts: snapshot.counts,
+    scoreCounts: snapshot.scoreCounts,
+    predictionCounts: snapshot.predictionCounts,
+    businessContentHashes: snapshot.businessContentHashes,
+    ranking: snapshot.ranking,
+    userTotals: snapshot.userTotals,
+  });
+  return compareValues(projection(before), projection(after));
+}
+
 async function readSnapshot(file) {
   return JSON.parse(await readFile(file, 'utf8'));
 }
 
 async function main() {
-  const [beforeFile, afterFile] = process.argv.slice(2);
+  const args = process.argv.slice(2);
+  const backfillMode = args.includes('--backfill');
+  const [beforeFile, afterFile] = args.filter((argument) => argument !== '--backfill');
   if (!beforeFile || !afterFile) {
-    throw new Error('Uso: node scripts/compare-copa-snapshots.mjs <antes.json> <depois.json>');
+    throw new Error(
+      'Uso: node scripts/compare-copa-snapshots.mjs [--backfill] <antes.json> <depois.json>',
+    );
   }
 
   const before = await readSnapshot(beforeFile);
   const after = await readSnapshot(afterFile);
-  const differences = compareSnapshots(before, after);
+  const differences = backfillMode
+    ? compareBackfillSnapshots(before, after)
+    : compareSnapshots(before, after);
 
   if (differences.length === 0) {
     process.stdout.write('Snapshots identicos.\n');

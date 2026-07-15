@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { compareSnapshots, validateSnapshot } from './compare-copa-snapshots.mjs';
+import {
+  compareBackfillSnapshots,
+  compareSnapshots,
+  validateSnapshot,
+} from './compare-copa-snapshots.mjs';
 
 function snapshot() {
   return {
@@ -14,6 +18,9 @@ function snapshot() {
       knockoutFixtures: 32,
     },
     scoreCounts: { group: 120, knockout: 24 },
+    predictionCounts: { matches: 120, knockoutPicks: 24, knockoutGroupSimulations: 0 },
+    contentHashes: { Match: 'physical-hash' },
+    businessContentHashes: { Match: 'business-hash' },
     ranking: [{ rank: 1, userId: 'u1', nickname: 'Ana', points: 15 }],
     userTotals: [{ userId: 'u1', nickname: 'Ana', points: 15 }],
   };
@@ -48,4 +55,24 @@ test('rejects a snapshot missing a mandatory count', () => {
   delete invalid.counts.knockoutFixtures;
 
   assert.throws(() => validateSnapshot(invalid), /knockoutFixtures/);
+});
+
+test('backfill comparison ignores structural hashes and preserves business hashes', () => {
+  const before = snapshot();
+  const after = JSON.parse(JSON.stringify(before));
+  after.contentHashes.Match = 'changed-by-context-columns';
+  after.contentHashes.Competition = 'new-table';
+
+  assert.deepEqual(compareBackfillSnapshots(before, after), []);
+});
+
+test('backfill comparison detects a protected business change', () => {
+  const before = snapshot();
+  const after = JSON.parse(JSON.stringify(before));
+  after.businessContentHashes.Match = 'changed-result';
+
+  assert.deepEqual(
+    compareBackfillSnapshots(before, after).map((difference) => difference.path),
+    ['businessContentHashes.Match'],
+  );
 });
