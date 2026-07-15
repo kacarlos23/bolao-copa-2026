@@ -932,6 +932,13 @@ async function main() {
               select: { id: true, userId: true },
             });
       const rankingSnapshots = await tx.rankingSnapshot.findMany({
+        where: {
+          OR: [
+            { seasonId: season.id },
+            { poolSeasonId: poolSeason.id },
+            { seasonId: null, poolSeasonId: null },
+          ],
+        },
         select: { id: true, userId: true },
       });
       const activityUserIds = new Set(
