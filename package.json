@@ -30,7 +30,7 @@
     "test:e2e": "npm --workspace @bolao/web run test:e2e",
     "test:contract": "npm run build:shared && npm --workspace @bolao/shared run test && npm --workspace @bolao/api run test:contract",
     "test:component": "npm --workspace @bolao/web run test",
-    "test:integration": "node scripts/run-postgres-integration.mjs",
+    "test:integration": "npm run build:shared && node scripts/run-postgres-integration.mjs",
     "test:load": "npm --workspace @bolao/api exec -- vitest run src/nonfunctional/load-budget.test.ts",
     "test:budget": "node scripts/check-performance-budget.mjs",
     "test:flakiness": "node scripts/check-flakiness.mjs",
