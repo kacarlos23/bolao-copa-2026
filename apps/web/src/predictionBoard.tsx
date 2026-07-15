@@ -25,7 +25,9 @@ import {
 } from './api';
 import { flagSources } from './flagSources';
 import { DailyPredictionsV2 } from './competitionV2';
-import { SoftReveal } from './motion';
+import { SoftReveal, usePrefersReducedMotion } from './motion';
+import { ScoreInput } from './components/ScoreInput';
+import { draftStorageKey } from './services/drafts';
 
 const competitionUiV2 = process.env.EXPO_PUBLIC_COMPETITION_UI_V2 === '1';
 
@@ -270,18 +272,25 @@ function SuccessModal({
   message: string;
   onClose: () => void;
 }) {
+  const reducedMotion = usePrefersReducedMotion();
   const progress = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (!visible) return progress.setValue(0);
     Animated.spring(progress, {
       toValue: 1,
+      duration: reducedMotion ? 0 : undefined,
       friction: 5,
       tension: 80,
       useNativeDriver: true,
     }).start();
-  }, [progress, visible]);
+  }, [progress, reducedMotion, visible]);
   return (
-    <Modal transparent animationType="fade" visible={visible} onRequestClose={onClose}>
+    <Modal
+      transparent
+      animationType={reducedMotion ? 'none' : 'fade'}
+      visible={visible}
+      onRequestClose={onClose}
+    >
       <View style={styles.modalBackdrop}>
         <View style={styles.successModal}>
           <Animated.View
@@ -931,6 +940,7 @@ function KnockoutMatchCard({
   const awayTeam = participants?.awayTeamId ? teams.get(participants.awayTeamId) : null;
   const matchupReady = Boolean(participants?.homeTeamId && participants.awayTeamId);
   const tied = value.home !== '' && value.home === value.away;
+  const advancingMissing = tied && !value.advancingTeamId;
   const tone = knockoutPickTone(fixture, value, winnersByStage, teams);
   return (
     <View
@@ -957,26 +967,21 @@ function KnockoutMatchCard({
         const teamId = side === 'home' ? participants?.homeTeamId : participants?.awayTeamId;
         const selected = teamId && value.advancingTeamId === teamId;
         return (
-          <Pressable
+          <View
             key={side}
-            disabled={!open || !matchupReady || !teamId || !tied}
-            onPress={() => teamId && onChoose(teamId)}
             style={[styles.knockoutTeamRow, selected && tied && styles.knockoutTeamSelected]}
           >
             <TeamLabel team={team} dense tone="light" />
             <View style={styles.knockoutScoreArea}>
-              <TextInput
+              <ScoreInput
                 editable={open && matchupReady}
-                keyboardType="number-pad"
-                maxLength={2}
+                teamName={team?.name ?? 'Time a definir'}
+                side={side}
+                showLabel={false}
+                compact
                 value={side === 'home' ? value.home : value.away}
-                onChangeText={(text) => onChangeScore(side, text.replace(/\D/g, ''))}
-                style={[
-                  styles.knockoutScoreInput,
-                  tone === 'correct' && styles.knockoutScoreInputCorrect,
-                  tone === 'wrong' && styles.knockoutScoreInputWrong,
-                  !open && styles.knockoutScoreInputLocked,
-                ]}
+                error={advancingMissing && side === 'away' ? 'Escolha quem avança' : undefined}
+                onChange={(text) => onChangeScore(side, text)}
               />
               <View style={styles.knockoutAdvanceMarker}>
                 {selected ? (
@@ -984,7 +989,7 @@ function KnockoutMatchCard({
                 ) : null}
               </View>
             </View>
-          </Pressable>
+          </View>
         );
       })}
       </View>
@@ -999,6 +1004,9 @@ function KnockoutMatchCard({
             return (
               <Pressable
                 key={teamId ?? team?.name ?? 'empty'}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: Boolean(selected), disabled: !open || !matchupReady || !teamId }}
+                accessibilityLabel={`${team?.name ?? 'Time a definir'} avança nos pênaltis`}
                 disabled={!open || !matchupReady || !teamId}
                 onPress={() => teamId && onChoose(teamId)}
                 style={[styles.penaltyAdvanceButton, selected && styles.penaltyAdvanceButtonActive]}
@@ -1295,6 +1303,7 @@ function KnockoutBoard({
   board,
   groupScores,
   onSaved,
+  currentUserId,
 }: {
   board: PredictionBoard;
   groupScores: Array<{
@@ -1303,10 +1312,16 @@ function KnockoutBoard({
     predictedAwayScore: number;
   }>;
   onSaved: (next: PredictionBoard) => void;
+  currentUserId: string;
 }) {
   const { width } = useWindowDimensions();
   const bracketScrollRef = useRef<ScrollView>(null);
-  const draftKey = `bolao-knockout-draft-v1:${board.knockout.generation.id}`;
+  const legacyDraftKey = `bolao-knockout-draft-v1:${board.knockout.generation.id}`;
+  const draftKey = draftStorageKey(
+    currentUserId,
+    'pool-season-bolao-do-trabalho-world-cup-2026',
+    `knockout:${board.knockout.generation.id}`,
+  );
   const [draft, setDraft] = useState<KnockoutDraft>(() => {
     const saved = board.knockout.savedBracket?.picks ?? [];
     if (saved.length) {
@@ -1323,7 +1338,11 @@ function KnockoutBoard({
     }
     if (typeof window !== 'undefined') {
       try {
-        const stored = JSON.parse(window.localStorage.getItem(draftKey) ?? '{}') as KnockoutDraft;
+        const stored = JSON.parse(
+          window.localStorage.getItem(draftKey)
+            ?? window.localStorage.getItem(legacyDraftKey)
+            ?? '{}',
+        ) as KnockoutDraft;
         if (Object.keys(stored).length) return stored;
       } catch {
         // Ignore corrupted local drafts and fall back to an empty bracket.
@@ -1332,6 +1351,9 @@ function KnockoutBoard({
     return {};
   });
   const [saving, setSaving] = useState(false);
+  const [saveState, setSaveState] = useState<'clean' | 'dirty' | 'saving' | 'saved' | 'failed'>('clean');
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const partialConfirmation = useRef(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [shareReady, setShareReady] = useState(Boolean(board.knockout.savedBracket?.picks.length));
@@ -1371,8 +1393,23 @@ function KnockoutBoard({
   const canEdit = board.canPredict && editableFixtures.length > 0;
 
   useEffect(() => {
-    if (typeof window !== 'undefined') window.localStorage.setItem(draftKey, JSON.stringify(draft));
-  }, [draft, draftKey]);
+    if (typeof window === 'undefined') return;
+    if (saveState === 'dirty' || saveState === 'failed') {
+      window.localStorage.setItem(draftKey, JSON.stringify(draft));
+      window.localStorage.removeItem(legacyDraftKey);
+    }
+  }, [draft, draftKey, legacyDraftKey, saveState]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const warn = (event: BeforeUnloadEvent) => {
+      if (saveState !== 'dirty' && saveState !== 'failed') return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [saveState]);
 
   useEffect(() => {
     const savedCount = board.knockout.savedBracket?.picks.length ?? 0;
@@ -1383,14 +1420,16 @@ function KnockoutBoard({
   }, [board.knockout.savedBracket?.picks.length]);
 
   function changeScore(matchNumber: number, side: 'home' | 'away', text: string) {
+    setSaveState('dirty');
+    partialConfirmation.current = false;
     setDraft((current) => {
       const next = { ...current };
       const matchParticipants = participants.get(matchNumber);
+      const previous = next[matchNumber];
       const value = {
-        home: '',
-        away: '',
-        advancingTeamId: null,
-        ...next[matchNumber],
+        home: previous?.home ?? '',
+        away: previous?.away ?? '',
+        advancingTeamId: previous?.advancingTeamId ?? null,
         [side]: text,
       };
       if (
@@ -1413,13 +1452,14 @@ function KnockoutBoard({
   }
 
   function chooseAdvancingTeam(matchNumber: number, teamId: string) {
+    setSaveState('dirty');
+    partialConfirmation.current = false;
     setDraft((current) => {
       return {
         ...current,
         [matchNumber]: {
-          home: '',
-          away: '',
-          ...current[matchNumber],
+          home: current[matchNumber]?.home ?? '',
+          away: current[matchNumber]?.away ?? '',
           advancingTeamId: teamId,
         },
       };
@@ -1472,13 +1512,16 @@ function KnockoutBoard({
       setError('Preencha pelo menos um confronto futuro para salvar a chave.');
       return;
     }
-    if (missingEditableCount > 0 && typeof window !== 'undefined') {
-      window.alert(
-        `Ainda faltam ${missingEditableCount} jogo(s) futuro(s) no chaveamento. Vamos salvar os ${editableFilledPicks.length} jogo(s) futuro(s) preenchidos agora e voce pode completar depois.`,
+    if (missingEditableCount > 0 && !partialConfirmation.current) {
+      partialConfirmation.current = true;
+      setError(
+        `Resumo antes de enviar: ${editableFilledPicks.length} jogo(s) preenchido(s) e ${missingEditableCount} pendente(s). Revise e pressione Salvar novamente para confirmar o envio parcial.`,
       );
+      return;
     }
 
     setSaving(true);
+    setSaveState('saving');
     setError('');
     try {
       const next = await api.saveKnockoutBracket(
@@ -1495,8 +1538,11 @@ function KnockoutBoard({
       setSavedPickCount(next.knockout.savedBracket?.picks.length ?? filledPicks.length);
       setShareReady(true);
       setSuccess(true);
+      setSaveState('saved');
+      setSavedAt(new Date().toISOString());
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Não foi possível salvar a chave.');
+      setSaveState('failed');
     } finally {
       setSaving(false);
     }
@@ -1618,12 +1664,15 @@ function KnockoutBoard({
       <View style={styles.bracketPanel}>
         <ScrollView
           horizontal
+          accessibilityRole="tablist"
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.bracketStageTabs}
         >
           {bracketStageOrder.map((stage) => (
             <Pressable
               key={stage}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: activeStage === stage }}
               onPress={() => focusStage(stage)}
               style={[
                 styles.bracketStageTab,
@@ -1732,15 +1781,26 @@ function KnockoutBoard({
       ) : null}
       {canEdit && board.knockout.roundOf32.length ? (
         <View style={styles.knockoutFooter}>
-          <Text style={styles.knockoutFooterText}>
+          <Text style={styles.knockoutFooterText} accessibilityLiveRegion="polite">
             {complete
               ? 'Todos os 32 confrontos estão preenchidos.'
               : editableFilledPicks.length
                 ? `${editableFilledPicks.length}/${editableFixtures.length} jogo(s) futuro(s) preenchido(s). Jogos iniciados ou encerrados ficam preservados.`
                 : 'Preencha pelo menos um confronto futuro para salvar a chave.'}
+            {saveState === 'dirty'
+              ? ' · Não salvo'
+              : saveState === 'saving'
+                ? ' · Salvando'
+                : saveState === 'failed'
+                  ? ' · Falhou — tentar novamente'
+                  : saveState === 'saved' && savedAt
+                    ? ` · Salvo às ${new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(new Date(savedAt))}`
+                    : ''}
           </Text>
           <View style={styles.knockoutFooterActions}>
             <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !editableFilledPicks.length || saving }}
               disabled={!editableFilledPicks.length || saving}
               onPress={save}
               style={[
@@ -2031,6 +2091,7 @@ export function PredictionBoardScreen({
             board={board}
             groupScores={groupScorePayload}
             onSaved={applyBoard}
+            currentUserId={currentUserId}
           />
         ) : view === 'groups' ? (
           competitionUiV2 ? (
@@ -2062,6 +2123,7 @@ export function PredictionBoardScreen({
             board={board}
             groupScores={groupScorePayload}
             onSaved={applyBoard}
+            currentUserId={currentUserId}
           />
         )}
       </SoftReveal>

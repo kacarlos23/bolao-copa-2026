@@ -34,7 +34,7 @@ export const normalizedMatchSchema = z
     awayTeamExternalId: externalIdSchema.optional(),
     homeTeamName: z.string().trim().min(1).max(160),
     awayTeamName: z.string().trim().min(1).max(160),
-    startsAt: z.string().datetime({ offset: true }),
+    startsAt: z.string().datetime({ offset: true }).optional(),
     status: normalizedMatchStatusSchema.default('SCHEDULED'),
     stageExternalId: externalIdSchema.optional(),
     roundExternalId: externalIdSchema.optional(),
@@ -42,7 +42,17 @@ export const normalizedMatchSchema = z
   .strict()
   .refine((value) => value.homeTeamName !== value.awayTeamName, {
     message: 'A match must contain two different teams.',
-  });
+  })
+  .refine(
+    (value) =>
+      value.startsAt !== undefined || ['POSTPONED', 'CANCELLED'].includes(value.status),
+    {
+      path: ['startsAt'],
+      message: 'A scheduled, live, or finished match must have a start time.',
+    },
+  );
+
+const optionalCardCountSchema = z.number().int().nonnegative().max(99).optional();
 
 export const normalizedResultSchema = z
   .object({
@@ -55,6 +65,10 @@ export const normalizedResultSchema = z
     startsAt: z.string().datetime({ offset: true }).optional(),
     homeScore: z.number().int().min(0).max(99),
     awayScore: z.number().int().min(0).max(99),
+    homeYellowCards: optionalCardCountSchema,
+    awayYellowCards: optionalCardCountSchema,
+    homeRedCards: optionalCardCountSchema,
+    awayRedCards: optionalCardCountSchema,
     status: normalizedMatchStatusSchema,
   })
   .strict();

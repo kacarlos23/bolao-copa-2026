@@ -23,12 +23,23 @@ import {
 import { CsvProvider, MAX_CSV_BYTES } from '../modules/providers/adapters/csv.provider.js';
 import { ManualProvider } from '../modules/providers/adapters/manual.provider.js';
 import { CbfProvider } from '../modules/providers/adapters/cbf.provider.js';
+import { CbfSerieA2026Provider } from '../modules/providers/adapters/cbf-serie-a-2026.provider.js';
 import { GeProvider } from '../modules/providers/adapters/ge.provider.js';
 import { runProviderSync } from '../modules/providers/provider-sync.service.js';
 import {
   removeManualMatchOverride,
   setManualMatchOverride,
 } from '../modules/providers/manual-override.service.js';
+import {
+  assertBrasileirao2026Readiness,
+  prepareBrasileirao2026,
+  refreshBrasileirao2026RoundWindows,
+  BRASILEIRAO_2026_SEASON_SLUG,
+} from '../modules/brasileirao/brasileirao-2026.service.js';
+import {
+  getCompetitionFeatureFlags,
+  updateCompetitionFeatureFlags,
+} from '../modules/competitions/competition-feature.service.js';
 
 export const adminRouter = Router();
 
@@ -158,6 +169,7 @@ const providerSyncRequestSchema = z.discriminatedUnion('provider', [
   providerSyncBaseSchema
     .extend({ provider: z.literal('cbf-official'), items: z.array(z.unknown()).max(50_000) })
     .strict(),
+  providerSyncBaseSchema.extend({ provider: z.literal('cbf-serie-a-2026') }).strict(),
 ]);
 
 function normalizedPayload(type: z.infer<typeof providerSyncBaseSchema>['type'], items: unknown[]) {
@@ -171,6 +183,19 @@ adminRouter.post(
   '/providers/sync',
   asyncHandler(async (req, res) => {
     const body = providerSyncRequestSchema.parse(req.body);
+    if (body.provider === 'cbf-serie-a-2026') {
+      const season = await prisma.competitionSeason.findUnique({
+        where: { id: body.seasonId },
+        select: { slug: true },
+      });
+      if (season?.slug !== BRASILEIRAO_2026_SEASON_SLUG) {
+        res.status(400).json({
+          code: 'CBF_PROVIDER_SEASON_MISMATCH',
+          message: 'O provider fixo só pode sincronizar o Brasileirão Série A 2026.',
+        });
+        return;
+      }
+    }
     const provider =
       body.provider === 'ge'
         ? new GeProvider()
@@ -178,6 +203,8 @@ adminRouter.post(
           ? new CsvProvider(body.type, body.csv, body.sourceDocument)
           : body.provider === 'cbf-official'
             ? new CbfProvider(normalizedPayload(body.type, body.items))
+            : body.provider === 'cbf-serie-a-2026'
+              ? new CbfSerieA2026Provider()
             : new ManualProvider(normalizedPayload(body.type, body.items));
     const result = await runProviderSync(provider, {
       type: body.type,
@@ -186,7 +213,70 @@ adminRouter.post(
       idempotencyKey: body.idempotencyKey,
       requestedById: req.session.user!.id,
     });
+    if (
+      body.provider === 'cbf-serie-a-2026' &&
+      !body.dryRun &&
+      ['SCHEDULE', 'RESULTS'].includes(body.type)
+    ) {
+      await refreshBrasileirao2026RoundWindows(body.seasonId);
+    }
     res.status(body.dryRun ? 200 : 202).json(result);
+  }),
+);
+
+adminRouter.post(
+  '/brasileirao-2026/prepare',
+  asyncHandler(async (req, res) => {
+    const provider = new CbfSerieA2026Provider();
+    const context = { seasonId: 'preparation', requestedById: req.session.user!.id };
+    const [teams, schedule, evidence] = await Promise.all([
+      provider.syncTeams(context),
+      provider.syncSchedule(context),
+      provider.evidence(),
+    ]);
+    const readiness = assertBrasileirao2026Readiness({ teams, schedule, evidence });
+    const prepared = await prepareBrasileirao2026({
+      readiness,
+      evidence,
+      actorId: req.session.user!.id,
+    });
+    res.status(201).json({
+      competitionId: prepared.competition.id,
+      seasonId: prepared.season.id,
+      stageId: prepared.stage.id,
+      poolSeasonId: prepared.poolSeason.id,
+      evidence,
+      startsAtRound: prepared.poolSeason.startsAtRound,
+    });
+  }),
+);
+
+adminRouter.get(
+  '/seasons/:seasonId/features',
+  asyncHandler(async (req, res) => {
+    res.json({ flags: await getCompetitionFeatureFlags(req.params.seasonId) });
+  }),
+);
+
+adminRouter.put(
+  '/seasons/:seasonId/features',
+  asyncHandler(async (req, res) => {
+    const body = z
+      .object({
+        readEnabled: z.boolean(),
+        writeEnabled: z.boolean(),
+        uiEnabled: z.boolean(),
+        reason: z.string().trim().min(10).max(500),
+      })
+      .strict()
+      .parse(req.body);
+    res.json(
+      await updateCompetitionFeatureFlags({
+        seasonId: req.params.seasonId,
+        actorId: req.session.user!.id,
+        ...body,
+      }),
+    );
   }),
 );
 

@@ -5,6 +5,7 @@ dist-test/
 .expo-shared/
 web-build/
 coverage/
+output/playwright/
 .env
 .env.*
 !.env.example

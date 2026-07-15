@@ -6,6 +6,11 @@
     "orientation": "portrait",
     "scheme": "bolao-copa",
     "userInterfaceStyle": "automatic",
+    "extra": {
+      "router": {
+        "root": "app"
+      }
+    },
     "web": {
       "bundler": "metro",
       "output": "static",

@@ -10,6 +10,11 @@ export interface PoolSeasonContext {
   poolSeasonId: string;
   seasonId: string;
   membershipRole: 'OWNER' | 'ADMIN' | 'MEMBER';
+  systemRole: 'USER' | 'ADMIN';
+  scoreableFromRound: number | null;
+  scoreableFrom: Date | null;
+  startsAtRound: number | null;
+  historicalMatchesScoreable: boolean;
 }
 
 export async function resolvePoolSeasonContext(
@@ -28,12 +33,19 @@ export async function resolvePoolSeasonContext(
           user: { status: 'ACTIVE' },
         },
         take: 1,
-        select: { role: true },
+        select: { role: true, user: { select: { role: true } } },
       },
       seasons: {
         where: { seasonId: input.seasonId },
         take: 1,
-        select: { id: true, seasonId: true },
+        select: {
+          id: true,
+          seasonId: true,
+          scoreableFromRound: true,
+          scoreableFrom: true,
+          startsAtRound: true,
+          historicalMatchesScoreable: true,
+        },
       },
     },
   });
@@ -58,5 +70,10 @@ export async function resolvePoolSeasonContext(
     poolSeasonId: poolSeason.id,
     seasonId: poolSeason.seasonId,
     membershipRole: membership.role,
+    systemRole: membership.user?.role ?? 'USER',
+    scoreableFromRound: poolSeason.scoreableFromRound ?? null,
+    scoreableFrom: poolSeason.scoreableFrom ?? null,
+    startsAtRound: poolSeason.startsAtRound ?? null,
+    historicalMatchesScoreable: poolSeason.historicalMatchesScoreable ?? false,
   };
 }

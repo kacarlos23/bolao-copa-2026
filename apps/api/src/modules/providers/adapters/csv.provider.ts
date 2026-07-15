@@ -40,6 +40,10 @@ const headersByType: Record<CsvImportType, Set<string>> = {
     'startsAt',
     'homeScore',
     'awayScore',
+    'homeYellowCards',
+    'awayYellowCards',
+    'homeRedCards',
+    'awayRedCards',
     'status',
   ]),
   STANDINGS: new Set([
@@ -143,7 +147,16 @@ export class CsvProvider implements CompetitionDataProvider {
   async syncResults(_context: ProviderContext): Promise<NormalizedResult[]> {
     if (this.type !== 'RESULTS') return [];
     return normalizedResultArraySchema.parse(
-      this.rows.map((row) => integerFields(row, ['homeScore', 'awayScore'])),
+      this.rows.map((row) =>
+        integerFields(row, [
+          'homeScore',
+          'awayScore',
+          'homeYellowCards',
+          'awayYellowCards',
+          'homeRedCards',
+          'awayRedCards',
+        ]),
+      ),
     );
   }
 

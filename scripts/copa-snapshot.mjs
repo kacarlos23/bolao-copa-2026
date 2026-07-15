@@ -5,6 +5,8 @@ import process from 'node:process';
 import pg from 'pg';
 
 const { Client } = pg;
+const WORLD_CUP_SEASON_ID = 'competition-season-world-cup-2026';
+const WORLD_CUP_POOL_SEASON_ID = 'pool-season-bolao-do-trabalho-world-cup-2026';
 
 function readOutputArgument(argv) {
   const inline = argv.find((argument) => argument.startsWith('--output='));
@@ -69,18 +71,50 @@ function sha256Rows(rows) {
 }
 
 async function createContentHashes(client) {
-  const tables = await client.query(`
-    SELECT table_name AS "tableName"
-    FROM information_schema.tables
-    WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
-    ORDER BY table_name ASC
-  `);
+  const filters = {
+    Competition:
+      'WHERE source_row."id" IN (SELECT "competitionId" FROM "CompetitionSeason" WHERE "id" = $1)',
+    CompetitionSeason: 'WHERE source_row."id" = $1',
+    Stage: 'WHERE source_row."seasonId" = $1',
+    Round: 'WHERE source_row."seasonId" = $1',
+    SeasonTeam: 'WHERE source_row."seasonId" = $1',
+    Team:
+      'WHERE source_row."id" IN (SELECT "teamId" FROM "SeasonTeam" WHERE "seasonId" = $1)',
+    MatchDay: 'WHERE source_row."seasonId" = $1',
+    Match: 'WHERE source_row."seasonId" = $1',
+    Prediction:
+      'WHERE source_row."matchId" IN (SELECT "id" FROM "Match" WHERE "seasonId" = $1)',
+    PredictionScore:
+      'WHERE source_row."matchId" IN (SELECT "id" FROM "Match" WHERE "seasonId" = $1)',
+    KnockoutFixture: 'WHERE source_row."seasonId" = $1',
+    KnockoutGeneration: 'WHERE source_row."seasonId" = $1',
+    KnockoutBracket: 'WHERE source_row."poolSeasonId" = $2',
+    KnockoutPick: 'WHERE source_row."poolSeasonId" = $2',
+    KnockoutGroupSimulationScore: 'WHERE source_row."poolSeasonId" = $2',
+    KnockoutPredictionScore: 'WHERE source_row."poolSeasonId" = $2',
+    RankingSnapshot: 'WHERE source_row."poolSeasonId" = $2',
+    PoolSeason: 'WHERE source_row."id" = $2',
+    Pool: 'WHERE source_row."id" IN (SELECT "poolId" FROM "PoolSeason" WHERE "id" = $2)',
+    ScoringRuleSet:
+      'WHERE source_row."id" IN (SELECT "scoringRuleSetId" FROM "PoolSeason" WHERE "id" = $2)',
+    MatchOverride:
+      'WHERE source_row."matchId" IN (SELECT "id" FROM "Match" WHERE "seasonId" = $1)',
+  };
   const contentHashes = {};
 
-  for (const { tableName } of tables.rows) {
+  for (const [tableName, where] of Object.entries(filters)) {
     const identifier = tableName.replaceAll('"', '""');
+    const usesSeason = where.includes('$1');
+    const usesPoolSeason = where.includes('$2');
+    const queryWhere = !usesSeason && usesPoolSeason ? where.replaceAll('$2', '$1') : where;
+    const parameters = usesSeason
+      ? usesPoolSeason
+        ? [WORLD_CUP_SEASON_ID, WORLD_CUP_POOL_SEASON_ID]
+        : [WORLD_CUP_SEASON_ID]
+      : [WORLD_CUP_POOL_SEASON_ID];
     const rows = await client.query(
-      `SELECT to_jsonb(source_row)::text AS row FROM public."${identifier}" source_row`,
+      `SELECT to_jsonb(source_row)::text AS row FROM public."${identifier}" source_row ${queryWhere}`,
+      parameters,
     );
     contentHashes[tableName] = sha256Rows(rows.rows);
   }
@@ -122,31 +156,33 @@ async function createSnapshot(client, { includeBusinessHashes = false } = {}) {
   const countsResult = await client.query(`
     SELECT
       (SELECT COUNT(*)::text FROM "User" WHERE "status" = 'ACTIVE') AS "activeUsers",
-      (SELECT COUNT(*)::text FROM "Match") AS "matches",
+      (SELECT COUNT(*)::text FROM "Match" WHERE "seasonId" = $1) AS "matches",
       (
-        (SELECT COUNT(*) FROM "Prediction") +
-        (SELECT COUNT(*) FROM "KnockoutPick") +
-        (SELECT COUNT(*) FROM "KnockoutGroupSimulationScore")
+        (SELECT COUNT(*) FROM "Prediction" WHERE "poolSeasonId" = $2) +
+        (SELECT COUNT(*) FROM "KnockoutPick" WHERE "poolSeasonId" = $2) +
+        (SELECT COUNT(*) FROM "KnockoutGroupSimulationScore" WHERE "poolSeasonId" = $2)
       )::text AS "predictions",
       (
-        (SELECT COUNT(*) FROM "PredictionScore") +
-        (SELECT COUNT(*) FROM "KnockoutPredictionScore")
+        (SELECT COUNT(*) FROM "PredictionScore" WHERE "poolSeasonId" = $2) +
+        (SELECT COUNT(*) FROM "KnockoutPredictionScore" WHERE "poolSeasonId" = $2)
       )::text AS "scores",
-      (SELECT COUNT(*)::text FROM "KnockoutFixture") AS "knockoutFixtures",
-      (SELECT COUNT(*)::text FROM "PredictionScore") AS "groupScores",
-      (SELECT COUNT(*)::text FROM "KnockoutPredictionScore") AS "knockoutScores",
-      (SELECT COUNT(*)::text FROM "Prediction") AS "matchPredictions",
-      (SELECT COUNT(*)::text FROM "KnockoutPick") AS "knockoutPicks",
-      (SELECT COUNT(*)::text FROM "KnockoutGroupSimulationScore") AS "knockoutGroupSimulations"
-  `);
+      (SELECT COUNT(*)::text FROM "KnockoutFixture" WHERE "seasonId" = $1) AS "knockoutFixtures",
+      (SELECT COUNT(*)::text FROM "PredictionScore" WHERE "poolSeasonId" = $2) AS "groupScores",
+      (SELECT COUNT(*)::text FROM "KnockoutPredictionScore" WHERE "poolSeasonId" = $2) AS "knockoutScores",
+      (SELECT COUNT(*)::text FROM "Prediction" WHERE "poolSeasonId" = $2) AS "matchPredictions",
+      (SELECT COUNT(*)::text FROM "KnockoutPick" WHERE "poolSeasonId" = $2) AS "knockoutPicks",
+      (SELECT COUNT(*)::text FROM "KnockoutGroupSimulationScore" WHERE "poolSeasonId" = $2) AS "knockoutGroupSimulations"
+  `, [WORLD_CUP_SEASON_ID, WORLD_CUP_POOL_SEASON_ID]);
 
   const totalsResult = await client.query(`
     WITH all_scores AS (
       SELECT "userId", "points", "scoreType"::text AS "scoreType", "isFinal"
       FROM "PredictionScore"
+      WHERE "poolSeasonId" = $1
       UNION ALL
       SELECT "userId", "points", "scoreType"::text AS "scoreType", "isFinal"
       FROM "KnockoutPredictionScore"
+      WHERE "poolSeasonId" = $1
     ), score_totals AS (
       SELECT
         "userId",
@@ -178,7 +214,7 @@ async function createSnapshot(client, { includeBusinessHashes = false } = {}) {
     LEFT JOIN score_totals totals ON totals."userId" = users."id"
     WHERE users."role" = 'USER'
     ORDER BY users."id" ASC
-  `);
+  `, [WORLD_CUP_POOL_SEASON_ID]);
 
   const counts = countsResult.rows[0];
   const userTotals = totalsResult.rows.map(mapUserTotal);

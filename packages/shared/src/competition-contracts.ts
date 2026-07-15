@@ -30,6 +30,25 @@ export const poolSeasonParamsSchema = z
   .object({ poolSlug: slugSchema, seasonId: entityIdSchema })
   .strict();
 
+export const competitionCapabilitiesSchema = z
+  .object({
+    format: z.enum(['LEAGUE', 'GROUPS', 'KNOCKOUT', 'TWO_LEGS']).optional(),
+    groupStage: z.boolean().optional(),
+    knockoutBracket: z.boolean().optional(),
+    liveScoring: z.boolean().optional(),
+    standings: z.boolean().optional(),
+    knockout: z.boolean().optional(),
+    twoLegs: z.boolean().optional(),
+    rounds: z.number().int().positive().optional(),
+    teams: z.number().int().positive().optional(),
+    lastFiveUnit: z.enum(['MATCH', 'ROUND']).optional(),
+    rankingScopes: z
+      .array(z.enum(['OVERALL', 'ROUND', 'MONTH', 'TURN']))
+      .min(1)
+      .optional(),
+  })
+  .strict();
+
 export const listMatchesQuerySchema = paginationQuerySchema.extend({
   roundId: entityIdSchema.optional(),
   status: z.enum(['SCHEDULED', 'LIVE', 'FINISHED', 'POSTPONED', 'CANCELLED']).optional(),
@@ -37,9 +56,38 @@ export const listMatchesQuerySchema = paginationQuerySchema.extend({
   to: z.string().datetime({ offset: true }).optional(),
 });
 
-export const rankingQuerySchema = paginationQuerySchema.extend({
-  period: z.enum(['all', 'week', 'day']).default('all'),
-});
+export const rankingQuerySchema = paginationQuerySchema
+  .extend({
+    period: z.enum(['all', 'week', 'day']).default('all'),
+    scope: z.enum(['overall', 'round', 'month', 'turn']).default('overall'),
+    roundId: entityIdSchema.optional(),
+    month: z.string().regex(/^\d{4}-(?:0[1-9]|1[0-2])$/).optional(),
+    turn: z.coerce.number().int().min(1).max(2).optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.scope !== 'overall' && value.period !== 'all') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['period'],
+        message: 'period deve ser all quando um escopo de liga é informado.',
+      });
+    }
+    const required =
+      value.scope === 'round'
+        ? ['roundId', value.roundId]
+        : value.scope === 'month'
+          ? ['month', value.month]
+          : value.scope === 'turn'
+            ? ['turn', value.turn]
+            : null;
+    if (required && required[1] == null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [String(required[0])],
+        message: `${required[0]} é obrigatório para este escopo.`,
+      });
+    }
+  });
 
 export const predictionsQuerySchema = paginationQuerySchema.extend({
   matchDayId: entityIdSchema.optional(),
@@ -96,7 +144,7 @@ export const competitionDtoSchema = z
     id: entityIdSchema,
     slug: slugSchema,
     name: z.string(),
-    capabilities: z.unknown().nullable(),
+    capabilities: competitionCapabilitiesSchema.nullable(),
   })
   .strict();
 
@@ -111,7 +159,7 @@ export const seasonDtoSchema = z
     status: z.enum(['DRAFT', 'ACTIVE', 'FINISHED', 'ARCHIVED']),
     startsAt: nullableDateTimeSchema,
     endsAt: nullableDateTimeSchema,
-    capabilities: z.unknown().nullable(),
+    capabilities: competitionCapabilitiesSchema.nullable(),
   })
   .strict();
 
@@ -182,6 +230,9 @@ export const standingRowDtoSchema = z
     goalsAgainst: z.number().int().nonnegative(),
     goalDifference: z.number().int(),
     points: z.number().int().nonnegative(),
+    yellowCards: z.number().int().nonnegative(),
+    redCards: z.number().int().nonnegative(),
+    tieBreakRuleVersion: z.string(),
     lastFive: z.array(z.enum(['W', 'D', 'L'])).max(5),
   })
   .strict();
@@ -275,8 +326,58 @@ export const realtimeEventEnvelopeSchema = z
   })
   .strict();
 
+export const competitionsResponseSchema = z
+  .object({
+    competitions: z.array(competitionDtoSchema),
+    pagination: paginationSchema,
+  })
+  .strict();
+
+export const competitionSeasonsResponseSchema = z
+  .object({
+    competition: competitionDtoSchema,
+    seasons: z.array(seasonDtoSchema),
+    pagination: paginationSchema,
+  })
+  .strict();
+
+export const roundsResponseSchema = z
+  .object({ rounds: z.array(roundDtoSchema), pagination: paginationSchema })
+  .strict();
+
+export const matchesResponseSchema = z
+  .object({ matches: z.array(matchDtoSchema), pagination: paginationSchema })
+  .strict();
+
+export const standingsResponseSchema = z
+  .object({
+    standingsByGroup: z.array(
+      z.object({ group: z.string(), rows: z.array(standingRowDtoSchema) }).strict(),
+    ),
+    pagination: paginationSchema,
+  })
+  .strict();
+
+export const predictionsResponseSchema = z
+  .object({ predictions: z.array(predictionDtoSchema), pagination: paginationSchema })
+  .strict();
+
+export const savedPredictionsResponseSchema = z
+  .object({ predictions: z.array(predictionDtoSchema) })
+  .strict();
+
+export const rankingResponseSchema = z
+  .object({ ranking: z.array(rankingRowDtoSchema), pagination: paginationSchema.optional() })
+  .strict();
+
+export const rankingAwardsResponseSchema = z
+  .object({ awards: z.array(rankingAwardDtoSchema) })
+  .strict();
+
 export type PaginationQuery = z.infer<typeof paginationQuerySchema>;
+export type RankingQuery = z.infer<typeof rankingQuerySchema>;
 export type Pagination = z.infer<typeof paginationSchema>;
+export type CompetitionCapabilities = z.infer<typeof competitionCapabilitiesSchema>;
 export type CompetitionDto = z.infer<typeof competitionDtoSchema>;
 export type SeasonDto = z.infer<typeof seasonDtoSchema>;
 export type StageDto = z.infer<typeof stageDtoSchema>;
@@ -287,5 +388,15 @@ export type StandingRowDto = z.infer<typeof standingRowDtoSchema>;
 export type PredictionDto = z.infer<typeof predictionDtoSchema>;
 export type RankingRowDto = z.infer<typeof rankingRowDtoSchema>;
 export type RankingAwardDto = z.infer<typeof rankingAwardDtoSchema>;
+export type ApiIssue = z.infer<typeof apiIssueSchema>;
 export type UpsertSeasonPredictionsInput = z.infer<typeof upsertSeasonPredictionsSchema>;
 export type RealtimeEventEnvelope = z.infer<typeof realtimeEventEnvelopeSchema>;
+export type CompetitionsResponse = z.infer<typeof competitionsResponseSchema>;
+export type CompetitionSeasonsResponse = z.infer<typeof competitionSeasonsResponseSchema>;
+export type RoundsResponse = z.infer<typeof roundsResponseSchema>;
+export type MatchesResponse = z.infer<typeof matchesResponseSchema>;
+export type StandingsResponse = z.infer<typeof standingsResponseSchema>;
+export type PredictionsResponse = z.infer<typeof predictionsResponseSchema>;
+export type SavedPredictionsResponse = z.infer<typeof savedPredictionsResponseSchema>;
+export type RankingResponse = z.infer<typeof rankingResponseSchema>;
+export type RankingAwardsResponse = z.infer<typeof rankingAwardsResponseSchema>;

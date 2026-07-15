@@ -16,6 +16,8 @@ import {
   PREDICTION_CLOSE_MINUTES_KEY,
 } from '../../services/prediction-settings.service.js';
 import { listPredictionRecords } from './prediction.repository.js';
+import { competitionFeatureFlagsSchema } from '../competitions/competition-feature.service.js';
+import { isPoolMatchScoreable } from './scoreability.js';
 
 function toPredictionDto(prediction: {
   id: string;
@@ -75,7 +77,7 @@ export async function savePredictions(input: {
   const result = await prisma.$transaction(
     async (tx) => {
       const context = await resolvePoolSeasonContext(input, tx);
-      const [matchDay, setting] = await Promise.all([
+      const [matchDay, setting, featureSetting] = await Promise.all([
         tx.matchDay.findFirst({
           where: { id: input.body.matchDayId, seasonId: context.seasonId },
           select: { id: true },
@@ -84,7 +86,22 @@ export async function savePredictions(input: {
           where: { key: PREDICTION_CLOSE_MINUTES_KEY },
           select: { value: true },
         }),
+        tx.appSetting.findUnique({
+          where: { key: `competition-features:${context.seasonId}` },
+          select: { key: true, value: true },
+        }),
       ]);
+      if (
+        context.systemRole !== 'ADMIN' &&
+        featureSetting?.key === `competition-features:${context.seasonId}` &&
+        !competitionFeatureFlagsSchema.parse(featureSetting.value).writeEnabled
+      ) {
+        throw new AppError(
+          404,
+          'Temporada indisponível durante o canário administrativo.',
+          'COMPETITION_FEATURE_DISABLED',
+        );
+      }
       if (!matchDay) {
         throw new AppError(404, 'Dia de jogos não pertence à temporada.', 'MATCH_DAY_SEASON_MISMATCH');
       }
@@ -96,7 +113,14 @@ export async function savePredictions(input: {
           matchDayId: matchDay.id,
           seasonId: context.seasonId,
         },
-        select: { id: true, startsAt: true, predictionClosesAt: true, seasonId: true },
+        select: {
+          id: true,
+          startsAt: true,
+          predictionClosesAt: true,
+          seasonId: true,
+          status: true,
+          round: { select: { order: true } },
+        },
       });
       if (matches.length !== matchIds.length || matches.some((match) => match.seasonId !== context.seasonId)) {
         throw new AppError(
@@ -109,6 +133,27 @@ export async function savePredictions(input: {
       const now = new Date();
       const minutes = closeMinutes(setting?.value);
       for (const match of matches) {
+        if (
+          !isPoolMatchScoreable(context, {
+            roundOrder: match.round?.order ?? null,
+            startsAt: match.startsAt,
+          })
+        ) {
+          throw new AppError(
+            409,
+            'Partidas históricas não aceitam palpites nem pontuam neste bolão.',
+            'PREDICTION_MATCH_NOT_SCOREABLE',
+          );
+        }
+        if (match.status && match.status !== 'SCHEDULED') {
+          throw new AppError(
+            409,
+            match.status === 'POSTPONED'
+              ? 'Partida adiada: o palpite existente foi preservado e reabrirá após remarcação.'
+              : 'A partida não está aberta para novos palpites.',
+            'PREDICTION_MATCH_UNAVAILABLE',
+          );
+        }
         const closesAt =
           match.predictionClosesAt ?? new Date(match.startsAt.getTime() - minutes * 60_000);
         if (now >= closesAt) {

@@ -1,0 +1,128 @@
+# Runbook — Brasileirão Série A 2026
+
+## Estado de exposição
+
+A temporada nasce como `DRAFT` e canário administrativo. As flags persistidas
+`readEnabled`, `writeEnabled` e `uiEnabled` começam desligadas. A UI também exige
+`EXPO_PUBLIC_BRASILEIRAO_UI=1`; portanto uma publicação do bundle, isoladamente,
+não expõe a competição.
+
+O início operacional é a rodada 20. `PoolSeason.startsAtRound`,
+`scoreableFromRound` e `scoreableFrom` são preenchidos a partir do primeiro
+horário reconciliado dessa rodada. Rodadas anteriores permanecem no campeonato e
+na classificação esportiva, mas não aceitam palpites nem geram score.
+
+## Autoridades consultadas
+
+- Tabela vigente: <https://www.cbf.com.br/futebol-brasileiro/tabelas/campeonato-brasileiro/serie-a/2026>
+- Endpoint fixo por rodada: `https://www.cbf.com.br/api/cbf/jogos/campeonato/1260611/rodada/{1..38}/fase/1993`
+- Tabela básica oficial: <https://stcbfsiteprdimgbrs.blob.core.windows.net/img-site/cdn/Tabela_BA_sica_Brasileiro_SA_rie_A_2026_d64996b4d8.pdf>
+- Regulamento específico: <https://stcbfsiteprdimgbrs.blob.core.windows.net/img-site/cdn/REC_Brasileiro_SA_rie_A_2026_v15_12_2025_final_02692c1077.pdf>
+
+A coleta registra URL, `collectedAt`, timezone `America/Sao_Paulo`, tamanho e
+SHA-256 dos documentos, além do checksum determinístico dos DTOs normalizados.
+O adapter não recebe URL do cliente. Redirect é recusado, e cada resposta tem
+timeout, limite de bytes e retry com jitter.
+
+## Preparação e carga canário
+
+Configure `DATABASE_URL` e execute:
+
+```powershell
+npm run snapshot:copa -- --output snapshots/copa-before-brasileirao.json
+npm run prisma:migrate
+npm run load:brasileirao-2026
+npm run snapshot:copa -- --output snapshots/copa-after-brasileirao.json
+npm run snapshot:compare -- snapshots/copa-before-brasileirao.json snapshots/copa-after-brasileirao.json
+```
+
+O loader para antes de qualquer escrita se não encontrar exatamente 20 clubes,
+380 referências na tabela e 10 partidas com horário na rodada de abertura do
+bolão. Em seguida executa `dryRun`, `apply` e uma segunda importação para `TEAMS`,
+`SCHEDULE` e `RESULTS`. O processo falha se a segunda carga produzir insert ou
+quarentena.
+
+Os mesmos passos podem ser acionados pelo admin:
+
+1. `POST /api/admin/brasileirao-2026/prepare`;
+2. `POST /api/admin/providers/sync` com provider `cbf-serie-a-2026`, uma chave de
+   idempotência nova e os tipos na ordem `TEAMS`, `SCHEDULE`, `RESULTS`;
+3. repetir com novas chaves e conferir inserts/quarentenas zerados;
+4. consultar `/api/admin/providers/sync-runs` e
+   `/api/admin/providers/quarantine`.
+
+## Reconciliação
+
+Antes de liberar leitura, conferir:
+
+- 20 `SeasonTeam`, 38 rodadas e 10 jogos na rodada 20;
+- apenas jogos com data e horário oficiais; “A Definir” não vira data fictícia;
+- standings internos contra a tabela CBF, incluindo J/V/E/D/GP/GC/SG/PTS;
+- desempate `cbf-rec-2026-art-15-v1`: pontos, vitórias, saldo, gols pró,
+  confronto direto apenas entre dois clubes, menos vermelhos, menos amarelos e
+  fallback determinístico enquanto um sorteio oficial não existir;
+- nenhuma `Prediction` ou `PredictionScore` anterior à rodada 20;
+- snapshot da Copa idêntico antes/depois.
+
+Ambiguidade ou referência ausente fica em `SyncQuarantine`. Resolva pelo endpoint
+administrativo de reconciliação, com justificativa, e repita o mesmo payload com
+nova chave. Nunca edite o mapping diretamente no banco.
+
+## Política de jogos e resultados
+
+- **Adiado:** mantém Match ID e palpite; bloqueia edição até a CBF publicar a
+  remarcação. A nova data recalcula o fechamento individual.
+- **Remarcado:** atualiza `startsAt`, `MatchDay` e fechamento sem recriar a
+  partida ou o palpite.
+- **Cancelado:** bloqueia palpite e remove eventual score ao recalcular; o
+  registro histórico permanece auditável.
+- **Resultado corrigido:** `FINISHED -> FINISHED` é aceito, recalcula os scores e
+  o ranking do `PoolSeason`; regressão automática de `FINISHED` é recusada.
+- **Override manual:** tem precedência sobre provider, exige justificativa e
+  continua ativo após sincronizações futuras.
+
+Eventos de agenda, resultado, ranking e flags são gravados na outbox dentro da
+transação e publicados somente após commit.
+
+## Contingência CSV/manual
+
+CSV e manual passam pelos mesmos DTOs estritos, mappings, quarentena,
+idempotência, locks, overrides, transações e outbox do provider oficial.
+
+1. Exporte a última resposta oficial já reconciliada; não informe URL remota.
+2. Para CSV, use `provider=csv`, `sourceDocument` com nome local e um tipo por
+   execução. Limite: 750 KiB.
+3. Para operação manual, use `provider=manual` e o mesmo formato normalizado.
+4. Sempre execute `dryRun=true`, revise o diff, depois aplique com outra chave.
+5. Repita a carga e exija zero inserts e zero quarentenas.
+
+Campos de resultado aceitos: IDs externos, clubes, horário opcional, placar,
+status e contagens opcionais de amarelos/vermelhos. Agenda `SCHEDULED`, `LIVE` ou
+`FINISHED` exige `startsAt` com offset; `POSTPONED`/`CANCELLED` sem data só pode
+atualizar uma partida já mapeada.
+
+## Liberação e rollback
+
+Libere nesta ordem, com justificativa auditada:
+
+1. `readEnabled=true` para canário autenticado;
+2. `writeEnabled=true` depois do smoke de fechamento;
+3. `uiEnabled=true` e deploy com `EXPO_PUBLIC_BRASILEIRAO_UI=1` somente após os
+   gates.
+
+Rollback operacional: desligue primeiro `writeEnabled`, depois `uiEnabled` e
+`readEnabled`. Isso não apaga dados nem IDs. Para restaurar serviço sem provider,
+use CSV/manual. Não faça rollback destrutivo de migrations.
+
+## Verificação final
+
+```powershell
+npm run lint
+npm test
+npm run build
+```
+
+Faça smoke web em 390×844 e 1440×1000: login, abrir Brasileirão, trocar rodada,
+salvar um palpite aberto, confirmar mensagem, conferir classificação e alternar
+ranking geral/rodada/mês/turno. Ao terminar, restaure as três flags para `false`
+se a exposição pública não tiver sido aprovada.

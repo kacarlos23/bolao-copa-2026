@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -14,7 +14,6 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import {
   API_URL,
@@ -32,14 +31,44 @@ import {
 } from './src/api';
 import { flagSources } from './src/flagSources';
 import { teamCatalogByCode } from './src/teamCatalog';
-import { PredictionBoardScreen } from './src/predictionBoard';
-import { CupOverviewV2, DailyPredictionsV2 } from './src/competitionV2';
-import { DrawerReveal, SoftReveal } from './src/motion';
+import { DrawerReveal, SoftReveal, usePrefersReducedMotion } from './src/motion';
+import { CompetitionProvider, normalizeCapabilities } from './src/app/CompetitionContext';
+import { CompetitionSelector } from './src/features/competitions/CompetitionSelector';
+import { ToastProvider } from './src/components/Toast';
+import { hasStoredDirtyDraft } from './src/services/drafts';
+import { AppShell } from './src/app/AppShell';
 
-type Screen = 'days' | 'predictions' | 'knockout' | 'ranking' | 'cup' | 'teams' | 'admin';
+type Screen =
+  | 'days'
+  | 'predictions'
+  | 'knockout'
+  | 'ranking'
+  | 'cup'
+  | 'brasileirao'
+  | 'teams'
+  | 'admin';
 type RankingStatusFilter = 'all' | 'live' | 'final';
 
 const competitionUiV2 = process.env.EXPO_PUBLIC_COMPETITION_UI_V2 === '1';
+const legacyPredictionsUi =
+  process.env.EXPO_PUBLIC_LEGACY_PREDICTIONS === '1'
+  || (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('predictions') === 'v1');
+const brasileiraoUi = process.env.EXPO_PUBLIC_BRASILEIRAO_UI === '1';
+const PredictionBoardScreen = lazy(() =>
+  import('./src/predictionBoard').then((module) => ({ default: module.PredictionBoardScreen })),
+);
+const CupOverviewV2 = lazy(() =>
+  import('./src/competitionV2').then((module) => ({ default: module.CupOverviewV2 })),
+);
+const DailyPredictionsV2 = lazy(() =>
+  import('./src/competitionV2').then((module) => ({ default: module.DailyPredictionsV2 })),
+);
+const Brasileirao2026Screen = lazy(() =>
+  import('./src/brasileirao2026').then((module) => ({ default: module.Brasileirao2026Screen })),
+);
+const BrasileiraoCanaryAdmin = lazy(() =>
+  import('./src/brasileiraoAdmin').then((module) => ({ default: module.BrasileiraoCanaryAdmin })),
+);
 const knockoutDeadline = new Date('2026-06-18T23:59:59-03:00').getTime();
 
 const colors = {
@@ -389,6 +418,7 @@ function TeamNameButton({
 
   return (
     <Pressable
+      accessibilityRole="button"
       onPress={() => onOpenTeam(team)}
       hitSlop={6}
       style={singleLine ? styles.teamNameButtonSingleLine : undefined}
@@ -404,15 +434,6 @@ function TeamNameButton({
         {team.name}
       </Text>
     </Pressable>
-  );
-}
-
-function AppShell({ children }: { children: ReactNode }) {
-  return (
-    <View style={styles.root}>
-      <StatusBar style="light" />
-      {children}
-    </View>
   );
 }
 
@@ -433,6 +454,8 @@ function PrimaryButton({
 
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled: Boolean(disabled) }}
       disabled={disabled}
       onPress={onPress}
       style={[
@@ -452,11 +475,13 @@ function HeaderNav({
   screen,
   setScreen,
   isAdmin,
+  showBrasileirao,
   onLogout,
 }: {
   screen: Screen;
   setScreen: (screen: Screen) => void;
   isAdmin: boolean;
+  showBrasileirao: boolean;
   onLogout: () => void;
 }) {
   const items: Array<{
@@ -486,6 +511,16 @@ function HeaderNav({
     { key: 'teams', label: 'Times', icon: 'people-outline', onPress: () => setScreen('teams'), active: screen === 'teams' },
   ];
 
+  if (showBrasileirao) {
+    items.splice(4, 0, {
+      key: 'brasileirao',
+      label: 'Brasileirão',
+      icon: 'shield-outline',
+      onPress: () => setScreen('brasileirao'),
+      active: screen === 'brasileirao',
+    });
+  }
+
   if (isAdmin) {
     items.push({
       key: 'admin',
@@ -496,29 +531,38 @@ function HeaderNav({
     });
   }
 
-  items.push({ key: 'logout', label: 'Sair', icon: 'log-out-outline', onPress: onLogout });
-
   return (
     <View style={styles.nav}>
-      {items.map((item, index) => {
-        const active = Boolean(item.active);
-        return (
-          <Pressable
-            key={item.key}
-            onPress={item.onPress}
-            style={[
-              styles.navItem,
-              active && styles.navItemActive,
-              index === 0 && styles.navItemFirst,
-              index === items.length - 1 && styles.navItemLast,
-            ]}
-          >
-            <Ionicons name={item.icon} size={18} color={active ? colors.gold : colors.text} />
-            <Text style={[styles.navItemText, active && styles.navItemTextActive]}>{item.label}</Text>
-            {index < items.length - 1 ? <View style={styles.navItemDivider} /> : null}
-          </Pressable>
-        );
-      })}
+      <View style={styles.navTabs} accessibilityRole="tablist">
+        {items.map((item, index) => {
+          const active = Boolean(item.active);
+          return (
+            <Pressable
+              key={item.key}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: active }}
+              onPress={item.onPress}
+              style={[
+                styles.navItem,
+                active && styles.navItemActive,
+                index === 0 && styles.navItemFirst,
+              ]}
+            >
+              <Ionicons name={item.icon} size={18} color={active ? colors.gold : colors.text} />
+              <Text style={[styles.navItemText, active && styles.navItemTextActive]}>{item.label}</Text>
+              <View style={styles.navItemDivider} />
+            </Pressable>
+          );
+        })}
+      </View>
+      <Pressable
+        accessibilityRole="button"
+        onPress={onLogout}
+        style={[styles.navItem, styles.navItemLast]}
+      >
+        <Ionicons name="log-out-outline" size={18} color={colors.text} />
+        <Text style={styles.navItemText}>Sair</Text>
+      </Pressable>
     </View>
   );
 }
@@ -544,6 +588,8 @@ function Field({
     <View style={styles.fieldGroup}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
+        accessibilityLabel={label}
+        accessibilityHint={help}
         style={styles.input}
         value={value}
         onChangeText={onChangeText}
@@ -591,6 +637,7 @@ function SuccessModal({
   message: string;
   onClose: () => void;
 }) {
+  const reducedMotion = usePrefersReducedMotion();
   const progress = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -601,14 +648,20 @@ function SuccessModal({
 
     Animated.spring(progress, {
       toValue: 1,
+      duration: reducedMotion ? 0 : undefined,
       friction: 5,
       tension: 80,
       useNativeDriver: true,
     }).start();
-  }, [progress, visible]);
+  }, [progress, reducedMotion, visible]);
 
   return (
-    <Modal transparent animationType="fade" visible={visible} onRequestClose={onClose}>
+    <Modal
+      transparent
+      animationType={reducedMotion ? 'none' : 'fade'}
+      visible={visible}
+      onRequestClose={onClose}
+    >
       <View style={styles.modalBackdrop}>
         <View style={styles.successModal}>
           <Animated.View
@@ -791,8 +844,10 @@ function AuthScreen({ onAuth }: { onAuth: (user: User) => void }) {
         </View>
 
         <View style={styles.authCard}>
-          <View style={styles.segment}>
+          <View style={styles.segment} accessibilityRole="tablist">
             <Pressable
+              accessibilityRole="tab"
+              accessibilityState={{ selected: mode === 'login' }}
               onPress={() => {
                 setMode('login');
                 setError('');
@@ -804,6 +859,8 @@ function AuthScreen({ onAuth }: { onAuth: (user: User) => void }) {
               </Text>
             </Pressable>
             <Pressable
+              accessibilityRole="tab"
+              accessibilityState={{ selected: mode === 'register' }}
               onPress={() => {
                 setMode('register');
                 setError('');
@@ -872,6 +929,7 @@ function HeaderLayout({
   setScreen,
   onRefresh,
   onUserChange,
+  showBrasileirao,
   onLogout,
 }: {
   user: User;
@@ -879,6 +937,7 @@ function HeaderLayout({
   setScreen: (screen: Screen) => void;
   onRefresh: () => void;
   onUserChange: (user: User) => void;
+  showBrasileirao: boolean;
   onLogout: () => void;
 }) {
   const { width } = useWindowDimensions();
@@ -984,6 +1043,7 @@ function HeaderLayout({
           screen={screen}
           setScreen={setScreen}
           isAdmin={user.role === 'ADMIN'}
+          showBrasileirao={showBrasileirao}
           onLogout={onLogout}
         />
       </ScrollView>
@@ -997,6 +1057,7 @@ function Header({
   setScreen,
   onRefresh,
   onUserChange,
+  showBrasileirao,
   onLogout,
 }: {
   user: User;
@@ -1004,6 +1065,7 @@ function Header({
   setScreen: (screen: Screen) => void;
   onRefresh: () => void;
   onUserChange: (user: User) => void;
+  showBrasileirao: boolean;
   onLogout: () => void;
 }) {
   const [avatarBusy, setAvatarBusy] = useState(false);
@@ -1100,6 +1162,7 @@ function Header({
           screen={screen}
           setScreen={setScreen}
           isAdmin={user.role === 'ADMIN'}
+          showBrasileirao={showBrasileirao}
           onLogout={onLogout}
         />
       </View>
@@ -1335,7 +1398,7 @@ function PredictionsScreen({
   onOpenTeam: (team: Team) => void;
   onAdjustScroll: (delta: number) => void;
 }) {
-  if (process.env.EXPO_PUBLIC_LEGACY_PREDICTIONS !== '1') {
+  if (!legacyPredictionsUi) {
     return (
       <View style={styles.predictionsDailyPage}>
         <View style={styles.predictionsDailyHeader}>
@@ -1539,6 +1602,7 @@ function AnimatedMatchDayDetail({
   currentUserId: string;
   onOpenTeam: (team: Team) => void;
 }) {
+  const reducedMotion = usePrefersReducedMotion();
   const progress = useRef(new Animated.Value(open ? 1 : 0)).current;
   const [rendered, setRendered] = useState(open);
 
@@ -1547,13 +1611,13 @@ function AnimatedMatchDayDetail({
 
     Animated.timing(progress, {
       toValue: open ? 1 : 0,
-      duration: open ? 210 : 160,
+      duration: reducedMotion ? 0 : open ? 210 : 160,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start(({ finished }) => {
       if (finished && !open) setRendered(false);
     });
-  }, [open, progress]);
+  }, [open, progress, reducedMotion]);
 
   if (!rendered) return null;
 
@@ -1703,6 +1767,7 @@ function MatchDayDetail({
             </View>
             <View style={styles.predictionInputs}>
               <TextInput
+                accessibilityLabel={`Placar de ${match.homeTeam.name}, mandante`}
                 editable={!closed}
                 style={[styles.scoreInput, closed && styles.scoreInputDisabled]}
                 keyboardType="number-pad"
@@ -1713,6 +1778,7 @@ function MatchDayDetail({
               />
               <Text style={styles.vs}>x</Text>
               <TextInput
+                accessibilityLabel={`Placar de ${match.awayTeam.name}, visitante`}
                 editable={!closed}
                 style={[styles.scoreInput, closed && styles.scoreInputDisabled]}
                 keyboardType="number-pad"
@@ -1985,6 +2051,7 @@ function AdminScreen({
 
   return (
     <View style={styles.contentGrid}>
+      <BrasileiraoCanaryAdmin />
       <View style={styles.panel}>
         <View style={styles.panelHeader}>
           <Text style={styles.sectionTitle}>Admin</Text>
@@ -2556,6 +2623,7 @@ function RankingScreenLayout({
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<RankingStatusFilter>('all');
   const [periodFilter, setPeriodFilter] = useState<RankingPeriod>('all');
+  const reducedMotion = usePrefersReducedMotion();
   const pulse = useRef(new Animated.Value(1)).current;
 
   const isCompact = width < 760;
@@ -2602,6 +2670,10 @@ function RankingScreenLayout({
   }, [loadRanking]);
 
   useEffect(() => {
+    if (reducedMotion) {
+      pulse.setValue(1);
+      return undefined;
+    }
     const animation = Animated.loop(
       Animated.sequence([
         Animated.timing(pulse, {
@@ -2618,7 +2690,7 @@ function RankingScreenLayout({
     );
     animation.start();
     return () => animation.stop();
-  }, [pulse]);
+  }, [pulse, reducedMotion]);
 
   const leader = ranking[0];
   const last = ranking[ranking.length - 1];
@@ -3611,6 +3683,7 @@ export default function App() {
   const [booting, setBooting] = useState(true);
   const [nowTime, setNowTime] = useState(Date.now());
   const [knockoutCalloutDismissed, setKnockoutCalloutDismissed] = useState(false);
+  const [brasileiraoNavEnabled, setBrasileiraoNavEnabled] = useState(false);
   const { width: viewportWidth } = useWindowDimensions();
   const appScrollRef = useRef<ScrollView>(null);
   const appScrollY = useRef(0);
@@ -3620,6 +3693,22 @@ export default function App() {
   const triggerRefresh = useCallback(() => {
     setRefreshVersion((current) => current + 1);
   }, []);
+
+  function canLeaveCurrentScreen() {
+    return !user?.id || !hasStoredDirtyDraft(user.id);
+  }
+
+  function navigate(nextScreen: Screen) {
+    if (nextScreen === screen) return;
+    if (
+      !canLeaveCurrentScreen()
+      && typeof window !== 'undefined'
+      && !window.confirm('Há alterações não salvas. Deseja sair e manter o rascunho neste navegador?')
+    ) {
+      return;
+    }
+    setScreen(nextScreen);
+  }
 
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof document === 'undefined') return;
@@ -3664,6 +3753,33 @@ export default function App() {
   }, [user?.id]);
 
   useEffect(() => {
+    if (!user || !brasileiraoUi) {
+      setBrasileiraoNavEnabled(false);
+      return;
+    }
+    let cancelled = false;
+    api
+      .brasileiraoSeasons()
+      .then((result) =>
+        result.seasons.find((season) => season.slug === 'brasileirao-serie-a-2026'),
+      )
+      .then(async (season) => {
+        if (!season) return false;
+        if (user.role === 'ADMIN') return true;
+        return (await api.seasonUiFeature(season.id)).uiEnabled;
+      })
+      .then((enabled) => {
+        if (!cancelled) setBrasileiraoNavEnabled(Boolean(enabled));
+      })
+      .catch(() => {
+        if (!cancelled) setBrasileiraoNavEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  useEffect(() => {
     if (typeof document === 'undefined' || typeof window === 'undefined') return undefined;
 
     const markInactive = () => {
@@ -3694,6 +3810,9 @@ export default function App() {
   }, [triggerRefresh]);
 
   const content = useMemo(() => {
+    if (screen === 'brasileirao' && brasileiraoNavEnabled) {
+      return <Brasileirao2026Screen currentUserId={user?.id ?? ''} refreshVersion={refreshVersion} />;
+    }
     if (screen === 'ranking')
       return <RankingScreenLayout refreshVersion={refreshVersion} currentUserId={user?.id ?? ''} />;
     if (screen === 'cup') {
@@ -3748,7 +3867,7 @@ export default function App() {
         }}
       />
     );
-  }, [refreshVersion, screen, selectedTeamCode, user?.id, user?.role]);
+  }, [brasileiraoNavEnabled, refreshVersion, screen, selectedTeamCode, user?.id, user?.role]);
 
   async function logout() {
     await api.logout().catch(() => undefined);
@@ -3767,57 +3886,65 @@ export default function App() {
   const knockoutCalloutVisible = !knockoutCalloutDismissed && nowTime < knockoutDeadline;
 
   return (
-    <AppShell>
-      <HeaderLayout
-        user={user}
-        screen={screen}
-        setScreen={setScreen}
-        onRefresh={triggerRefresh}
-        onUserChange={setUser}
-        onLogout={logout}
-      />
-      <ScrollView
-        ref={appScrollRef}
-        style={styles.appScrollView}
-        contentContainerStyle={appScrollStyle}
-        onScroll={(event) => {
-          appScrollY.current = event.nativeEvent.contentOffset.y;
-        }}
-        scrollEventThrottle={16}
-      >
-        <SoftReveal key={screen} style={styles.screenTransition}>
-          {content}
-        </SoftReveal>
-      </ScrollView>
-      <KnockoutCalloutModal
-        visible={knockoutCalloutVisible}
-        now={nowTime}
-        onClose={() => setKnockoutCalloutDismissed(true)}
-        onOpen={() => {
-          setKnockoutCalloutDismissed(true);
-          setScreen('knockout');
-        }}
-      />
-    </AppShell>
+    <ToastProvider>
+      <AppShell>
+        <CompetitionProvider>
+          <HeaderLayout
+            user={user}
+            screen={screen}
+            setScreen={navigate}
+            onRefresh={triggerRefresh}
+            onUserChange={setUser}
+            showBrasileirao={brasileiraoNavEnabled}
+            onLogout={logout}
+          />
+          {competitionUiV2 ? (
+            <CompetitionSelector
+              canLeave={canLeaveCurrentScreen}
+              onCompetitionChange={(competition) => {
+                const capabilities = normalizeCapabilities(competition.capabilities, null);
+                if (capabilities.has('LEAGUE') && brasileiraoNavEnabled) navigate('brasileirao');
+                else if (capabilities.has('KNOCKOUT') || capabilities.has('GROUPS')) navigate('days');
+              }}
+              onSeasonChange={(season) => {
+                const capabilities = normalizeCapabilities(null, season.capabilities);
+                if (capabilities.has('LEAGUE') && brasileiraoNavEnabled) navigate('brasileirao');
+                else if (capabilities.has('KNOCKOUT')) navigate('knockout');
+                else navigate('days');
+              }}
+            />
+          ) : null}
+          <ScrollView
+            ref={appScrollRef}
+            style={styles.appScrollView}
+            contentContainerStyle={appScrollStyle}
+            onScroll={(event) => {
+              appScrollY.current = event.nativeEvent.contentOffset.y;
+            }}
+            scrollEventThrottle={16}
+          >
+            <SoftReveal key={screen} style={styles.screenTransition}>
+              <Suspense fallback={<ActivityIndicator color={colors.green} style={styles.loader} />}>
+                {content}
+              </Suspense>
+            </SoftReveal>
+          </ScrollView>
+          <KnockoutCalloutModal
+            visible={knockoutCalloutVisible}
+            now={nowTime}
+            onClose={() => setKnockoutCalloutDismissed(true)}
+            onOpen={() => {
+              setKnockoutCalloutDismissed(true);
+              navigate('knockout');
+            }}
+          />
+        </CompetitionProvider>
+      </AppShell>
+    </ToastProvider>
   );
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    minHeight: '100vh',
-    backgroundColor: colors.bg,
-    backgroundImage:
-      [
-        'radial-gradient(950px 520px at 8% 92%, rgba(0, 170, 89, 0.35), transparent 62%)',
-        'radial-gradient(900px 520px at 94% 96%, rgba(255, 211, 21, 0.34), transparent 58%)',
-        'radial-gradient(1100px 620px at 58% 8%, rgba(39, 133, 214, 0.22), transparent 60%)',
-        'linear-gradient(135deg, #001033 0%, #00275f 42%, #00133d 100%)',
-      ].join(', ') as never,
-    backgroundAttachment: 'fixed' as never,
-    backgroundRepeat: 'no-repeat' as never,
-    backgroundSize: 'cover' as never,
-  },
   authScroll: {
     minHeight: '100%',
     padding: 20,
@@ -3885,7 +4012,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   segmentTextActive: {
-    color: colors.text,
+    color: '#062017',
   },
   fieldGroup: {
     gap: 7,
@@ -4263,6 +4390,9 @@ const styles = StyleSheet.create({
     backdropFilter: 'blur(14px)' as never,
     boxShadow:
       '0 8px 28px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.06)' as never,
+  },
+  navTabs: {
+    flexDirection: 'row',
   },
   navItem: {
     height: 45,

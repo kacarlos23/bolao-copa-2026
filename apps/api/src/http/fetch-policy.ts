@@ -27,7 +27,7 @@ function isRetryable(error: unknown) {
   );
 }
 
-async function responseTextWithLimit(response: Response, maxBytes: number) {
+async function responseBytesWithLimit(response: Response, maxBytes: number) {
   const declaredLength = Number(response.headers.get('content-length'));
   if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
     throw new ResponseTooLargeError(maxBytes);
@@ -36,7 +36,7 @@ async function responseTextWithLimit(response: Response, maxBytes: number) {
   if (!response.body) {
     const buffer = Buffer.from(await response.arrayBuffer());
     if (buffer.byteLength > maxBytes) throw new ResponseTooLargeError(maxBytes);
-    return buffer.toString('utf8');
+    return buffer;
   }
 
   const reader = response.body.getReader();
@@ -56,10 +56,10 @@ async function responseTextWithLimit(response: Response, maxBytes: number) {
   } finally {
     reader.releaseLock();
   }
-  return Buffer.concat(chunks).toString('utf8');
+  return Buffer.concat(chunks);
 }
 
-export async function fetchTextWithPolicy(url: string, init: RequestInit, policy: FetchTextPolicy) {
+export async function fetchBytesWithPolicy(url: string, init: RequestInit, policy: FetchTextPolicy) {
   const fetchImpl = policy.fetchImpl ?? fetch;
   const sleep =
     policy.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
@@ -80,7 +80,7 @@ export async function fetchTextWithPolicy(url: string, init: RequestInit, policy
         throw new RetryableHttpError(response.status);
       }
       if (!response.ok) throw new Error(`Remote server returned ${response.status} for ${url}.`);
-      return await responseTextWithLimit(response, policy.maxBytes);
+      return await responseBytesWithLimit(response, policy.maxBytes);
     } catch (error) {
       lastError = error;
       if (attempt >= policy.retries || !isRetryable(error)) throw error;
@@ -92,4 +92,8 @@ export async function fetchTextWithPolicy(url: string, init: RequestInit, policy
   }
 
   throw lastError;
+}
+
+export async function fetchTextWithPolicy(url: string, init: RequestInit, policy: FetchTextPolicy) {
+  return (await fetchBytesWithPolicy(url, init, policy)).toString('utf8');
 }

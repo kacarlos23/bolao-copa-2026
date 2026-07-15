@@ -10,6 +10,7 @@ import { requireAuth } from '../../middleware/auth.js';
 import { listPredictions, savePredictions } from '../predictions/prediction.use-cases.js';
 import { getPoolRanking, getPoolRankingAwards } from '../rankings/ranking.use-cases.js';
 import { resolvePoolSeasonContext } from './pool-context.js';
+import { assertCompetitionFeature } from '../competitions/competition-feature.service.js';
 
 export const poolRouter = Router();
 poolRouter.use(requireAuth);
@@ -36,6 +37,7 @@ poolRouter.get(
     exposeRequestedContext(res.locals, params);
     const query = rankingQuerySchema.parse(req.query);
     const context = await resolvePoolSeasonContext({ ...params, userId: req.session.user!.id });
+    await assertCompetitionFeature(context.seasonId, 'read', req.session.user!.role);
     exposeResolvedContext(res.locals, context);
     res.json(await getPoolRanking(context, query.period, query));
   }),
@@ -48,6 +50,7 @@ poolRouter.get(
     exposeRequestedContext(res.locals, params);
     const query = predictionsQuerySchema.parse(req.query);
     const context = await resolvePoolSeasonContext({ ...params, userId: req.session.user!.id });
+    await assertCompetitionFeature(context.seasonId, 'read', req.session.user!.role);
     exposeResolvedContext(res.locals, context);
     res.json(await listPredictions(context, req.session.user!.id, query));
   }),
@@ -58,6 +61,7 @@ poolRouter.put(
   asyncHandler(async (req, res) => {
     const params = poolSeasonParamsSchema.parse(req.params);
     exposeRequestedContext(res.locals, params);
+    await assertCompetitionFeature(params.seasonId, 'write', req.session.user!.role);
     const body = upsertSeasonPredictionsSchema.parse(req.body);
     const result = await savePredictions({ ...params, userId: req.session.user!.id, body });
     exposeResolvedContext(res.locals, result.context);
@@ -71,6 +75,7 @@ poolRouter.get(
     const params = poolSeasonParamsSchema.parse(req.params);
     exposeRequestedContext(res.locals, params);
     const context = await resolvePoolSeasonContext({ ...params, userId: req.session.user!.id });
+    await assertCompetitionFeature(context.seasonId, 'read', req.session.user!.role);
     exposeResolvedContext(res.locals, context);
     res.json({ awards: await getPoolRankingAwards(context) });
   }),

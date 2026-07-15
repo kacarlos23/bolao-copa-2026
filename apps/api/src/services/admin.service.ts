@@ -176,7 +176,9 @@ export async function createOrUpdateMatch({
   const predictionCloseMinutes = await getPredictionCloseMinutes();
   const date = localDateStart(startsAtDate);
   const closeAt = predictionCloseAt(startsAtDate, predictionCloseMinutes);
-  const existingDay = await prisma.matchDay.findUnique({ where: { date } });
+  const existingDay = await prisma.matchDay.findUnique({
+    where: { seasonId_date: { seasonId: WORLD_CUP_CONTEXT.seasonId, date } },
+  });
   const firstMatchStartsAt =
     existingDay && existingDay.firstMatchStartsAt < startsAtDate
       ? existingDay.firstMatchStartsAt
@@ -184,7 +186,7 @@ export async function createOrUpdateMatch({
   const matchDayCloseAt = predictionCloseAt(firstMatchStartsAt, predictionCloseMinutes);
 
   const matchDay = await prisma.matchDay.upsert({
-    where: { date },
+    where: { seasonId_date: { seasonId: WORLD_CUP_CONTEXT.seasonId, date } },
     update: {
       seasonId: WORLD_CUP_CONTEXT.seasonId,
       firstMatchStartsAt,

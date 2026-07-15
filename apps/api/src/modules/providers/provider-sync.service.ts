@@ -9,6 +9,10 @@ import {
 import { AppError } from '../../http/errors.js';
 import { logger } from '../../logger.js';
 import { prisma } from '../../prisma.js';
+import {
+  recalculateScoresForMatch,
+  refreshRankingSnapshot,
+} from '../../services/ranking.service.js';
 import { dispatchOutboxEvent, enqueueOutboxEvent } from '../events/outbox.js';
 import {
   type CompetitionDataProvider,
@@ -195,14 +199,29 @@ function quarantineDiff(
   };
 }
 
-function localDay(value: Date) {
-  return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+function civilDayKey(value: Date, timezone: string) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(value);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return new Date(Date.UTC(Number(values.year), Number(values.month) - 1, Number(values.day)));
 }
 
 async function ensureMatchDay(tx: Prisma.TransactionClient, seasonId: string, startsAt: Date) {
-  const date = localDay(startsAt);
+  const season = await tx.competitionSeason.findUnique({
+    where: { id: seasonId },
+    select: { timezone: true },
+  });
+  if (!season) throw new AppError(404, 'Season not found.', 'SEASON_NOT_FOUND');
+  const date = civilDayKey(startsAt, season.timezone);
+  const nextDate = new Date(date.getTime() + 24 * 60 * 60_000);
   const closeAt = new Date(startsAt.getTime() - 5 * 60_000);
-  const existing = await tx.matchDay.findFirst({ where: { seasonId, date } });
+  const existing = await tx.matchDay.findFirst({
+    where: { seasonId, date: { gte: date, lt: nextDate } },
+  });
   if (existing) {
     const firstMatchStartsAt =
       existing.firstMatchStartsAt < startsAt ? existing.firstMatchStartsAt : startsAt;
@@ -545,8 +564,17 @@ async function processSchedule(
     };
     return { diff: quarantineDiff('MATCH', quarantine), quarantine };
   }
-  const startsAt = new Date(incoming.startsAt);
+  const startsAt = incoming.startsAt ? new Date(incoming.startsAt) : current?.startsAt;
   const itemChecksum = checksum(incoming);
+  if (!startsAt) {
+    const quarantine = {
+      externalId: incoming.externalId,
+      reason: 'INVALID_PAYLOAD' as const,
+      message: 'A new schedule item must have an officially reconciled start time.',
+      payload: incoming,
+    };
+    return { diff: quarantineDiff('MATCH', quarantine), quarantine };
+  }
   if (!current) {
     let internalId: string | undefined;
     let eventId: string | undefined;
@@ -565,7 +593,11 @@ async function processSchedule(
             startsAt,
             predictionClosesAt: new Date(startsAt.getTime() - 5 * 60_000),
             status: incoming.status,
-            rawPayload: { provider: provider.name, source: provider.source },
+            rawPayload: {
+              providerSchedule: incoming,
+              source: provider.source,
+              checksum: itemChecksum,
+            },
             lastSyncedAt: new Date(),
           },
         });
@@ -643,6 +675,17 @@ async function processSchedule(
           awayTeamId: String(effective.awayTeamId),
           stageId: effective.stageId ? String(effective.stageId) : null,
           roundId: effective.roundId ? String(effective.roundId) : null,
+          rawPayload: {
+            ...(current!.rawPayload &&
+            typeof current!.rawPayload === 'object' &&
+            !Array.isArray(current!.rawPayload)
+              ? (current!.rawPayload as Record<string, unknown>)
+              : {}),
+            providerSchedule: incoming,
+            source: provider.source,
+            scheduleChecksum: itemChecksum,
+            manualOverrideApplied: Boolean(overrideValues),
+          },
           lastSyncedAt: new Date(),
         },
       });
@@ -754,7 +797,12 @@ async function processResult(
   provider: CompetitionDataProvider,
   options: ProviderSyncOptions,
   incoming: NormalizedResult,
-): Promise<{ diff: ProviderSyncDiff; quarantine?: QuarantineInput; eventId?: string }> {
+): Promise<{
+  diff: ProviderSyncDiff;
+  quarantine?: QuarantineInput;
+  eventId?: string;
+  scoreMatchId?: string;
+}> {
   const resolution = await resolveResultMatch(provider, options, incoming);
   if (!resolution.match) {
     const quarantine = {
@@ -818,9 +866,14 @@ async function processResult(
           finalAwayScore: effective.finalAwayScore as number | null,
           lastSyncedAt: new Date(),
           rawPayload: {
+            ...(current.rawPayload &&
+            typeof current.rawPayload === 'object' &&
+            !Array.isArray(current.rawPayload)
+              ? (current.rawPayload as Record<string, unknown>)
+              : {}),
             providerResult: incoming,
             source: provider.source,
-            checksum: checksum(incoming),
+            resultChecksum: checksum(incoming),
             manualOverrideApplied: Boolean(overrideValues),
           },
         },
@@ -858,6 +911,7 @@ async function processResult(
       reason: overrideValues ? 'Active manual override has precedence.' : undefined,
     },
     eventId,
+    scoreMatchId: changed && !options.dryRun ? current.id : undefined,
   };
 }
 
@@ -973,12 +1027,14 @@ async function runCore(provider: CompetitionDataProvider, options: ProviderSyncO
       ),
     );
     const eventIds: string[] = [];
+    const scoreMatchIds = new Set<string>();
 
     for (const item of partitioned.accepted) {
       const processed: {
         diff: ProviderSyncDiff;
         quarantine?: QuarantineInput;
         eventId?: string;
+        scoreMatchId?: string;
       } =
         options.type === 'TEAMS'
           ? await processTeam(provider, options, item as NormalizedTeam)
@@ -990,6 +1046,9 @@ async function runCore(provider: CompetitionDataProvider, options: ProviderSyncO
       diff.push(processed.diff);
       if (processed.quarantine) quarantines.push(processed.quarantine);
       if ('eventId' in processed && processed.eventId) eventIds.push(processed.eventId);
+      if ('scoreMatchId' in processed && processed.scoreMatchId) {
+        scoreMatchIds.add(processed.scoreMatchId);
+      }
     }
 
     if (quarantines.length > 0) {
@@ -1031,6 +1090,22 @@ async function runCore(provider: CompetitionDataProvider, options: ProviderSyncO
         finishedAt,
       },
     });
+    for (const matchId of scoreMatchIds) {
+      await recalculateScoresForMatch(matchId, { refreshRanking: false });
+    }
+    if (scoreMatchIds.size > 0) {
+      const poolSeasons = await prisma.poolSeason.findMany({
+        where: { seasonId: options.seasonId },
+        select: { id: true, poolId: true, seasonId: true },
+      });
+      for (const poolSeason of poolSeasons) {
+        await refreshRankingSnapshot({
+          seasonId: poolSeason.seasonId,
+          poolId: poolSeason.poolId,
+          poolSeasonId: poolSeason.id,
+        });
+      }
+    }
     for (const eventId of eventIds) await dispatchOutboxEvent(eventId);
     return {
       runId: run.id,

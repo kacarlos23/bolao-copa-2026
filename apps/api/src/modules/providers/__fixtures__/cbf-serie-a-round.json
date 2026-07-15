@@ -1,0 +1,65 @@
+{
+  "grupos": ["GRUPO ÚNICO"],
+  "jogos": [
+    {
+      "grupo": "GRUPO ÚNICO",
+      "jogo": [
+        {
+          "id_jogo": "832082",
+          "num_jogo": "193",
+          "rodada": "20",
+          "grupo": "GRUPO ÚNICO",
+          "mandante": {
+            "id": "20008",
+            "nome": "Santos FC",
+            "gols": null,
+            "url_escudo": "https://conteudo.cbf.com.br/clubes/20008/escudo.jpg"
+          },
+          "visitante": {
+            "id": "20086",
+            "nome": "Chapecoense",
+            "gols": null,
+            "url_escudo": "https://conteudo.cbf.com.br/clubes/20086/escudo.jpg"
+          },
+          "local": "Vila Belmiro - Santos - SP",
+          "data": " 25/07/2026",
+          "hora": "18:30",
+          "penalidades": []
+        },
+        {
+          "id_jogo": "fixture-finished",
+          "num_jogo": "194",
+          "rodada": "20",
+          "grupo": "GRUPO ÚNICO",
+          "mandante": { "id": "20016", "nome": "Flamengo", "gols": "2" },
+          "visitante": { "id": "20002", "nome": "Palmeiras", "gols": "1" },
+          "data": "26/07/2026",
+          "hora": "16:00",
+          "penalidades": [
+            {
+              "tipo": "PENALIDADE",
+              "resultado": "AMARELO",
+              "clube_id": "20016"
+            },
+            {
+              "tipo": "PENALIDADE",
+              "resultado": "VERMELHO2AMARELO",
+              "clube_id": "20002"
+            }
+          ]
+        },
+        {
+          "id_jogo": "fixture-undefined",
+          "num_jogo": "195",
+          "rodada": "20",
+          "grupo": "GRUPO ÚNICO",
+          "mandante": { "id": "60175", "nome": "Botafogo", "gols": null },
+          "visitante": { "id": "60646", "nome": "Vasco da Gama Saf", "gols": null },
+          "data": "A Definir",
+          "hora": "",
+          "penalidades": []
+        }
+      ]
+    }
+  ]
+}

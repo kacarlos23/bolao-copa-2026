@@ -12,6 +12,27 @@
   scrollbar-width: thin;
 }
 
+:where(button, input, select, textarea, [role='button'], [role='tab']):focus-visible {
+  outline: 3px solid #ffffff !important;
+  outline-offset: 3px !important;
+}
+
+:where(button, [role='button'], [role='tab']) {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 *::-webkit-scrollbar {
   width: 10px;
   height: 10px;

@@ -7,7 +7,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -25,9 +24,19 @@ import {
   type MatchDay,
   type Team,
 } from './api';
-import { flagSources } from './flagSources';
 import { SoftReveal } from './motion';
-import { mergePredictionDraft, predictionSaveFailureMessage } from './predictionDraft';
+import { mergePredictionDraftFields, predictionSaveFailureMessage } from './predictionDraft';
+import { AsyncState } from './components/AsyncState';
+import { ConnectionIndicator } from './components/ConnectionIndicator';
+import { ScoreInput } from './components/ScoreInput';
+import { TeamBadge } from './components/TeamBadge';
+import {
+  draftStorageKey,
+  loadDraft,
+  persistDraft,
+  type DraftState,
+} from './services/drafts';
+import type { ConnectionStatus } from './services/realtime';
 
 const c = {
   bg: '#00143a',
@@ -88,21 +97,7 @@ function fullDateTime(value: string) {
 }
 
 function TeamFlag({ team, size = 18 }: { team?: Team | null; size?: number }) {
-  const source = team?.metadata?.iso2 ? flagSources[team.metadata.iso2.toLowerCase()] : undefined;
-  if (!source) {
-    return (
-      <View style={[styles.flagFallback, { width: size * 1.5, height: size }]}>
-        <Text style={styles.flagFallbackText}>{team?.code?.slice(0, 2) ?? '--'}</Text>
-      </View>
-    );
-  }
-  return (
-    <Image
-      source={source}
-      resizeMode="cover"
-      style={[styles.flag, { width: size * 1.5, height: size }]}
-    />
-  );
+  return <TeamBadge team={team as Parameters<typeof TeamBadge>[0]['team']} size={size} kind="flag" />;
 }
 
 function TeamName({ team }: { team?: Team | null }) {
@@ -284,6 +279,8 @@ export function DailyPredictionsV2({
   const [closeMinutes, setCloseMinutes] = useState(5);
   const [draft, setDraft] = useState<Record<string, { home: string; away: string }>>({});
   const [saveStateByMatch, setSaveStateByMatch] = useState<Record<string, DraftSaveState>>({});
+  const [savedAtByMatch, setSavedAtByMatch] = useState<Record<string, string>>({});
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('reconnecting');
   const [savingAll, setSavingAll] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -292,8 +289,14 @@ export function DailyPredictionsV2({
   const skipNextDaysRefreshUntil = useRef(0);
   const dateScrollerRef = useRef<ScrollView>(null);
   const daysRef = useRef<MatchDay[]>([]);
-  const dirtyMatchIds = useRef(new Set<string>());
+  const dirtyFieldsByMatch = useRef(new Map<string, Set<'home' | 'away'>>());
   const loadDaySequence = useRef(0);
+  const draftKey = draftStorageKey(
+    currentUserId,
+    'pool-season-bolao-do-trabalho-world-cup-2026',
+    'daily-predictions',
+  );
+  const localDraftHydrated = useRef(false);
 
   const loadDays = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -354,7 +357,7 @@ export function DailyPredictionsV2({
           };
         }
         setDraft((current) => {
-          return mergePredictionDraft(current, serverDraft, dirtyMatchIds.current);
+          return mergePredictionDraftFields(current, serverDraft, dirtyFieldsByMatch.current);
         });
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : 'Não foi possível abrir este dia.');
@@ -365,12 +368,15 @@ export function DailyPredictionsV2({
 
   useEffect(() => {
     void loadDays();
-    const events = createPredictionBoardEvents(() => {
-      if (Date.now() > skipNextDaysRefreshUntil.current) {
-        void loadDays(true);
-      }
-      if (selectedId) void loadDay(selectedId, true);
-    });
+    const events = createPredictionBoardEvents(
+      () => {
+        if (Date.now() > skipNextDaysRefreshUntil.current) {
+          void loadDays(true);
+        }
+        if (selectedId) void loadDay(selectedId, true);
+      },
+      setConnectionStatus,
+    );
     const timer = setInterval(() => {
       void loadDays(true);
       if (selectedId) void loadDay(selectedId, true);
@@ -395,9 +401,38 @@ export function DailyPredictionsV2({
   }, [days.length, selectedId]);
 
   useEffect(() => {
+    const stored = loadDraft(draftKey);
+    const values: Record<string, { home: string; away: string }> = {};
+    for (const [matchId, item] of Object.entries(stored.items)) {
+      if (!item.dirty.home && !item.dirty.away) continue;
+      values[matchId] = item.value;
+      const fields = new Set<'home' | 'away'>();
+      if (item.dirty.home) fields.add('home');
+      if (item.dirty.away) fields.add('away');
+      dirtyFieldsByMatch.current.set(matchId, fields);
+    }
+    if (Object.keys(values).length) setDraft((current) => ({ ...current, ...values }));
+    localDraftHydrated.current = true;
+  }, [draftKey]);
+
+  useEffect(() => {
+    if (!localDraftHydrated.current) return;
+    const items: DraftState['items'] = {};
+    for (const [matchId, fields] of dirtyFieldsByMatch.current.entries()) {
+      items[matchId] = {
+        value: draft[matchId] ?? { home: '', away: '' },
+        dirty: { home: fields.has('home'), away: fields.has('away') },
+        status: saveStateByMatch[matchId] ?? 'dirty',
+        savedAt: savedAtByMatch[matchId],
+      };
+    }
+    persistDraft(draftKey, { items });
+  }, [draft, draftKey, saveStateByMatch, savedAtByMatch]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') return;
     const warnOnUnsaved = (event: BeforeUnloadEvent) => {
-      if (dirtyMatchIds.current.size === 0) return;
+      if (dirtyFieldsByMatch.current.size === 0) return;
       event.preventDefault();
       event.returnValue = '';
     };
@@ -407,7 +442,9 @@ export function DailyPredictionsV2({
 
   function updateDraftScore(matchId: string, side: 'home' | 'away', value: string) {
     const normalized = value.replace(/\D/g, '').slice(0, 2);
-    dirtyMatchIds.current.add(matchId);
+    const fields = dirtyFieldsByMatch.current.get(matchId) ?? new Set<'home' | 'away'>();
+    fields.add(side);
+    dirtyFieldsByMatch.current.set(matchId, fields);
     setSaved(false);
     setSaveStateByMatch((current) => ({ ...current, [matchId]: 'dirty' }));
     setDraft((current) => ({
@@ -528,9 +565,14 @@ export function DailyPredictionsV2({
       }
     }
 
-    for (const matchId of savedIds) dirtyMatchIds.current.delete(matchId);
+    for (const matchId of savedIds) dirtyFieldsByMatch.current.delete(matchId);
     if (savedIds.length) {
       setMatchSaveState(savedIds, 'saved');
+      const savedAt = new Date().toISOString();
+      setSavedAtByMatch((current) => ({
+        ...current,
+        ...Object.fromEntries(savedIds.map((matchId) => [matchId, savedAt])),
+      }));
       await loadDay(day.id, true);
     }
     if (failures.length) {
@@ -566,7 +608,7 @@ export function DailyPredictionsV2({
   }
   */
 
-  if (loading) return <ActivityIndicator color={c.green} style={styles.loader} />;
+  if (loading) return <AsyncState status="loading" skeletonLines={7} />;
 
   const openCount = day?.matches.filter((match) => match.isOpenForPredictions).length ?? 0;
   const closedCount = (day?.matches.length ?? 0) - openCount;
@@ -580,7 +622,10 @@ export function DailyPredictionsV2({
             Preencha os placares e salve todos os palpites do dia.
           </Text>
         </View>
-        <RulesBar closeMinutes={closeMinutes} />
+        <View>
+          <ConnectionIndicator status={connectionStatus} />
+          <RulesBar closeMinutes={closeMinutes} />
+        </View>
       </View>
 
       <View style={[styles.datePanel, compact && styles.datePanelCompact]}>
@@ -588,6 +633,7 @@ export function DailyPredictionsV2({
           <ScrollView
             ref={dateScrollerRef}
             horizontal
+            accessibilityRole="tablist"
             showsHorizontalScrollIndicator
             persistentScrollbar
             style={styles.dateScroller}
@@ -599,6 +645,8 @@ export function DailyPredictionsV2({
               return (
                 <Pressable
                   key={item.id}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected }}
                   onPress={() => setSelectedId(item.id)}
                   style={[styles.dateButton, selected && styles.dateButtonActive]}
                 >
@@ -641,20 +689,20 @@ export function DailyPredictionsV2({
           const officialScore = score(match);
           const scoreInputs = (
             <View style={[styles.guessColumn, styles.scoreInputs, compact && styles.mobileGuess]}>
-              <TextInput
+              <ScoreInput
                 value={values.home}
                 editable={open}
-                keyboardType="number-pad"
-                onChangeText={(home) => updateDraftScore(match.id, 'home', home)}
-                style={[styles.scoreInput, !open && styles.scoreInputLocked]}
+                teamName={match.homeTeam.name}
+                side="home"
+                onChange={(home) => updateDraftScore(match.id, 'home', home)}
               />
               <Text style={styles.scoreSeparator}>x</Text>
-              <TextInput
+              <ScoreInput
                 value={values.away}
                 editable={open}
-                keyboardType="number-pad"
-                onChangeText={(away) => updateDraftScore(match.id, 'away', away)}
-                style={[styles.scoreInput, !open && styles.scoreInputLocked]}
+                teamName={match.awayTeam.name}
+                side="away"
+                onChange={(away) => updateDraftScore(match.id, 'away', away)}
               />
               {saveState ? (
                 <Text
@@ -663,7 +711,9 @@ export function DailyPredictionsV2({
                     saveState === 'failed' && styles.draftSaveStateFailed,
                   ]}
                 >
-                  {draftSaveLabels[saveState]}
+                  {saveState === 'saved' && savedAtByMatch[match.id]
+                    ? `Salvo às ${new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(new Date(savedAtByMatch[match.id]))}`
+                    : draftSaveLabels[saveState]}
                 </Text>
               ) : null}
             </View>
@@ -745,6 +795,8 @@ export function DailyPredictionsV2({
             </Text>
           </View>
           <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ disabled: savingAll || completeOpenItems.length === 0 }}
             onPress={() => void saveDayPredictions()}
             disabled={savingAll || completeOpenItems.length === 0}
             style={[

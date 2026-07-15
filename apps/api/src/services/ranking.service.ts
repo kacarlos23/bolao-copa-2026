@@ -3,8 +3,14 @@ import { calculatePredictionScore } from '@bolao/shared';
 import { prisma } from '../prisma.js';
 import { WORLD_CUP_CONTEXT } from '../domain/world-cup-context.js';
 import { dispatchOutboxEvent, enqueueOutboxEvent } from '../modules/events/outbox.js';
+import { isPoolMatchScoreable } from '../modules/predictions/scoreability.js';
 
 export type RankingPeriod = 'all' | 'week' | 'day';
+export type RankingScope =
+  | { scope?: 'overall' }
+  | { scope: 'round'; roundId: string }
+  | { scope: 'month'; month: string }
+  | { scope: 'turn'; turn: 1 | 2 };
 
 export interface RankingContext {
   seasonId: string;
@@ -152,7 +158,24 @@ export async function recalculateScoresForMatch(
 ) {
   const match = await prisma.match.findUnique({
     where: { id: matchId },
-    include: { predictions: true },
+    include: {
+      round: { select: { order: true } },
+      predictions: {
+        include: {
+          poolSeason: {
+            select: {
+              id: true,
+              poolId: true,
+              seasonId: true,
+              scoreableFromRound: true,
+              scoreableFrom: true,
+              startsAtRound: true,
+              historicalMatchesScoreable: true,
+            },
+          },
+        },
+      },
+    },
   });
 
   if (!match) return;
@@ -160,9 +183,26 @@ export async function recalculateScoresForMatch(
   const actualHomeScore = match.status === 'FINISHED' ? match.finalHomeScore : match.homeScore;
   const actualAwayScore = match.status === 'FINISHED' ? match.finalAwayScore : match.awayScore;
 
-  if (actualHomeScore == null || actualAwayScore == null) return;
+  if (
+    ['POSTPONED', 'CANCELLED'].includes(match.status) ||
+    actualHomeScore == null ||
+    actualAwayScore == null
+  ) {
+    await prisma.predictionScore.deleteMany({
+      where: { predictionId: { in: match.predictions.map((prediction) => prediction.id) } },
+    });
+    return;
+  }
 
   for (const prediction of match.predictions) {
+    const scoreable = isPoolMatchScoreable(prediction.poolSeason, {
+      roundOrder: match.round?.order ?? null,
+      startsAt: match.startsAt,
+    });
+    if (!scoreable) {
+      await prisma.predictionScore.deleteMany({ where: { predictionId: prediction.id } });
+      continue;
+    }
     const score = calculatePredictionScore({
       predictedHomeScore: prediction.predictedHomeScore,
       predictedAwayScore: prediction.predictedAwayScore,
@@ -243,6 +283,39 @@ function rankingWindow(period: RankingPeriod) {
   return {
     start: toSaoPauloMidnight(weekStart),
     end: toSaoPauloMidnight(addCivilDays(weekStart, 7)),
+  };
+}
+
+function monthWindow(month: string) {
+  const [year, monthNumber] = month.split('-').map(Number);
+  const next = monthNumber === 12 ? { year: year + 1, month: 1 } : { year, month: monthNumber + 1 };
+  return {
+    start: new Date(`${String(year).padStart(4, '0')}-${String(monthNumber).padStart(2, '0')}-01T00:00:00-03:00`),
+    end: new Date(`${String(next.year).padStart(4, '0')}-${String(next.month).padStart(2, '0')}-01T00:00:00-03:00`),
+  };
+}
+
+function rankingMatchFilter(period: RankingPeriod, selection: RankingScope) {
+  const scope = selection.scope ?? 'overall';
+  const window =
+    scope === 'month'
+      ? monthWindow((selection as Extract<RankingScope, { scope: 'month' }>).month)
+      : rankingWindow(period);
+  return {
+    ...(window ? { startsAt: { gte: window.start, lt: window.end } } : {}),
+    ...(scope === 'round'
+      ? { roundId: (selection as Extract<RankingScope, { scope: 'round' }>).roundId }
+      : {}),
+    ...(scope === 'turn'
+      ? {
+          round: {
+            order:
+              (selection as Extract<RankingScope, { scope: 'turn' }>).turn === 1
+                ? { gte: 1, lte: 19 }
+                : { gte: 20, lte: 38 },
+          },
+        }
+      : {}),
   };
 }
 
@@ -412,8 +485,10 @@ function buildRankingRows(
 export async function getRanking(
   period: RankingPeriod = 'all',
   context: RankingContext = DEFAULT_RANKING_CONTEXT,
+  selection: RankingScope = { scope: 'overall' },
 ) {
-  const window = rankingWindow(period);
+  const matchFilter = rankingMatchFilter(period, selection);
+  const includeKnockout = (selection.scope ?? 'overall') === 'overall';
   const users = await prisma.user.findMany({
     where: {
       role: 'USER',
@@ -429,7 +504,7 @@ export async function getRanking(
           poolSeasonId: context.poolSeasonId,
           match: {
             seasonId: context.seasonId,
-            ...(window ? { startsAt: { gte: window.start, lt: window.end } } : {}),
+            ...matchFilter,
           },
         },
         orderBy: { calculatedAt: 'desc' },
@@ -471,7 +546,7 @@ export async function getRanking(
           poolSeasonId: context.poolSeasonId,
           fixture: {
             seasonId: context.seasonId,
-            ...(window ? { startsAt: { gte: window.start, lt: window.end } } : {}),
+            ...(!includeKnockout ? { id: '__league-scope-excludes-knockout__' } : matchFilter),
           },
         },
         orderBy: { calculatedAt: 'desc' },

@@ -1,0 +1,112 @@
+import type { Page, Route } from '@playwright/test';
+
+export const currentUser = {
+  id: 'user-current',
+  username: 'maria',
+  nickname: 'Maria',
+  avatarUrl: null,
+  role: 'USER',
+  status: 'ACTIVE',
+};
+
+const brazil = { id: 'team-brazil', name: 'Brasil', code: 'BRA', flagUrl: null, crestUrl: null };
+const argentina = { id: 'team-argentina', name: 'Argentina', code: 'ARG', flagUrl: null, crestUrl: null };
+const stage = { id: 'stage-league', name: 'Série A', type: 'LEAGUE' };
+const pagination = { page: 1, pageSize: 100, total: 1, totalPages: 1 };
+const worldSeason = {
+  id: 'season-world', competitionId: 'competition-world', slug: 'world-cup-2026', name: 'Copa do Mundo 2026', year: 2026,
+  timezone: 'America/Sao_Paulo', status: 'ACTIVE', startsAt: '2026-06-01T00:00:00.000Z', endsAt: '2026-07-31T00:00:00.000Z',
+  capabilities: { groupStage: true, knockoutBracket: true, liveScoring: true },
+};
+const leagueSeason = {
+  id: 'season-league', competitionId: 'competition-league', slug: 'brasileirao-serie-a-2026', name: 'Brasileirão Série A 2026', year: 2026,
+  timezone: 'America/Sao_Paulo', status: 'ACTIVE', startsAt: '2026-01-01T00:00:00.000Z', endsAt: null,
+  capabilities: { format: 'LEAGUE', rounds: 38, teams: 20, lastFiveUnit: 'MATCH' },
+};
+const round = {
+  id: 'round-20', seasonId: leagueSeason.id, stageId: stage.id, name: 'Rodada 20', order: 20, status: 'ACTIVE',
+  startsAt: '2026-12-01T00:00:00.000Z', endsAt: '2026-12-08T00:00:00.000Z', stage,
+};
+const genericMatch = {
+  id: 'match-1', seasonId: leagueSeason.id, stageId: stage.id, roundId: round.id, matchDayId: 'day-1',
+  startsAt: '2026-12-02T22:00:00.000Z', predictionClosesAt: '2026-12-02T21:55:00.000Z', status: 'SCHEDULED',
+  homeScore: null, awayScore: null, finalHomeScore: null, finalAwayScore: null, homeTeam: brazil, awayTeam: argentina,
+};
+const standing = (rank: number, team: typeof brazil, points: number) => ({
+  rank, group: 'Série A', team, played: 19, wins: rank === 1 ? 12 : 11, draws: 4, losses: rank === 1 ? 3 : 4,
+  goalsFor: 30, goalsAgainst: 14, goalDifference: 16, points, yellowCards: 20, redCards: 1,
+  tieBreakRuleVersion: 'cbf-rec-2026-art-15-v1', lastFive: ['W', 'W', 'D'],
+});
+const rankingRow = (rank: number, userId: string, nickname: string, points: number) => ({
+  rank, userId, nickname, avatarUrl: null, points, finalPoints: points, played: 4, exactScores: rank === 1 ? 2 : 1,
+  resultHits: 2, oneGoalHits: 1, misses: 0, lastFive: [15, 3], lastFiveMatches: [], hasLiveData: false,
+});
+const ranking = [rankingRow(1, 'user-leader', 'Ana', 24), rankingRow(2, currentUser.id, currentUser.nickname, 21)];
+
+function apiError(status: number) {
+  const messages: Record<number, string> = {
+    401: 'Sessão expirada', 403: 'Acesso negado', 409: 'Palpite fechado', 500: 'Falha interna',
+  };
+  return {
+    error: { status, code: `TEST_${status}`, message: messages[status], issues: [], requestId: `request-${status}` },
+  };
+}
+
+export async function installApiMocks(page: Page, options: { authenticated?: boolean; loginStatus?: number } = {}) {
+  let authenticated = options.authenticated ?? true;
+  const predictionBoard = {
+    checkedAt: '2026-07-15T12:00:00.000Z', predictionCloseMinutes: 5, canPredict: true, groupStageComplete: true,
+    groups: [{
+      group: 'A', standings: [
+        { rank: 1, team: brazil, played: 3, wins: 2, draws: 1, losses: 0, goalsFor: 5, goalsAgainst: 1, goalDifference: 4, points: 7 },
+        { rank: 2, team: argentina, played: 3, wins: 2, draws: 0, losses: 1, goalsFor: 4, goalsAgainst: 2, goalDifference: 2, points: 6 },
+      ], matches: [],
+    }],
+    knockout: {
+      generation: { id: 'generation-1', sequence: 1, mode: 'PROVISIONAL', status: 'ACTIVE', closesAt: '2026-12-01T00:00:00.000Z', isOpen: true },
+      fixtures: [{ id: 'fixture-73', matchNumber: 73, stage: 'ROUND_OF_32', startsAt: '2026-12-03T18:00:00.000Z', homeSource: '1A', awaySource: '2A', status: 'SCHEDULED', homeTeam: brazil, awayTeam: argentina, winnerTeam: null }],
+      roundOf32: [{ matchNumber: 73, homeTeamId: brazil.id, awayTeamId: argentina.id }], resolvedGroups: ['A'], savedBracket: null,
+    },
+  };
+
+  await page.route('**/api/**', async (route: Route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const path = url.pathname;
+    const method = request.method();
+    const json = (body: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+    if (path === '/api/events') return route.continue();
+    if (path === '/api/auth/csrf') return json({ csrfToken: 'x'.repeat(40) });
+    if (path === '/api/auth/me') return authenticated ? json({ user: currentUser }) : json(apiError(401), 401);
+    if (path === '/api/auth/login') {
+      if (options.loginStatus) return json(apiError(options.loginStatus), options.loginStatus);
+      authenticated = true;
+      return json({ user: currentUser });
+    }
+    if (path === '/api/auth/logout') return json({}, 204);
+    if (path === '/api/competitions') return json({ competitions: [
+      { id: 'competition-world', slug: 'world-cup', name: 'Copa do Mundo', capabilities: { groupStage: true, knockoutBracket: true, liveScoring: true } },
+      { id: 'competition-league', slug: 'brasileirao-serie-a', name: 'Brasileirão Série A', capabilities: { format: 'LEAGUE', standings: true, knockout: false, rankingScopes: ['OVERALL', 'ROUND', 'MONTH', 'TURN'] } },
+    ], pagination: { ...pagination, total: 2 } });
+    if (path.includes('/api/competitions/world-cup/seasons')) return json({ competition: { id: 'competition-world', slug: 'world-cup', name: 'Copa do Mundo', capabilities: { groupStage: true, knockoutBracket: true, liveScoring: true } }, seasons: [worldSeason], pagination });
+    if (path.includes('/api/competitions/brasileirao-serie-a/seasons')) return json({ competition: { id: 'competition-league', slug: 'brasileirao-serie-a', name: 'Brasileirão Série A', capabilities: { format: 'LEAGUE', standings: true, knockout: false, rankingScopes: ['OVERALL', 'ROUND', 'MONTH', 'TURN'] } }, seasons: [leagueSeason], pagination });
+    if (path === `/api/seasons/${leagueSeason.id}/features`) return json({ uiEnabled: true });
+    if (path === `/api/seasons/${leagueSeason.id}/rounds`) return json({ rounds: [round], pagination });
+    if (path === `/api/seasons/${leagueSeason.id}/matches`) return json({ matches: [genericMatch], pagination });
+    if (path === `/api/seasons/${leagueSeason.id}/standings`) return json({ standingsByGroup: [{ group: 'Série A', rows: [standing(1, brazil, 40), standing(2, argentina, 37)] }], pagination: { ...pagination, total: 2 } });
+    if (path.includes(`/api/pools/${POOL_SLUG}/seasons/${leagueSeason.id}/predictions`) && method === 'GET') return json({ predictions: [], pagination: { ...pagination, total: 0, totalPages: 0 } });
+    if (path.includes(`/api/pools/${POOL_SLUG}/seasons/${leagueSeason.id}/predictions`) && method === 'PUT') return json({ predictions: [{ id: 'prediction-1', poolSeasonId: 'pool-season-league', userId: currentUser.id, matchId: genericMatch.id, predictedHomeScore: 2, predictedAwayScore: 1, updatedAt: '2026-07-15T12:30:00.000Z' }] });
+    if (path.includes(`/api/pools/${POOL_SLUG}/seasons/${leagueSeason.id}/ranking`)) return json({ ranking, pagination: { ...pagination, total: 2 } });
+    if (path === '/api/match-days') return json({ predictionCloseMinutes: 5, matchDays: [{ id: 'day-1', date: '2026-12-02', firstMatchStartsAt: genericMatch.startsAt, predictionsCloseAt: genericMatch.predictionClosesAt, status: 'OPEN', isOpenForPredictions: true, predictionsArePublic: false, matches: [{ ...genericMatch, predictionsCloseAt: genericMatch.predictionClosesAt, isOpenForPredictions: true, predictionsArePublic: false, predictions: [], rawPayload: null }] }] });
+    if (path === '/api/match-days/day-1' && method === 'GET') return json({ predictionCloseMinutes: 5, matchDay: { id: 'day-1', date: '2026-12-02', firstMatchStartsAt: genericMatch.startsAt, predictionsCloseAt: genericMatch.predictionClosesAt, status: 'OPEN', isOpenForPredictions: true, predictionsArePublic: false, matches: [{ ...genericMatch, predictionsCloseAt: genericMatch.predictionClosesAt, isOpenForPredictions: true, predictionsArePublic: false, predictions: [], rawPayload: null }] } });
+    if (path === '/api/match-days/day-1/predictions' && method === 'PUT') return json({ predictions: [{ id: 'legacy-prediction', userId: currentUser.id, matchId: genericMatch.id, predictedHomeScore: 2, predictedAwayScore: 1 }] });
+    if (path === '/api/prediction-board' && method === 'GET') return json(predictionBoard);
+    if (path === '/api/prediction-board/simulation' && method === 'PUT') return json(predictionBoard);
+    if (path === '/api/knockout-bracket' && method === 'PUT') return json({ ...predictionBoard, knockout: { ...predictionBoard.knockout, savedBracket: { submittedAt: '2026-07-15T12:30:00.000Z', picks: [{ matchNumber: 73, homeTeamId: brazil.id, awayTeamId: argentina.id, advancingTeamId: argentina.id, predictedHomeScore: 1, predictedAwayScore: 1 }] } } });
+    if (path === '/api/ranking') return json({ ranking });
+    if (path === '/api/ranking/awards') return json({ awards: [] });
+    return json(apiError(500), 500);
+  });
+}
+
+const POOL_SLUG = 'bolao-do-trabalho';

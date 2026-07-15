@@ -411,7 +411,6 @@ model MatchDay {
   matches            Match[]
   season             CompetitionSeason? @relation(fields: [seasonId], references: [id], onDelete: SetNull)
 
-  @@unique([date])
   @@unique([seasonId, date])
   @@index([status, predictionsCloseAt])
   @@index([firstMatchStartsAt])
@@ -456,6 +455,7 @@ model Match {
   @@index([awayTeamId])
   @@index([seasonId, status, startsAt])
   @@index([seasonId, roundId, status, startsAt])
+  @@index([seasonId, roundId, startsAt])
   @@index([stageId, startsAt])
   @@index([roundId, startsAt])
 }

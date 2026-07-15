@@ -1,52 +1,23 @@
-export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? '';
+import {
+  competitionSeasonsResponseSchema,
+  competitionsResponseSchema,
+  matchesResponseSchema,
+  predictionsResponseSchema,
+  rankingResponseSchema,
+  roundsResponseSchema,
+  savedPredictionsResponseSchema,
+  standingsResponseSchema,
+  type CompetitionDto,
+  type MatchDto,
+  type RoundDto,
+  type SeasonDto,
+  type StandingRowDto,
+} from '@bolao/shared';
+import { request } from './services/api-client';
+import { createRealtimeClient } from './services/realtime';
+import type { ConnectionStatus } from './services/realtime';
 
-async function fetchCsrfToken() {
-  const response = await fetch(`${API_URL}/api/auth/csrf`, { credentials: 'include' });
-  if (!response.ok) throw new Error('Não foi possível iniciar uma requisição segura.');
-  const body = (await response.json()) as { csrfToken?: unknown };
-  if (typeof body.csrfToken !== 'string' || body.csrfToken.length < 32) {
-    throw new Error('O servidor não forneceu um token de segurança válido.');
-  }
-  return body.csrfToken;
-}
-
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
-  const method = (options.method ?? 'GET').toUpperCase();
-  const csrfToken = ['GET', 'HEAD', 'OPTIONS'].includes(method)
-    ? undefined
-    : await fetchCsrfToken();
-  const response = await fetch(`${API_URL}${path}`, {
-    ...options,
-    credentials: 'include',
-    headers: isFormData
-      ? {
-          ...(options.headers ?? {}),
-          ...(csrfToken ? { 'x-csrf-token': csrfToken } : {}),
-        }
-      : {
-          'content-type': 'application/json',
-          ...(options.headers ?? {}),
-          ...(csrfToken ? { 'x-csrf-token': csrfToken } : {}),
-        },
-  });
-
-  if (!response.ok) {
-    const body = await response.json().catch(() => null);
-    const fieldErrors = body?.error?.issues?.fieldErrors;
-    const firstFieldError = fieldErrors
-      ? Object.values(fieldErrors)
-          .flat()
-          .find((value) => typeof value === 'string')
-      : undefined;
-    throw new Error(
-      body?.error?.message ?? firstFieldError ?? 'Não foi possível concluir a operação.',
-    );
-  }
-
-  if (response.status === 204) return undefined as T;
-  return response.json() as Promise<T>;
-}
+export { API_URL, ApiError, errorMessage, LatestRequest } from './services/api-client';
 
 export interface User {
   id: string;
@@ -64,6 +35,7 @@ export interface Team {
   name: string;
   code?: string | null;
   flagUrl?: string | null;
+  crestUrl?: string | null;
   metadata?: {
     flagEmoji?: string;
     group?: string;
@@ -164,6 +136,12 @@ export interface RankingAward {
 }
 
 export type RankingPeriod = 'all' | 'week' | 'day';
+
+export type GenericSeason = SeasonDto;
+export type GenericRound = RoundDto;
+export type GenericMatch = MatchDto;
+export type LeagueStandingRow = StandingRowDto;
+export type GenericCompetition = CompetitionDto;
 
 export interface RankingRefreshResponse {
   ranking: RankingRow[];
@@ -347,6 +325,15 @@ export interface AdminScoreSyncSettings {
   updatedAt?: string | null;
 }
 
+export interface CompetitionFeatureFlags {
+  readEnabled: boolean;
+  writeEnabled: boolean;
+  uiEnabled: boolean;
+  reason: string;
+  updatedAt: string;
+  updatedById: string | null;
+}
+
 export interface PublicKnockoutBracket {
   id: string;
   submittedAt: string;
@@ -389,6 +376,21 @@ export const api = {
     });
   },
   resetAvatar: () => request<{ user: User }>('/api/auth/me/avatar', { method: 'DELETE' }),
+  prepareBrasileirao2026: () =>
+    request<{ seasonId: string; startsAtRound: number; evidence: unknown }>(
+      '/api/admin/brasileirao-2026/prepare',
+      { method: 'POST', body: '{}' },
+    ),
+  competitionFeatures: (seasonId: string) =>
+    request<{ flags: CompetitionFeatureFlags }>(`/api/admin/seasons/${seasonId}/features`),
+  updateCompetitionFeatures: (
+    seasonId: string,
+    input: Pick<CompetitionFeatureFlags, 'readEnabled' | 'writeEnabled' | 'uiEnabled' | 'reason'>,
+  ) =>
+    request<{ flags: CompetitionFeatureFlags }>(`/api/admin/seasons/${seasonId}/features`, {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }),
   matchDays: () =>
     request<{ matchDays: MatchDay[]; predictionCloseMinutes: number }>('/api/match-days'),
   matchDay: (id: string) =>
@@ -404,6 +406,71 @@ export const api = {
   ranking: (period: RankingPeriod = 'all') =>
     request<{ ranking: RankingRow[] }>(`/api/ranking?period=${period}`),
   rankingAwards: () => request<{ awards: RankingAward[] }>('/api/ranking/awards'),
+  competitions: (signal?: AbortSignal) =>
+    request('/api/competitions?page=1&pageSize=100', {
+      signal,
+      schema: competitionsResponseSchema,
+    }),
+  competitionSeasons: (competitionSlug: string, signal?: AbortSignal) =>
+    request(`/api/competitions/${encodeURIComponent(competitionSlug)}/seasons?page=1&pageSize=100`, {
+      signal,
+      schema: competitionSeasonsResponseSchema,
+    }),
+  brasileiraoSeasons: () =>
+    request('/api/competitions/brasileirao-serie-a/seasons?page=1&pageSize=10', {
+      schema: competitionSeasonsResponseSchema,
+    }),
+  seasonRounds: (seasonId: string) =>
+    request(`/api/seasons/${seasonId}/rounds?page=1&pageSize=100`, {
+      schema: roundsResponseSchema,
+    }),
+  seasonUiFeature: (seasonId: string) =>
+    request<{ uiEnabled: boolean }>(`/api/seasons/${seasonId}/features`),
+  seasonMatches: (seasonId: string, roundId: string) =>
+    request(
+      `/api/seasons/${seasonId}/matches?page=1&pageSize=100&roundId=${encodeURIComponent(roundId)}`,
+      { schema: matchesResponseSchema },
+    ),
+  seasonStandings: (seasonId: string) =>
+    request(
+      `/api/seasons/${seasonId}/standings?page=1&pageSize=100`,
+      { schema: standingsResponseSchema },
+    ),
+  seasonPredictions: (poolSlug: string, seasonId: string) =>
+    request(
+      `/api/pools/${poolSlug}/seasons/${seasonId}/predictions?page=1&pageSize=100`,
+      { schema: predictionsResponseSchema },
+    ),
+  saveSeasonPredictions: (
+    poolSlug: string,
+    seasonId: string,
+    matchDayId: string,
+    predictions: Array<{
+      matchId: string;
+      predictedHomeScore: number;
+      predictedAwayScore: number;
+    }>,
+  ) =>
+    request(
+      `/api/pools/${poolSlug}/seasons/${seasonId}/predictions`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ matchDayId, predictions }),
+        schema: savedPredictionsResponseSchema,
+        idempotencyKey: `${seasonId}:${matchDayId}:${predictions
+          .map((item) => `${item.matchId}-${item.predictedHomeScore}-${item.predictedAwayScore}`)
+          .join('|')}`,
+      },
+    ),
+  seasonRanking: (
+    poolSlug: string,
+    seasonId: string,
+    query: string = 'scope=overall',
+  ) =>
+    request(
+      `/api/pools/${poolSlug}/seasons/${seasonId}/ranking?page=1&pageSize=100&${query}`,
+      { schema: rankingResponseSchema },
+    ),
   refreshRanking: (period: RankingPeriod = 'all') =>
     request<RankingRefreshResponse>(`/api/ranking/refresh?period=${period}`, {
       method: 'POST',
@@ -488,18 +555,27 @@ export const api = {
 };
 
 export function createRankingEvents(onRanking: (ranking: RankingRow[]) => void) {
-  const source = new EventSource(`${API_URL}/api/events`, { withCredentials: true });
-  source.addEventListener('ranking.updated', (event) => {
-    const data = JSON.parse((event as MessageEvent).data);
-    onRanking(data.ranking);
+  return createRealtimeClient({
+    eventTypes: ['ranking.updated'],
+    onEvent: (event) => {
+      const ranking = event.payload.ranking;
+      onRanking(Array.isArray(ranking) ? (ranking as RankingRow[]) : []);
+    },
   });
-  return source;
 }
 
-export function createPredictionBoardEvents(onUpdate: () => void) {
-  const source = new EventSource(`${API_URL}/api/events`, { withCredentials: true });
-  source.addEventListener('prediction-board.updated', onUpdate);
-  source.addEventListener('prediction-settings.updated', onUpdate);
-  source.addEventListener('knockout.updated', onUpdate);
-  return source;
+export function createPredictionBoardEvents(
+  onUpdate: () => void,
+  onStatus?: (status: ConnectionStatus) => void,
+) {
+  return createRealtimeClient({
+    eventTypes: [
+      'prediction-board.updated',
+      'prediction-settings.updated',
+      'knockout.updated',
+      'prediction.updated',
+    ],
+    onEvent: onUpdate,
+    onStatus,
+  });
 }

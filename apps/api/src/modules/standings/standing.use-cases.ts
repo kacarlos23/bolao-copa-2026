@@ -10,8 +10,15 @@ function jsonString(value: Prisma.JsonValue | null, key: string) {
   return typeof value[key] === 'string' ? value[key] : null;
 }
 
+function providerResultNumber(value: Prisma.JsonValue | null, key: string) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const result = value.providerResult;
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return undefined;
+  return typeof result[key] === 'number' ? result[key] : undefined;
+}
+
 export async function getSeasonStandings(seasonId: string, query: PaginationQuery) {
-  await getSeason(seasonId);
+  const season = await getSeason(seasonId);
   const [seasonTeams, matches] = await loadSeasonStandingsData(seasonId);
   const groupByTeam = new Map(
     seasonTeams.map((entry) => [entry.team.id, entry.groupName ?? 'Sem grupo']),
@@ -31,7 +38,15 @@ export async function getSeasonStandings(seasonId: string, query: PaginationQuer
         match.status === 'FINISHED' ? (match.finalHomeScore ?? match.homeScore) : match.homeScore,
       awayScore:
         match.status === 'FINISHED' ? (match.finalAwayScore ?? match.awayScore) : match.awayScore,
+      homeYellowCards: providerResultNumber(match.rawPayload, 'homeYellowCards'),
+      awayYellowCards: providerResultNumber(match.rawPayload, 'awayYellowCards'),
+      homeRedCards: providerResultNumber(match.rawPayload, 'homeRedCards'),
+      awayRedCards: providerResultNumber(match.rawPayload, 'awayRedCards'),
     })),
+    {
+      ruleSet:
+        season.slug === 'brasileirao-serie-a-2026' ? 'CBF_SERIE_A_2026' : 'LEGACY',
+    },
   );
 
   const flat = standings.flatMap((group) => group.rows);
