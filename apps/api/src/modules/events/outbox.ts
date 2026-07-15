@@ -9,22 +9,29 @@ export interface NewOutboxEvent {
   seasonId: string;
   poolSeasonId: string | null;
   payload: Prisma.InputJsonValue;
+  idempotencyKey?: string;
 }
 
 export async function enqueueOutboxEvent(
   tx: Prisma.TransactionClient,
   input: NewOutboxEvent,
 ) {
-  return tx.outboxEvent.create({
-    data: {
-      type: input.type,
-      seasonId: input.seasonId,
-      poolSeasonId: input.poolSeasonId,
-      payload: input.payload,
-      version: 1,
-    },
-    select: { id: true },
-  });
+  const data = {
+    type: input.type,
+    seasonId: input.seasonId,
+    poolSeasonId: input.poolSeasonId,
+    payload: input.payload,
+    version: 1,
+    idempotencyKey: input.idempotencyKey,
+  };
+  return input.idempotencyKey
+    ? tx.outboxEvent.upsert({
+        where: { idempotencyKey: input.idempotencyKey },
+        update: {},
+        create: data,
+        select: { id: true },
+      })
+    : tx.outboxEvent.create({ data, select: { id: true } });
 }
 
 export async function dispatchOutboxEvent(eventId: string) {

@@ -16,7 +16,14 @@ test('login funciona por teclado e expõe nomes acessíveis', async ({ page }) =
   await page.getByRole('button', { name: 'Entrar' }).click();
 
   await expect(page.getByRole('tab', { name: 'Palpites' })).toBeVisible();
-  await expect(page.getByText('Copa do Mundo 2026')).toBeVisible();
+  await expect(page.getByText('Maria').first()).toBeVisible();
+});
+
+test('login e logout revogam a navegação autenticada', async ({ page }) => {
+  await installApiMocks(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: /Sair/ }).click();
+  await expect(page.getByRole('button', { name: 'Entrar' })).toBeVisible();
 });
 
 test('palpite diário preserva feedback por item e salva por lote', async ({ page }) => {
@@ -29,6 +36,14 @@ test('palpite diário preserva feedback por item e salva por lote', async ({ pag
   await expect(page.getByText('Não salvo')).toBeVisible();
   await page.getByRole('button', { name: 'Salvar todos' }).click();
   await expect(page.getByText(/^Salvo às/)).toBeVisible();
+});
+
+test('instante limite mantém o palpite fechado no cliente', async ({ page }) => {
+  await installApiMocks(page, { closed: true });
+  await page.goto('/');
+  await page.getByRole('tab', { name: 'Palpites' }).click();
+  await expect(page.getByText(/Fechado|Palpite fechado/).first()).toBeVisible();
+  await expect(page.getByLabel('Placar de Brasil, mandante')).toHaveAttribute('readonly', '');
 });
 
 test('V1 mantém paridade de login, preenchimento e salvamento atrás da flag', async ({ page }) => {
@@ -77,9 +92,35 @@ test('ranking destaca usuário, líder da rodada, distância e desempates', asyn
 
   await expect(page.getByText('SUA POSIÇÃO')).toBeVisible();
   await expect(page.getByText(/3 pts para Ana/)).toBeVisible();
-  await expect(page.getByText(/Líder da rodada · Ana/)).toBeVisible();
+  await expect(page.getByText(/Líder da rodada.*Ana/)).toBeVisible();
   await expect(page.getByText('Critérios de desempate')).toBeVisible();
   await expect(page.getByText(/Maria · Você/)).toBeVisible();
+});
+
+test('admin importa, inspeciona override e bloqueia usuário com feedback', async ({ page }) => {
+  await installApiMocks(page, { admin: true });
+  await page.goto('/');
+  await page.getByRole('tab', { name: 'Admin' }).click();
+  await expect(page.getByText('Overrides de partida')).toBeVisible();
+  await expect(page.getByText(/1 overrides visíveis/)).toBeVisible();
+  await page.getByRole('button', { name: 'Importar Copa 2026' }).click();
+  await expect(page.getByText(/Tabela importada: 48 seleções e 72 jogos/)).toBeVisible();
+  await page.getByRole('button', { name: /Bloquear/ }).last().click();
+  await expect(page.getByText('Usuário bloqueado.')).toBeVisible();
+});
+
+test('@rollback admin desliga flags de leitura, escrita e UI em uma ação auditável', async ({ page }) => {
+  await installApiMocks(page, { admin: true });
+  let rollbackBody: Record<string, unknown> | undefined;
+  page.on('request', (request) => {
+    if (request.url().includes('/api/admin/seasons/season-league/features') && request.method() === 'PUT') rollbackBody = request.postDataJSON();
+  });
+  await page.goto('/');
+  await page.getByRole('tab', { name: 'Admin' }).click();
+  await page.getByRole('button', { name: 'Preparar rollback' }).click();
+  await page.getByRole('button', { name: 'Salvar flags' }).click();
+  await expect(page.getByText('Flags salvas com auditoria.')).toBeVisible();
+  expect(rollbackBody).toMatchObject({ readEnabled: false, writeEnabled: false, uiEnabled: false });
 });
 
 test('telas autenticadas de palpite, mata-mata e ranking passam WCAG A/AA', async ({ page }) => {

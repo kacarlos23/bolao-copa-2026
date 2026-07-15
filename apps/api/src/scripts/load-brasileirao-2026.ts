@@ -14,7 +14,7 @@ import { getCompetitionFeatureFlags } from '../modules/competitions/competition-
 async function sync(
   provider: CbfSerieA2026Provider,
   seasonId: string,
-  type: 'TEAMS' | 'SCHEDULE' | 'RESULTS',
+  type: 'TEAMS' | 'SCHEDULE' | 'RESULTS' | 'STANDINGS',
   dryRun: boolean,
   key: string,
 ) {
@@ -48,9 +48,11 @@ async function main() {
   applies.push(await sync(provider, seasonId, 'SCHEDULE', false, `${prefix}:schedule:apply`));
   dryRuns.push(await sync(provider, seasonId, 'RESULTS', true, `${prefix}:results:dry`));
   applies.push(await sync(provider, seasonId, 'RESULTS', false, `${prefix}:results:apply`));
+  dryRuns.push(await sync(provider, seasonId, 'STANDINGS', true, `${prefix}:standings:dry`));
+  applies.push(await sync(provider, seasonId, 'STANDINGS', false, `${prefix}:standings:apply`));
   await refreshBrasileirao2026RoundWindows(seasonId);
 
-  for (const type of ['TEAMS', 'SCHEDULE', 'RESULTS'] as const) {
+  for (const type of ['TEAMS', 'SCHEDULE', 'RESULTS', 'STANDINGS'] as const) {
     verifications.push(
       await sync(provider, seasonId, type, false, `${prefix}:${type.toLowerCase()}:verify`),
     );

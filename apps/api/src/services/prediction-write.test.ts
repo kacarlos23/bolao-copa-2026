@@ -1,4 +1,3 @@
-import { Prisma } from '@prisma/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { upsertPredictions } from './prediction.service.js';
 
@@ -60,9 +59,10 @@ describe('atomic prediction closing', () => {
 
     await expect(upsertPredictions('day-1', 'user-1', input)).resolves.toHaveLength(1);
     expect(tx.prediction.upsert).toHaveBeenCalledOnce();
-    expect(mocks.transaction).toHaveBeenCalledWith(expect.any(Function), {
-      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-    });
+    expect(mocks.transaction).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ isolationLevel: 'Serializable' }),
+    );
   });
 
   it('fails closed at now >= closesAt after time advances at the transaction boundary', async () => {

@@ -30,6 +30,48 @@ export interface User {
   updatedAt?: string;
 }
 
+export interface PoolSeasonRules {
+  scoring: {
+    id: string;
+    key: string;
+    name: string;
+    version: number;
+    rules: { exactScore: number; correctOutcome: number; oneTeamGoals: number; miss: number };
+  };
+  tieBreakers: {
+    id: string;
+    key: string;
+    name: string;
+    version: number;
+    allowSharedPositions: boolean;
+    criteria: Array<{ field: string; direction: 'asc' | 'desc'; label: string }>;
+  };
+}
+
+export interface EngagementDashboard {
+  achievements: Array<{
+    id: string;
+    progress: unknown;
+    isProvisional: boolean;
+    achievedAt?: string | null;
+    revokedAt?: string | null;
+    definition: { key: string; version: number; name: string; description: string; rarity: string };
+  }>;
+  streaks: Array<{ type: string; currentCount: number; bestCount: number }>;
+  notifications: Array<{ id: string; type: string; title: string; body: string; isProvisional: boolean; readAt?: string | null; createdAt: string }>;
+  preferences: NotificationPreferences;
+}
+
+export interface NotificationPreferences {
+  inAppEnabled: boolean;
+  pushEnabled: boolean;
+  emailEnabled: boolean;
+  quietHoursEnabled: boolean;
+  quietHoursStart?: string | null;
+  quietHoursEnd?: string | null;
+  timezone: string;
+}
+
 export interface Team {
   id: string;
   name: string;
@@ -471,6 +513,19 @@ export const api = {
       `/api/pools/${poolSlug}/seasons/${seasonId}/ranking?page=1&pageSize=100&${query}`,
       { schema: rankingResponseSchema },
     ),
+  seasonRules: (poolSlug: string, seasonId: string) =>
+    request<PoolSeasonRules>(`/api/pools/${poolSlug}/seasons/${seasonId}/rules`),
+  seasonEngagement: (poolSlug: string, seasonId: string) =>
+    request<EngagementDashboard>(`/api/pools/${poolSlug}/seasons/${seasonId}/engagement`),
+  recordRankingVisit: (poolSlug: string, seasonId: string) =>
+    request<{ summary: { fromRank: number; toRank: number; delta: number; provisional: boolean; since: string } | null }>(
+      `/api/pools/${poolSlug}/seasons/${seasonId}/ranking/visit`,
+      { method: 'POST', body: '{}' },
+    ),
+  markNotificationRead: (poolSlug: string, seasonId: string, notificationId: string) =>
+    request<void>(`/api/pools/${poolSlug}/seasons/${seasonId}/notifications/${notificationId}/read`, { method: 'POST', body: '{}' }),
+  updateNotificationPreferences: (poolSlug: string, seasonId: string, preferences: NotificationPreferences) =>
+    request<{ preferences: NotificationPreferences }>(`/api/pools/${poolSlug}/seasons/${seasonId}/notifications/preferences`, { method: 'PATCH', body: JSON.stringify(preferences) }),
   refreshRanking: (period: RankingPeriod = 'all') =>
     request<RankingRefreshResponse>(`/api/ranking/refresh?period=${period}`, {
       method: 'POST',

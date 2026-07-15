@@ -1,5 +1,6 @@
 import { logger } from '../logger.js';
 import { dispatchPendingOutboxEvents } from '../modules/events/outbox.js';
+import { runNextAdminJob } from '../modules/admin/admin-job.service.js';
 
 let timer: NodeJS.Timeout | undefined;
 let activeRun = false;
@@ -9,6 +10,7 @@ async function pollOutbox() {
   activeRun = true;
   try {
     await dispatchPendingOutboxEvents();
+    await runNextAdminJob();
   } catch (error) {
     logger.error({ err: error }, 'outbox poll failed');
   } finally {

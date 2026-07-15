@@ -1,9 +1,16 @@
-import type { KnockoutStage, Prisma, ScoreType } from '@prisma/client';
-import { calculatePredictionScore } from '@bolao/shared';
+import { Prisma, type KnockoutStage, type ScoreType } from '@prisma/client';
+import { calculatePredictionScore, compareByTieBreakers } from '@bolao/shared';
 import { prisma } from '../prisma.js';
 import { WORLD_CUP_CONTEXT } from '../domain/world-cup-context.js';
 import { dispatchOutboxEvent, enqueueOutboxEvent } from '../modules/events/outbox.js';
 import { isPoolMatchScoreable } from '../modules/predictions/scoreability.js';
+import {
+  resolvePoolSeasonRules,
+  scoreCalculationKey,
+  stableHash,
+} from '../modules/scoring/scoring-rules.service.js';
+import { recomputePoolSeasonEngagement } from '../modules/engagement/engagement.service.js';
+import { serializableTransaction } from '../prisma-transaction.js';
 
 export type RankingPeriod = 'all' | 'week' | 'day';
 export type RankingScope =
@@ -96,14 +103,7 @@ const EXPECTED_STAGE_FIXTURES: Record<KnockoutStage, number> = {
 };
 
 export function compareRankingRows(a: RankingRowBase, b: RankingRowBase) {
-  return (
-    b.points - a.points ||
-    b.exactScores - a.exactScores ||
-    b.resultHits - a.resultHits ||
-    b.oneGoalHits - a.oneGoalHits ||
-    a.misses - b.misses ||
-    a.nickname.localeCompare(b.nickname, 'pt-BR')
-  );
+  return compareByTieBreakers(a, b);
 }
 
 export function buildAwardWinner(scores: RankingAwardScoreInput[]) {
@@ -154,84 +154,115 @@ export function buildAwardWinner(scores: RankingAwardScoreInput[]) {
 
 export async function recalculateScoresForMatch(
   matchId: string,
-  options: { refreshRanking?: boolean } = {},
+  options: { refreshRanking?: boolean; poolSeasonId?: string } = {},
 ) {
-  const match = await prisma.match.findUnique({
-    where: { id: matchId },
-    include: {
-      round: { select: { order: true } },
-      predictions: {
-        include: {
-          poolSeason: {
-            select: {
-              id: true,
-              poolId: true,
-              seasonId: true,
-              scoreableFromRound: true,
-              scoreableFrom: true,
-              startsAtRound: true,
-              historicalMatchesScoreable: true,
+  const committed = await serializableTransaction(async (tx) => {
+    const match = await tx.match.findUnique({
+      where: { id: matchId },
+      include: {
+        round: { select: { order: true } },
+        predictions: {
+          where: options.poolSeasonId ? { poolSeasonId: options.poolSeasonId } : undefined,
+          orderBy: { id: 'asc' },
+          include: {
+            score: true,
+            poolSeason: {
+              select: {
+                id: true,
+                poolId: true,
+                seasonId: true,
+                scoreableFromRound: true,
+                scoreableFrom: true,
+                startsAtRound: true,
+                historicalMatchesScoreable: true,
+              },
             },
           },
         },
       },
-    },
+    });
+    if (!match) return { contexts: [] as RankingContext[], eventIds: [] as string[] };
+
+    const contexts = new Map<string, RankingContext>();
+    const eventIds: string[] = [];
+    const sourceRevision = match.updatedAt.toISOString();
+    const actualHomeScore = match.status === 'FINISHED' ? match.finalHomeScore : match.homeScore;
+    const actualAwayScore = match.status === 'FINISHED' ? match.finalAwayScore : match.awayScore;
+    const unavailable = ['POSTPONED', 'CANCELLED'].includes(match.status) || actualHomeScore == null || actualAwayScore == null;
+
+    for (const prediction of match.predictions) {
+      const poolSeasonId = prediction.poolSeasonId ?? WORLD_CUP_CONTEXT.poolSeasonId;
+      const poolContext = prediction.poolSeason
+        ? { poolSeasonId, poolId: prediction.poolSeason.poolId, seasonId: prediction.poolSeason.seasonId }
+        : WORLD_CUP_CONTEXT;
+      contexts.set(poolSeasonId, poolContext);
+      const ruleSet = (await resolvePoolSeasonRules(poolSeasonId, tx)).scoring;
+      const beforeScore = prediction.score ? {
+        points: prediction.score.points,
+        scoreType: prediction.score.scoreType,
+        isFinal: prediction.score.isFinal,
+        scoringRuleSetVersionId: prediction.score.scoringRuleSetVersionId,
+        scoringVersion: prediction.score.scoringVersion,
+        breakdown: prediction.score.breakdown,
+        calculationKey: prediction.score.calculationKey,
+        resultRevision: prediction.score.resultRevision,
+        calculatedAt: prediction.score.calculatedAt.toISOString(),
+      } as Prisma.InputJsonValue : Prisma.JsonNull;
+      const scoreable = !unavailable && isPoolMatchScoreable(prediction.poolSeason, {
+        roundOrder: match.round?.order ?? null,
+        startsAt: match.startsAt,
+      });
+
+      if (!scoreable) {
+        if (prediction.score) {
+          const idempotencyKey = stableHash({ targetId: prediction.id, sourceRevision, before: prediction.score.calculationKey, after: null });
+          await tx.scoreRecomputationAudit.createMany({
+            data: [{ poolSeasonId, userId: prediction.userId, targetType: 'MATCH_PREDICTION', targetId: prediction.id, sourceRevision, scoringRuleSetVersionId: ruleSet.id, before: beforeScore, after: Prisma.JsonNull, reason: unavailable ? 'RESULT_UNAVAILABLE' : 'NOT_SCOREABLE', idempotencyKey }],
+            skipDuplicates: true,
+          });
+          await tx.predictionScore.delete({ where: { predictionId: prediction.id } });
+        }
+        continue;
+      }
+
+      const isFinal = match.status === 'FINISHED';
+      const result = calculatePredictionScore({
+        predictedHomeScore: prediction.predictedHomeScore,
+        predictedAwayScore: prediction.predictedAwayScore,
+        actualHomeScore: actualHomeScore!,
+        actualAwayScore: actualAwayScore!,
+      }, ruleSet);
+      const calculationKey = scoreCalculationKey({ targetId: prediction.id, resultRevision: sourceRevision, scoringRuleSetVersionId: ruleSet.id, actualHomeScore: actualHomeScore!, actualAwayScore: actualAwayScore!, isFinal, predictionIdentity: { home: prediction.predictedHomeScore, away: prediction.predictedAwayScore } });
+      if (prediction.score?.calculationKey === calculationKey) continue;
+      const next = { points: result.points, scoreType: result.scoreType, isFinal, scoringRuleSetVersionId: ruleSet.id, scoringVersion: ruleSet.version, breakdown: result.breakdown as unknown as Prisma.InputJsonValue, calculationKey, resultRevision: sourceRevision };
+      const auditKey = stableHash({ targetId: prediction.id, sourceRevision, before: prediction.score?.calculationKey ?? null, after: calculationKey });
+
+      await tx.predictionScore.upsert({
+        where: { predictionId: prediction.id },
+        update: { ...next, poolSeasonId, calculatedAt: match.updatedAt },
+        create: { ...next, predictionId: prediction.id, matchId: match.id, userId: prediction.userId, poolSeasonId, calculatedAt: match.updatedAt },
+      });
+      await tx.scoreRecomputationAudit.createMany({
+        data: [{ poolSeasonId, userId: prediction.userId, targetType: 'MATCH_PREDICTION', targetId: prediction.id, sourceRevision, scoringRuleSetVersionId: ruleSet.id, before: beforeScore, after: next as unknown as Prisma.InputJsonValue, reason: prediction.score ? 'RESULT_CORRECTION_OR_REPLAY' : 'INITIAL_CALCULATION', idempotencyKey: auditKey }],
+        skipDuplicates: true,
+      });
+      const event = await enqueueOutboxEvent(tx, {
+        type: 'score.recomputed', seasonId: poolContext.seasonId, poolSeasonId,
+        payload: { matchId, predictionId: prediction.id, isFinal, scoringVersion: ruleSet.version },
+        idempotencyKey: `score.recomputed:${auditKey}`,
+      });
+      eventIds.push(event.id);
+    }
+    return { contexts: [...contexts.values()], eventIds };
   });
 
-  if (!match) return;
-
-  const actualHomeScore = match.status === 'FINISHED' ? match.finalHomeScore : match.homeScore;
-  const actualAwayScore = match.status === 'FINISHED' ? match.finalAwayScore : match.awayScore;
-
-  if (
-    ['POSTPONED', 'CANCELLED'].includes(match.status) ||
-    actualHomeScore == null ||
-    actualAwayScore == null
-  ) {
-    await prisma.predictionScore.deleteMany({
-      where: { predictionId: { in: match.predictions.map((prediction) => prediction.id) } },
-    });
-    return;
-  }
-
-  for (const prediction of match.predictions) {
-    const scoreable = isPoolMatchScoreable(prediction.poolSeason, {
-      roundOrder: match.round?.order ?? null,
-      startsAt: match.startsAt,
-    });
-    if (!scoreable) {
-      await prisma.predictionScore.deleteMany({ where: { predictionId: prediction.id } });
-      continue;
+  for (const eventId of committed.eventIds) await dispatchOutboxEvent(eventId);
+  if (options.refreshRanking !== false) {
+    for (const context of committed.contexts) {
+      await refreshRankingSnapshot(context);
+      await recomputePoolSeasonEngagement(context.poolSeasonId);
     }
-    const score = calculatePredictionScore({
-      predictedHomeScore: prediction.predictedHomeScore,
-      predictedAwayScore: prediction.predictedAwayScore,
-      actualHomeScore,
-      actualAwayScore,
-    });
-
-    await prisma.predictionScore.upsert({
-      where: { predictionId: prediction.id },
-      update: {
-        poolSeasonId: prediction.poolSeasonId ?? WORLD_CUP_CONTEXT.poolSeasonId,
-        points: score.points,
-        scoreType: score.scoreType as ScoreType,
-        isFinal: match.status === 'FINISHED',
-        calculatedAt: new Date(),
-      },
-      create: {
-        predictionId: prediction.id,
-        matchId: match.id,
-        userId: prediction.userId,
-        poolSeasonId: prediction.poolSeasonId ?? WORLD_CUP_CONTEXT.poolSeasonId,
-        points: score.points,
-        scoreType: score.scoreType as ScoreType,
-        isFinal: match.status === 'FINISHED',
-      },
-    });
   }
-
-  if (options.refreshRanking !== false) await refreshRankingSnapshot();
 }
 
 function saoPauloDateParts(value = new Date()) {
@@ -479,7 +510,12 @@ function buildRankingRows(
     })
     .filter((row) => period === 'all' || row.played > 0);
 
-  return rows.sort(compareRankingRows).map((row, index) => ({ rank: index + 1, ...row }));
+  const sorted = rows.sort((left, right) => compareRankingRows(left, right) || left.userId.localeCompare(right.userId));
+  let rank = 0;
+  return sorted.map((row, index) => {
+    if (index === 0 || compareRankingRows(sorted[index - 1], row) !== 0) rank = index + 1;
+    return { rank, ...row };
+  });
 }
 
 export async function getRanking(
@@ -825,7 +861,13 @@ export async function refreshRankingSnapshot(context: RankingContext = DEFAULT_R
   const ranking = await getRanking('all', context);
   const calculatedAt = new Date();
   const retentionCutoff = rankingSnapshotRetentionCutoff(calculatedAt);
-  const eventId = await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
+    const [matchRevisions, knockoutRevisions] = await Promise.all([
+      tx.predictionScore.findMany({ where: { poolSeasonId: context.poolSeasonId }, orderBy: { predictionId: 'asc' }, select: { predictionId: true, calculationKey: true } }),
+      tx.knockoutPredictionScore.findMany({ where: { poolSeasonId: context.poolSeasonId }, orderBy: { pickId: 'asc' }, select: { pickId: true, calculationKey: true } }),
+    ]);
+    const sourceRevision = stableHash({ matchRevisions, knockoutRevisions });
+    const snapshotKey = stableHash({ sourceRevision, ranking: ranking.map(({ lastFiveMatches: _matches, ...row }) => row) });
     await tx.rankingSnapshot.createMany({
       data: ranking.map((row) => ({
         userId: row.userId,
@@ -836,27 +878,64 @@ export async function refreshRankingSnapshot(context: RankingContext = DEFAULT_R
         exactScores: row.exactScores,
         resultHits: row.resultHits,
         oneGoalHits: row.oneGoalHits,
+        misses: row.misses,
         rank: row.rank,
         hasLiveData: row.hasLiveData,
+        snapshotKey,
+        sourceRevision,
         calculatedAt,
       })),
+      skipDuplicates: true,
     });
+    const currentSnapshots = await tx.rankingSnapshot.findMany({
+      where: { poolSeasonId: context.poolSeasonId, snapshotKey },
+      select: { id: true, userId: true, rank: true, hasLiveData: true },
+    });
+    for (const current of currentSnapshots) {
+      const previous = await tx.rankingSnapshot.findFirst({
+        where: { poolSeasonId: context.poolSeasonId, userId: current.userId, snapshotKey: { not: snapshotKey } },
+        orderBy: [{ calculatedAt: 'desc' }, { id: 'desc' }],
+        select: { id: true, rank: true, hasLiveData: true },
+      });
+      if (!previous) continue;
+      const idempotencyKey = `movement:${context.poolSeasonId}:${current.userId}:${previous.id}:${current.id}`;
+      const delta = previous.rank - current.rank;
+      await tx.rankingMovement.createMany({
+        data: [{ poolSeasonId: context.poolSeasonId, userId: current.userId, fromSnapshotId: previous.id, toSnapshotId: current.id, fromRank: previous.rank, toRank: current.rank, delta, isProvisional: previous.hasLiveData || current.hasLiveData, idempotencyKey }],
+        skipDuplicates: true,
+      });
+      if (delta !== 0) {
+        await tx.notificationInbox.createMany({
+          data: [{
+            poolSeasonId: context.poolSeasonId,
+            userId: current.userId,
+            type: 'RANKING_MOVEMENT',
+            title: delta > 0 ? 'Você subiu no ranking' : 'Sua posição mudou',
+            body: `${Math.abs(delta)} ${Math.abs(delta) === 1 ? 'posição' : 'posições'} ${delta > 0 ? 'acima' : 'abaixo'} desde o snapshot anterior.`,
+            data: { fromRank: previous.rank, toRank: current.rank, snapshotKey },
+            isProvisional: previous.hasLiveData || current.hasLiveData,
+            idempotencyKey: `notification:${idempotencyKey}`,
+          }],
+          skipDuplicates: true,
+        });
+      }
+    }
     await tx.rankingSnapshot.deleteMany({
       where: {
         poolSeasonId: context.poolSeasonId,
         calculatedAt: { lt: retentionCutoff },
       },
     });
-    return (
-      await enqueueOutboxEvent(tx, {
+    const event = await enqueueOutboxEvent(tx, {
         type: 'ranking.updated',
         seasonId: context.seasonId,
         poolSeasonId: context.poolSeasonId,
         payload: { ranking, updatedAt: calculatedAt.toISOString() } as Prisma.InputJsonValue,
-      })
-    ).id;
+        idempotencyKey: `ranking.updated:${context.poolSeasonId}:${snapshotKey}`,
+      });
+    return { eventId: event.id, snapshotKey };
   });
 
-  await dispatchOutboxEvent(eventId);
+  await dispatchOutboxEvent(result.eventId);
   return ranking;
 }

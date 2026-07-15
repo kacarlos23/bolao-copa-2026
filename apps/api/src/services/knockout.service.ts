@@ -24,6 +24,13 @@ import { matchPredictionState } from './prediction.service.js';
 import { getPredictionCloseMinutes, predictionCloseAt } from './prediction-settings.service.js';
 import { refreshRankingSnapshot } from './ranking.service.js';
 import { WORLD_CUP_CONTEXT } from '../domain/world-cup-context.js';
+import {
+  resolvePoolSeasonRules,
+  scoreCalculationKey,
+  stableHash,
+} from '../modules/scoring/scoring-rules.service.js';
+import { recomputePoolSeasonEngagement } from '../modules/engagement/engagement.service.js';
+import { serializableTransaction } from '../prisma-transaction.js';
 
 const PROVISIONAL_KNOCKOUT_CLOSES_AT = new Date('2026-06-19T02:59:59.000Z');
 
@@ -847,6 +854,7 @@ export async function saveKnockoutBracket(userId: string, input: UpsertKnockoutB
     generationId: generation.id,
     submittedAt: bracket.submittedAt.toISOString(),
   });
+  await recomputePoolSeasonEngagement(WORLD_CUP_CONTEXT.poolSeasonId);
   return getPredictionBoard(userId, groupScores);
 }
 
@@ -878,56 +886,77 @@ export async function recalculateKnockoutScoresForFixture(
   fixtureId: string,
   options: { refreshRanking?: boolean } = {},
 ) {
-  const fixture = await prisma.knockoutFixture.findUnique({
-    where: { id: fixtureId },
-    include: {
-      picks: {
-        where: { bracket: { generation: { status: { not: KnockoutGenerationStatus.RESET } } } },
-        include: { bracket: true },
-      },
-    },
-  });
-  if (!fixture) return;
-
-  if (fixture.status !== MatchStatus.FINISHED || !fixture.homeTeamId || !fixture.awayTeamId) {
-    await prisma.knockoutPredictionScore.deleteMany({ where: { fixtureId } });
-    if (options.refreshRanking !== false) await refreshRankingSnapshot();
-    return;
-  }
-
-  const winnerTeamId = actualKnockoutWinnerId(fixture);
-  const actualTeamIds = new Set([fixture.homeTeamId, fixture.awayTeamId]);
-
-  for (const pick of fixture.picks) {
-    const winnerHit = Boolean(winnerTeamId && pick.advancingTeamId === winnerTeamId);
-    const matchedTeamCount = [pick.homeTeamId, pick.awayTeamId].filter((teamId) =>
-      actualTeamIds.has(teamId),
-    ).length;
-    const score = winnerHit
-      ? { points: 15, scoreType: 'RESULT' as const }
-      : matchedTeamCount > 0
-        ? { points: 7, scoreType: 'ONE_TEAM_GOALS' as const }
-        : { points: 0, scoreType: 'MISS' as const };
-
-    await prisma.knockoutPredictionScore.upsert({
-      where: { pickId: pick.id },
-      update: {
-        poolSeasonId: pick.poolSeasonId ?? WORLD_CUP_CONTEXT.poolSeasonId,
-        points: score.points,
-        scoreType: score.scoreType as ScoreType,
-        isFinal: true,
-        calculatedAt: new Date(),
-      },
-      create: {
-        pickId: pick.id,
-        fixtureId: fixture.id,
-        userId: pick.bracket.userId,
-        poolSeasonId: pick.poolSeasonId ?? WORLD_CUP_CONTEXT.poolSeasonId,
-        points: score.points,
-        scoreType: score.scoreType as ScoreType,
-        isFinal: true,
+  const contexts = await serializableTransaction(async (tx) => {
+    const fixture = await tx.knockoutFixture.findUnique({
+      where: { id: fixtureId },
+      include: {
+        picks: {
+          where: { bracket: { generation: { status: { not: KnockoutGenerationStatus.RESET } } } },
+          orderBy: { id: 'asc' },
+          include: { bracket: true, score: true, poolSeason: { select: { id: true, poolId: true, seasonId: true } } },
+        },
       },
     });
+    if (!fixture) return [];
+    const byPool = new Map<string, { poolSeasonId: string; poolId: string; seasonId: string }>();
+    const sourceRevision = fixture.updatedAt.toISOString();
+    const available = fixture.status === MatchStatus.FINISHED && Boolean(fixture.homeTeamId && fixture.awayTeamId);
+    const winnerTeamId = available ? actualKnockoutWinnerId(fixture) : null;
+    const actualTeamIds = new Set([fixture.homeTeamId, fixture.awayTeamId].filter(Boolean) as string[]);
+
+    for (const pick of fixture.picks) {
+      const poolSeasonId = pick.poolSeasonId ?? WORLD_CUP_CONTEXT.poolSeasonId;
+      const context = pick.poolSeason
+        ? { poolSeasonId, poolId: pick.poolSeason.poolId, seasonId: pick.poolSeason.seasonId }
+        : WORLD_CUP_CONTEXT;
+      byPool.set(poolSeasonId, context);
+      const ruleSet = (await resolvePoolSeasonRules(poolSeasonId, tx)).scoring;
+      const beforeScore = pick.score ? {
+        points: pick.score.points,
+        scoreType: pick.score.scoreType,
+        isFinal: pick.score.isFinal,
+        scoringRuleSetVersionId: pick.score.scoringRuleSetVersionId,
+        scoringVersion: pick.score.scoringVersion,
+        breakdown: pick.score.breakdown,
+        calculationKey: pick.score.calculationKey,
+        resultRevision: pick.score.resultRevision,
+        calculatedAt: pick.score.calculatedAt.toISOString(),
+      } as Prisma.InputJsonValue : Prisma.JsonNull;
+      if (!available) {
+        if (pick.score) {
+          const auditKey = stableHash({ targetId: pick.id, sourceRevision, before: pick.score.calculationKey, after: null });
+          await tx.scoreRecomputationAudit.createMany({ data: [{ poolSeasonId, userId: pick.bracket.userId, targetType: 'KNOCKOUT_PICK', targetId: pick.id, sourceRevision, scoringRuleSetVersionId: ruleSet.id, before: beforeScore, after: Prisma.JsonNull, reason: 'RESULT_UNAVAILABLE', idempotencyKey: auditKey }], skipDuplicates: true });
+          await tx.knockoutPredictionScore.delete({ where: { pickId: pick.id } });
+        }
+        continue;
+      }
+      const winnerHit = Boolean(winnerTeamId && pick.advancingTeamId === winnerTeamId);
+      const matchedTeamCount = [pick.homeTeamId, pick.awayTeamId].filter((teamId) => actualTeamIds.has(teamId)).length;
+      const score = winnerHit
+        ? { points: 15, scoreType: 'RESULT' as const, criterion: 'ADVANCING_TEAM' }
+        : matchedTeamCount > 0
+          ? { points: 7, scoreType: 'ONE_TEAM_GOALS' as const, criterion: 'PARTICIPATING_TEAM' }
+          : { points: 0, scoreType: 'MISS' as const, criterion: 'MISS' };
+      const calculationKey = scoreCalculationKey({ targetId: pick.id, resultRevision: sourceRevision, scoringRuleSetVersionId: ruleSet.id, actualHomeScore: fixture.finalHomeScore ?? 0, actualAwayScore: fixture.finalAwayScore ?? 0, isFinal: true, resultIdentity: { homeTeamId: fixture.homeTeamId, awayTeamId: fixture.awayTeamId, winnerTeamId }, predictionIdentity: { homeTeamId: pick.homeTeamId, awayTeamId: pick.awayTeamId, advancingTeamId: pick.advancingTeamId } });
+      if (pick.score?.calculationKey === calculationKey) continue;
+      const breakdown = { criterion: score.criterion, awardedPoints: score.points, winnerHit, matchedTeamCount, rule: { advancingTeam: 15, participatingTeam: 7, miss: 0 } };
+      const next = { poolSeasonId, points: score.points, scoreType: score.scoreType as ScoreType, isFinal: true, scoringRuleSetVersionId: ruleSet.id, scoringVersion: ruleSet.version, breakdown, calculationKey, resultRevision: sourceRevision, calculatedAt: fixture.updatedAt };
+      const afterScore = { ...next, calculatedAt: fixture.updatedAt.toISOString() } as unknown as Prisma.InputJsonValue;
+      await tx.knockoutPredictionScore.upsert({
+        where: { pickId: pick.id },
+        update: next,
+        create: { ...next, pickId: pick.id, fixtureId: fixture.id, userId: pick.bracket.userId },
+      });
+      const auditKey = stableHash({ targetId: pick.id, sourceRevision, before: pick.score?.calculationKey ?? null, after: calculationKey });
+      await tx.scoreRecomputationAudit.createMany({ data: [{ poolSeasonId, userId: pick.bracket.userId, targetType: 'KNOCKOUT_PICK', targetId: pick.id, sourceRevision, scoringRuleSetVersionId: ruleSet.id, before: beforeScore, after: afterScore, reason: pick.score ? 'RESULT_CORRECTION_OR_REPLAY' : 'INITIAL_CALCULATION', idempotencyKey: auditKey }], skipDuplicates: true });
+    }
+    return [...byPool.values()];
+  });
+
+  if (options.refreshRanking !== false) {
+    for (const context of contexts) {
+      await refreshRankingSnapshot(context);
+      await recomputePoolSeasonEngagement(context.poolSeasonId);
+    }
   }
-  if (options.refreshRanking !== false) await refreshRankingSnapshot();
 }

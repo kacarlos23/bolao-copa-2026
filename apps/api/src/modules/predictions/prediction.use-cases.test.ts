@@ -6,6 +6,11 @@ const mocks = vi.hoisted(() => ({
   outboxFindUnique: vi.fn(),
   outboxUpdateMany: vi.fn(),
   outboxUpdate: vi.fn(),
+  recomputeEngagement: vi.fn(),
+}));
+
+vi.mock('../engagement/engagement.service.js', () => ({
+  recomputePoolSeasonEngagement: mocks.recomputeEngagement,
 }));
 
 vi.mock('../../prisma.js', () => ({

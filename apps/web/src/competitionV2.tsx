@@ -179,6 +179,10 @@ function RulesBar({ closeMinutes }: { closeMinutes: number }) {
           <Text style={styles.ruleLabel}>{label}</Text>
         </View>
       ))}
+      <View style={styles.ruleItem} accessibilityLabel="Desempate: pontos, placares exatos, resultados, gols de uma equipe e menos erros; empate completo compartilha posição">
+        <Text style={styles.rulePoints}>V1</Text>
+        <Text style={styles.ruleLabel}>Desempate exibido no ranking · empate completo compartilha posição</Text>
+      </View>
     </View>
   );
 }

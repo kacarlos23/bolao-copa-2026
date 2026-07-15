@@ -50,6 +50,7 @@ type Screen =
 type RankingStatusFilter = 'all' | 'live' | 'final';
 
 const competitionUiV2 = process.env.EXPO_PUBLIC_COMPETITION_UI_V2 === '1';
+const legacyAdminMutations = process.env.EXPO_PUBLIC_LEGACY_ADMIN_MUTATIONS === '1';
 const legacyPredictionsUi =
   process.env.EXPO_PUBLIC_LEGACY_PREDICTIONS === '1'
   || (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('predictions') === 'v1');
@@ -68,6 +69,9 @@ const Brasileirao2026Screen = lazy(() =>
 );
 const BrasileiraoCanaryAdmin = lazy(() =>
   import('./src/brasileiraoAdmin').then((module) => ({ default: module.BrasileiraoCanaryAdmin })),
+);
+const AdminOperationsPanel = lazy(() =>
+  import('./src/adminOperations').then((module) => ({ default: module.AdminOperationsPanel })),
 );
 const knockoutDeadline = new Date('2026-06-18T23:59:59-03:00').getTime();
 
@@ -2051,6 +2055,10 @@ function AdminScreen({
 
   return (
     <View style={styles.contentGrid}>
+      <Suspense fallback={<ActivityIndicator color={colors.green} style={styles.loader} />}>
+        <AdminOperationsPanel />
+      </Suspense>
+      {legacyAdminMutations ? <>
       <BrasileiraoCanaryAdmin />
       <View style={styles.panel}>
         <View style={styles.panelHeader}>
@@ -2257,6 +2265,7 @@ function AdminScreen({
         {userMessage ? <Text style={styles.successText}>{userMessage}</Text> : null}
         {userError ? <Text style={styles.errorText}>{userError}</Text> : null}
       </View>
+      </> : null}
     </View>
   );
 }

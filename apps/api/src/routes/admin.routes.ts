@@ -1,8 +1,11 @@
 import { Router } from 'express';
-import type { ProviderEntityType } from '@prisma/client';
 import { z } from 'zod';
 import { asyncHandler } from '../http/async-handler.js';
 import { requireAdmin } from '../middleware/auth.js';
+import { adminQueryRouter } from '../modules/admin/admin-query.routes.js';
+import { adminResourceRouter } from '../modules/admin/admin-resource.routes.js';
+import { adminProviderRouter } from '../modules/admin/admin-provider.routes.js';
+import { adminJobRouter } from '../modules/admin/admin-job.routes.js';
 import {
   createOrUpdateMatch,
   listTeams,
@@ -27,9 +30,12 @@ import { CbfSerieA2026Provider } from '../modules/providers/adapters/cbf-serie-a
 import { GeProvider } from '../modules/providers/adapters/ge.provider.js';
 import { runProviderSync } from '../modules/providers/provider-sync.service.js';
 import {
-  removeManualMatchOverride,
-  setManualMatchOverride,
-} from '../modules/providers/manual-override.service.js';
+  adminRequestContext,
+  authorizeAdminPreview,
+  createAdminPreview,
+  justificationSchema,
+  setAdminScope,
+} from '../modules/admin/admin-security.js';
 import {
   assertBrasileirao2026Readiness,
   prepareBrasileirao2026,
@@ -44,6 +50,25 @@ import {
 export const adminRouter = Router();
 
 adminRouter.use(requireAdmin);
+adminRouter.use(adminQueryRouter);
+adminRouter.use(adminResourceRouter);
+adminRouter.use(adminProviderRouter);
+adminRouter.use(adminJobRouter);
+adminRouter.use((req, res, next) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || (req.method === 'POST' && req.path === '/providers/sync')) {
+    next();
+    return;
+  }
+  res.status(410).json({
+    error: {
+      status: 410,
+      code: 'LEGACY_ADMIN_MUTATION_DISABLED',
+      message: 'A mutação legada foi desativada. Use o fluxo administrativo com preview, justificativa e auditoria.',
+      issues: [],
+      requestId: String(res.locals.requestId ?? 'unavailable'),
+    },
+  });
+});
 
 adminRouter.get(
   '/settings/predictions',
@@ -55,7 +80,6 @@ adminRouter.get(
     });
   }),
 );
-
 adminRouter.patch(
   '/settings/predictions',
   asyncHandler(async (req, res) => {
@@ -151,7 +175,9 @@ const providerSyncBaseSchema = z.object({
   seasonId: z.string().trim().min(1).max(200),
   type: z.enum(['TEAMS', 'SCHEDULE', 'RESULTS', 'STANDINGS']),
   dryRun: z.boolean().default(true),
-  idempotencyKey: z.string().trim().min(8).max(200),
+  justification: justificationSchema,
+  previewId: z.string().trim().min(1).max(200).optional(),
+  confirmation: z.string().trim().min(12).max(200).optional(),
 });
 
 const providerSyncRequestSchema = z.discriminatedUnion('provider', [
@@ -170,7 +196,11 @@ const providerSyncRequestSchema = z.discriminatedUnion('provider', [
     .extend({ provider: z.literal('cbf-official'), items: z.array(z.unknown()).max(50_000) })
     .strict(),
   providerSyncBaseSchema.extend({ provider: z.literal('cbf-serie-a-2026') }).strict(),
-]);
+]).superRefine((body, context) => {
+  if (!body.dryRun && (!body.previewId || !body.confirmation)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'Apply exige previewId e confirmação reforçada.' });
+  }
+});
 
 function normalizedPayload(type: z.infer<typeof providerSyncBaseSchema>['type'], items: unknown[]) {
   if (type === 'TEAMS') return { teams: items };
@@ -179,10 +209,20 @@ function normalizedPayload(type: z.infer<typeof providerSyncBaseSchema>['type'],
   return { standings: items };
 }
 
+function providerAuthorizationRequest(body: z.infer<typeof providerSyncRequestSchema>) {
+  const base = { provider: body.provider, seasonId: body.seasonId, type: body.type };
+  if (body.provider === 'csv') return { ...base, sourceDocument: body.sourceDocument, csv: body.csv };
+  if (body.provider === 'manual' || body.provider === 'cbf-official') return { ...base, items: body.items };
+  return base;
+}
+
 adminRouter.post(
   '/providers/sync',
   asyncHandler(async (req, res) => {
     const body = providerSyncRequestSchema.parse(req.body);
+    const adminContext = adminRequestContext(req);
+    const authorizationRequest = providerAuthorizationRequest(body);
+    setAdminScope(req, { seasonId: body.seasonId });
     if (body.provider === 'cbf-serie-a-2026') {
       const season = await prisma.competitionSeason.findUnique({
         where: { id: body.seasonId },
@@ -206,13 +246,35 @@ adminRouter.post(
             : body.provider === 'cbf-serie-a-2026'
               ? new CbfSerieA2026Provider()
             : new ManualProvider(normalizedPayload(body.type, body.items));
+    if (!body.dryRun) {
+      await authorizeAdminPreview({
+        context: adminContext,
+        action: 'PROVIDER_SYNC_APPLY',
+        scope: { targetType: 'ProviderSync', targetId: `${body.provider}:${body.type}`, seasonId: body.seasonId },
+        confirmation: { previewId: body.previewId!, confirmation: body.confirmation! },
+        request: authorizationRequest,
+      });
+    }
     const result = await runProviderSync(provider, {
       type: body.type,
       seasonId: body.seasonId,
       dryRun: body.dryRun,
-      idempotencyKey: body.idempotencyKey,
+      idempotencyKey: adminContext.idempotencyKey,
       requestedById: req.session.user!.id,
     });
+    if (body.dryRun) {
+      const authorization = await createAdminPreview({
+        context: adminContext,
+        action: 'PROVIDER_SYNC_APPLY',
+        scope: { targetType: 'ProviderSync', targetId: `${body.provider}:${body.type}`, seasonId: body.seasonId },
+        justification: body.justification,
+        request: authorizationRequest,
+        preview: result,
+        affectedCount: result.counts.inserted + result.counts.updated + result.counts.quarantined,
+      });
+      res.json({ ...result, authorization });
+      return;
+    }
     if (
       body.provider === 'cbf-serie-a-2026' &&
       !body.dryRun &&
@@ -220,7 +282,23 @@ adminRouter.post(
     ) {
       await refreshBrasileirao2026RoundWindows(body.seasonId);
     }
-    res.status(body.dryRun ? 200 : 202).json(result);
+    await prisma.adminAuditLog.create({
+      data: {
+        actorId: adminContext.actorId,
+        action: 'SYNC_REQUESTED',
+        targetId: result.runId,
+        requestId: adminContext.requestId,
+        seasonId: body.seasonId,
+        poolSeasonId: null,
+        justification: body.justification,
+        idempotencyKey: `audit:${adminContext.idempotencyKey}`,
+        origin: adminContext.origin,
+        before: { previewId: body.previewId!, checksum: result.checksum },
+        after: JSON.parse(JSON.stringify(result)),
+        details: { affectedCount: result.counts.inserted + result.counts.updated + result.counts.quarantined },
+      },
+    });
+    res.status(202).json(result);
   }),
 );
 
@@ -307,136 +385,5 @@ adminRouter.get(
       take: 200,
     });
     res.json({ items });
-  }),
-);
-
-adminRouter.post(
-  '/providers/quarantine/:id/resolve',
-  asyncHandler(async (req, res) => {
-    const body = z
-      .object({
-        internalId: z.string().trim().min(1).max(200),
-        externalId: z.string().trim().min(1).max(200).optional(),
-        justification: z.string().trim().min(10).max(500),
-      })
-      .strict()
-      .parse(req.body);
-    const item = await prisma.syncQuarantine.findFirst({
-      where: { id: req.params.id, resolvedAt: null },
-    });
-    if (!item) {
-      res.status(404).json({ code: 'QUARANTINE_NOT_FOUND', message: 'Quarantine item not found.' });
-      return;
-    }
-    const payload =
-      item.payload && typeof item.payload === 'object' && !Array.isArray(item.payload)
-        ? (item.payload as Record<string, unknown>)
-        : {};
-    const entityType: ProviderEntityType =
-      item.type === 'TEAMS' || item.type === 'STANDINGS' ? 'TEAM' : 'MATCH';
-    const externalId =
-      body.externalId ??
-      (entityType === 'MATCH' && typeof payload.matchExternalId === 'string'
-        ? payload.matchExternalId
-        : entityType === 'TEAM' && typeof payload.teamExternalId === 'string'
-          ? payload.teamExternalId
-          : item.externalId);
-    if (!externalId) {
-      res
-        .status(400)
-        .json({ code: 'MAPPING_EXTERNAL_ID_REQUIRED', message: 'Mapping externalId is required.' });
-      return;
-    }
-    const targetExists =
-      entityType === 'TEAM'
-        ? Boolean(
-            await prisma.seasonTeam.findUnique({
-              where: { seasonId_teamId: { seasonId: item.seasonId, teamId: body.internalId } },
-            }),
-          )
-        : Boolean(
-            await prisma.match.findFirst({
-              where: { id: body.internalId, seasonId: item.seasonId },
-            }),
-          );
-    if (!targetExists) {
-      res.status(400).json({
-        code: 'INVALID_MAPPING_TARGET',
-        message: 'Target does not belong to the quarantine season.',
-      });
-      return;
-    }
-    const resolved = await prisma.$transaction(async (tx) => {
-      await tx.providerEntityMapping.upsert({
-        where: {
-          provider_entityType_externalId: { provider: item.provider, entityType, externalId },
-        },
-        create: {
-          provider: item.provider,
-          entityType,
-          externalId,
-          internalId: body.internalId,
-          seasonId: item.seasonId,
-          sourceUrl: 'reconciliation://manual',
-          collectedAt: new Date(),
-          metadata: { justification: body.justification, resolvedById: req.session.user!.id },
-        },
-        update: {
-          internalId: body.internalId,
-          seasonId: item.seasonId,
-          sourceUrl: 'reconciliation://manual',
-          collectedAt: new Date(),
-          metadata: { justification: body.justification, resolvedById: req.session.user!.id },
-        },
-      });
-      await tx.adminAuditLog.create({
-        data: {
-          actorId: req.session.user!.id,
-          action: 'MANUAL_SYNC',
-          targetId: item.id,
-          details: {
-            entityType,
-            externalId,
-            internalId: body.internalId,
-            justification: body.justification,
-          },
-        },
-      });
-      return tx.syncQuarantine.update({
-        where: { id: item.id },
-        data: { resolvedAt: new Date(), resolvedById: req.session.user!.id },
-      });
-    });
-    res.json({ item: resolved });
-  }),
-);
-
-adminRouter.put(
-  '/seasons/:seasonId/matches/:matchId/override',
-  asyncHandler(async (req, res) => {
-    const match = await setManualMatchOverride(
-      req.params.seasonId,
-      req.params.matchId,
-      req.session.user!.id,
-      req.body,
-    );
-    res.json({ match });
-  }),
-);
-
-adminRouter.delete(
-  '/seasons/:seasonId/matches/:matchId/override',
-  asyncHandler(async (req, res) => {
-    const body = z
-      .object({ justification: z.string().trim().min(10).max(500) })
-      .strict()
-      .parse(req.body);
-    await removeManualMatchOverride(
-      req.params.seasonId,
-      req.params.matchId,
-      req.session.user!.id,
-      body.justification,
-    );
-    res.status(204).send();
   }),
 );

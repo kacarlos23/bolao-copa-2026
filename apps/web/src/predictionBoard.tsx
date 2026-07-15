@@ -28,6 +28,7 @@ import { DailyPredictionsV2 } from './competitionV2';
 import { SoftReveal, usePrefersReducedMotion } from './motion';
 import { ScoreInput } from './components/ScoreInput';
 import { draftStorageKey } from './services/drafts';
+import { resolvedAdvancingTeam } from './knockoutDraft';
 
 const competitionUiV2 = process.env.EXPO_PUBLIC_COMPETITION_UI_V2 === '1';
 
@@ -802,30 +803,6 @@ function sourceParticipant(
   if (!previous?.homeTeamId || !previous.awayTeamId || !advancing) return null;
   if (source.startsWith('W')) return advancing;
   return advancing === previous.homeTeamId ? previous.awayTeamId : previous.homeTeamId;
-}
-
-function resolvedAdvancingTeam(
-  value: KnockoutDraft[number] | undefined,
-  participants?: { homeTeamId: string | null; awayTeamId: string | null },
-) {
-  if (
-    !value ||
-    !participants?.homeTeamId ||
-    !participants.awayTeamId ||
-    value.home === '' ||
-    value.away === ''
-  ) {
-    return null;
-  }
-  if (value.home !== value.away) {
-    return Number(value.home) > Number(value.away)
-      ? participants.homeTeamId
-      : participants.awayTeamId;
-  }
-  return value.advancingTeamId &&
-    [participants.homeTeamId, participants.awayTeamId].includes(value.advancingTeamId)
-    ? value.advancingTeamId
-    : null;
 }
 
 function knockoutFixtureIsEditable(fixture: KnockoutFixture) {
@@ -2469,7 +2446,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  flagFallbackText: { color: palette.ink, fontSize: 8, fontWeight: '900' },
+  flagFallbackText: { color: '#17324d', fontSize: 8, fontWeight: '900' },
   compactScoreInputs: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   compactScoreInput: {
     width: 36,

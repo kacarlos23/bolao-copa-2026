@@ -9,4 +9,6 @@ export const WORLD_CUP_CONTEXT = {
   groupStageId: 'stage-world-cup-2026-group-stage',
   knockoutStageId: 'stage-world-cup-2026-knockout',
   scoringRuleSetId: 'scoring-rule-set-15-3-1-0-v1',
+  scoringRuleSetVersionId: 'scoring-rule-set-version-15-3-1-0-v1',
+  tieBreakerRuleSetId: 'tie-breaker-classic-v1',
 } as const;

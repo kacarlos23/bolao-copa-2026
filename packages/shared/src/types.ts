@@ -13,7 +13,52 @@ export interface ScoreInput {
   actualAwayScore: number;
 }
 
+export type ScoringCriterion =
+  | 'EXACT_SCORE'
+  | 'CORRECT_OUTCOME'
+  | 'ONE_TEAM_GOALS'
+  | 'MISS';
+
+export interface ScoringRuleValues {
+  exactScore: number;
+  correctOutcome: number;
+  oneTeamGoals: number;
+  miss: number;
+}
+
+export interface ScoringRuleSetInput {
+  id: string;
+  key: string;
+  name: string;
+  version: number;
+  rules: ScoringRuleValues;
+}
+
+export interface ScoreBreakdown {
+  criterion: ScoringCriterion;
+  awardedPoints: number;
+  exactScore: boolean;
+  outcomeMatched: boolean;
+  homeGoalsMatched: boolean;
+  awayGoalsMatched: boolean;
+  rule: ScoringRuleValues;
+}
+
 export interface ScoreResult {
   points: number;
   scoreType: ScoreType;
+  breakdown: ScoreBreakdown;
+}
+
+export type TieBreakerField =
+  | 'points'
+  | 'exactScores'
+  | 'resultHits'
+  | 'oneGoalHits'
+  | 'misses';
+
+export interface TieBreakerCriterion {
+  field: TieBreakerField;
+  direction: 'asc' | 'desc';
+  label: string;
 }

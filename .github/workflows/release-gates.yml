@@ -1,0 +1,152 @@
+name: release-gates
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['rc-*']
+  workflow_dispatch:
+    inputs:
+      gate:
+        description: Gate máximo a executar
+        required: true
+        default: release-candidate
+        type: choice
+        options: [pr, release-candidate, migration, go-live]
+
+env:
+  CI: true
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres?schema=public
+  TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres?schema=public
+  SESSION_SECRET: ci-session-secret-with-more-than-24-characters
+  WEB_ORIGIN: http://localhost:8080
+
+jobs:
+  pr:
+    name: PR · lint/unit/contract/component/build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm ci
+      - run: npm run gate:pr
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: pr-gate-artifacts, path: output/release-gates, if-no-files-found: warn }
+
+  release-candidate:
+    name: RC · PostgreSQL/E2E/a11y/load/flakiness
+    if: github.event_name != 'workflow_dispatch' || inputs.gate != 'pr'
+    needs: pr
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env: { POSTGRES_PASSWORD: postgres }
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - name: Instalar cliente PostgreSQL 18
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSLo /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo "$VERSION_CODENAME")-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-18
+      - run: npm ci
+      - name: Gerar manifesto imutável do candidato
+        run: npm run manifest:release
+        env:
+          REQUIRE_RC_TAG: ${{ startsWith(github.ref, 'refs/tags/rc-') }}
+      - run: npx playwright install --with-deps chromium
+      - run: npm run gate:release-candidate
+      - run: npm run audit:dependencies
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: rc-gate-artifacts, path: output, if-no-files-found: warn, retention-days: 14 }
+
+  migration:
+    name: Migration · backup/restore/hash/rollback
+    if: startsWith(github.ref, 'refs/tags/rc-') || (github.event_name == 'workflow_dispatch' && (inputs.gate == 'migration' || inputs.gate == 'go-live'))
+    needs: release-candidate
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env: { POSTGRES_PASSWORD: postgres }
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - name: Instalar cliente PostgreSQL 18
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSLo /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo "$VERSION_CODENAME")-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-18
+      - run: npm ci
+      - run: npm run gate:migration
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          {
+            name: migration-gate-artifacts,
+            path: output/release-gates,
+            if-no-files-found: error,
+            retention-days: 30,
+          }
+
+  go-live:
+    name: Go-live · evidência externa protegida
+    if: github.event_name == 'workflow_dispatch' && inputs.gate == 'go-live'
+    needs: migration
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm ci
+      - name: Materializar evidÃªncias sanitizadas do ambiente protegido
+        shell: bash
+        env:
+          SMOKE_JSON: ${{ secrets.GO_LIVE_SMOKE_JSON }}
+          SOURCE_JSON: ${{ secrets.GO_LIVE_SOURCE_RECONCILIATION_JSON }}
+          OBSERVABILITY_JSON: ${{ secrets.GO_LIVE_OBSERVABILITY_JSON }}
+          OPERATIONAL_JSON: ${{ secrets.GO_LIVE_OPERATIONAL_JSON }}
+        run: |
+          mkdir -p output/go-live-input
+          printf '%s' "$SMOKE_JSON" > output/go-live-input/smoke.json
+          printf '%s' "$SOURCE_JSON" > output/go-live-input/source-reconciliation.json
+          printf '%s' "$OBSERVABILITY_JSON" > output/go-live-input/observability.json
+          printf '%s' "$OPERATIONAL_JSON" > output/go-live-input/operational.json
+      - run: npm run gate:go-live
+        env:
+          GO_LIVE_SMOKE_EVIDENCE: output/go-live-input/smoke.json
+          GO_LIVE_SOURCE_RECONCILIATION: output/go-live-input/source-reconciliation.json
+          GO_LIVE_OBSERVABILITY_EVIDENCE: output/go-live-input/observability.json
+          GO_LIVE_OPERATIONAL_EVIDENCE: output/go-live-input/operational.json
+          GO_LIVE_EVIDENCE_HMAC_KEY: ${{ secrets.GO_LIVE_EVIDENCE_HMAC_KEY }}
+          GO_LIVE_EXPECTED_COMMIT_SHA: ${{ github.sha }}
+          GO_LIVE_EXPECTED_ENVIRONMENT: production
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: go-live-gate-artifacts, path: output/release-gates, if-no-files-found: error }

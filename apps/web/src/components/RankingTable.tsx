@@ -8,7 +8,7 @@ export const rankingTieBreakers = [
   'Mais resultados corretos',
   'Mais gols de um time',
   'Menos erros',
-  'Nome em ordem alfabética',
+  'Posição compartilhada se todos os critérios empatarem',
 ] as const;
 
 export function movementLabel(delta: number | null | undefined) {
@@ -37,7 +37,8 @@ export function RankingTable({
   const distance = current && rival ? Math.max(0, rival.points - current.points) : 0;
   const roundLeader = roundRanking[0];
   const currentRound = roundRanking.find((row) => row.userId === currentUserId);
-  const movement = current ? (previousRanks.get(current.userId) ?? current.rank) - current.rank : null;
+  const previousCurrentRank = current ? previousRanks.get(current.userId) : undefined;
+  const movement = current && previousCurrentRank != null ? previousCurrentRank - current.rank : null;
 
   return (
     <View style={styles.section} accessibilityLabel="Ranking do bolão">
@@ -61,7 +62,7 @@ export function RankingTable({
 
       {roundLeader ? (
         <Text style={styles.roundLeader} accessibilityLabel={`Líder da rodada: ${roundLeader.nickname}, ${roundLeader.points} pontos`}>
-          Líder da rodada · {roundLeader.nickname} · {roundLeader.points} pts
+          Líder da rodada {roundRanking.some((row) => row.hasLiveData) ? '· provisório' : '· consolidado'} · {roundLeader.nickname} · {roundLeader.points} pts
         </Text>
       ) : null}
 
@@ -69,7 +70,8 @@ export function RankingTable({
         <View style={styles.mobileList} accessibilityRole="list">
           {ranking.map((row) => {
             const mine = row.userId === currentUserId;
-            const delta = (previousRanks.get(row.userId) ?? row.rank) - row.rank;
+            const previousRank = previousRanks.get(row.userId);
+            const delta = previousRank == null ? null : previousRank - row.rank;
             return (
               <View
                 key={row.userId}
@@ -101,7 +103,8 @@ export function RankingTable({
             </View>
             {ranking.map((row) => {
               const mine = row.userId === currentUserId;
-              const delta = (previousRanks.get(row.userId) ?? row.rank) - row.rank;
+              const previousRank = previousRanks.get(row.userId);
+              const delta = previousRank == null ? null : previousRank - row.rank;
               const round = roundRanking.find((item) => item.userId === row.userId);
               return (
                 <View key={row.userId} accessibilityRole="listitem" style={[styles.row, mine && styles.mine]}>

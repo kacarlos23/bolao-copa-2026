@@ -641,6 +641,8 @@ async function ensurePoolSeason(
   });
   const expected = {
     scoringRuleSetId,
+    scoringRuleSetVersionId: WORLD_CUP_CONTEXT.scoringRuleSetVersionId,
+    tieBreakerRuleSetId: WORLD_CUP_CONTEXT.tieBreakerRuleSetId,
     scoreableFromRound: 1,
     startsAtRound: 1,
     scoreableFrom: TOURNAMENT_START,
@@ -655,6 +657,10 @@ async function ensurePoolSeason(
   const data: Prisma.PoolSeasonUpdateInput = {};
   if (existing.scoringRuleSetId !== scoringRuleSetId)
     data.scoringRuleSet = { connect: { id: scoringRuleSetId } };
+  if (existing.scoringRuleSetVersionId !== WORLD_CUP_CONTEXT.scoringRuleSetVersionId)
+    data.scoringRuleSetVersion = { connect: { id: WORLD_CUP_CONTEXT.scoringRuleSetVersionId } };
+  if (existing.tieBreakerRuleSetId !== WORLD_CUP_CONTEXT.tieBreakerRuleSetId)
+    data.tieBreakerRuleSet = { connect: { id: WORLD_CUP_CONTEXT.tieBreakerRuleSetId } };
   if (existing.scoreableFromRound !== 1) data.scoreableFromRound = 1;
   if (existing.startsAtRound !== 1) data.startsAtRound = 1;
   if (!sameDate(existing.scoreableFrom, TOURNAMENT_START)) data.scoreableFrom = TOURNAMENT_START;

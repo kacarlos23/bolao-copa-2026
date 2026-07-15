@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import {
   fetchBytesWithPolicy,
@@ -8,9 +9,11 @@ import {
   type CompetitionDataProvider,
   type NormalizedMatch,
   type NormalizedResult,
+  type NormalizedStanding,
   type NormalizedTeam,
   normalizedMatchArraySchema,
   normalizedResultArraySchema,
+  normalizedStandingArraySchema,
   normalizedTeamArraySchema,
   type ProviderContext,
   type ProviderHealth,
@@ -22,9 +25,9 @@ export const CBF_SERIE_A_2026_PHASE_ID = '1993';
 export const CBF_SERIE_A_2026_TABLE_URL =
   'https://www.cbf.com.br/futebol-brasileiro/tabelas/campeonato-brasileiro/serie-a/2026';
 export const CBF_SERIE_A_2026_BASIC_TABLE_URL =
-  'https://stcbfsiteprdimgbrs.blob.core.windows.net/img-site/cdn/Tabela_BA_sica_Brasileiro_SA_rie_A_2026_d64996b4d8.pdf';
+  'https://stcbfsiteprdimgbrs.blob.core.windows.net/img-site/cdn/Tabela_Detalhada_BSA_2026_16_01_7a2261a9d7.pdf';
 export const CBF_SERIE_A_2026_REGULATION_URL =
-  'https://stcbfsiteprdimgbrs.blob.core.windows.net/img-site/cdn/REC_Brasileiro_SA_rie_A_2026_v15_12_2025_final_02692c1077.pdf';
+  'https://stcbfsiteprdimgbrs.blob.core.windows.net/img-site/cdn/REC_Brasileiro_Serie_A_2026_c984f8cf05.pdf';
 export const CBF_SERIE_A_2026_ROUND_URL = (round: number) =>
   `https://www.cbf.com.br/api/cbf/jogos/campeonato/${CBF_SERIE_A_2026_COMPETITION_ID}/rodada/${round}/fase/${CBF_SERIE_A_2026_PHASE_ID}`;
 
@@ -33,6 +36,32 @@ const CBF_POLICY = {
   maxBytes: 512 * 1024,
   retries: 2,
 } as const;
+
+export interface CbfDocumentPin {
+  kind: 'BASIC_TABLE' | 'REGULATION';
+  url: string;
+  sha256: string;
+  bytes: number;
+}
+
+export const CBF_SERIE_A_2026_DOCUMENT_PINS: readonly CbfDocumentPin[] = [
+  {
+    kind: 'BASIC_TABLE',
+    url: CBF_SERIE_A_2026_BASIC_TABLE_URL,
+    sha256: '7ee848ecac23d92be55222e5adec6c992cddbf6eb457d814e5be3d3306224782',
+    bytes: 742_577,
+  },
+  {
+    kind: 'REGULATION',
+    url: CBF_SERIE_A_2026_REGULATION_URL,
+    sha256: '1dadb33c3b2174540a0ff46489ff9b8392072118c47b334240d1351335d76f6a',
+    bytes: 598_606,
+  },
+] as const;
+
+function bytesSha256(value: Buffer) {
+  return createHash('sha256').update(value).digest('hex');
+}
 
 const projectedTeamSchema = z
   .object({
@@ -210,11 +239,66 @@ export interface CbfRoundParseResult {
   unscheduledExternalIds: string[];
 }
 
-export function parseCbfSerieA2026Round(payload: string, expectedRound: number): CbfRoundParseResult {
+function decodeHtml(value: string) {
+  return value
+    .replaceAll('&amp;', '&')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&#39;', "'")
+    .replaceAll('&nbsp;', ' ')
+    .trim();
+}
+
+function integerCell(value: string, field: string) {
+  const text = decodeHtml(value.replace(/<[^>]+>/g, ''));
+  const parsed = Number(text);
+  if (!Number.isInteger(parsed)) throw new Error(`CBF standing ${field} is invalid.`);
+  return parsed;
+}
+
+export function parseCbfSerieA2026Standings(payload: string): NormalizedStanding[] {
+  const body = payload.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/i)?.[1];
+  if (!body) throw new Error('CBF standings table was not found.');
+  const standings = [...body.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)].map((row) => {
+    const html = row[1];
+    const team = html.match(
+      /\/futebol-brasileiro\/times\/campeonato-brasileiro\/serie-a\/2026\/(\d+)[^>]*>[\s\S]*?<strong[^>]*teamName[^>]*>([^<]+)<\/strong>/i,
+    );
+    const position = html.match(/<strong[^>]*position[^>]*>\s*(\d+)\s*<\/strong>/i);
+    const cells = [...html.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((cell) => cell[1]);
+    if (!team || !position || cells.length < 12) throw new Error('CBF standing row is incomplete.');
+    const teamId = team[1];
+    return {
+      externalId: `standing:${teamId}`,
+      teamExternalId: externalTeamId(teamId),
+      teamName: decodeHtml(team[2]),
+      position: Number(position[1]),
+      points: integerCell(cells[1], 'points'),
+      played: integerCell(cells[2], 'played'),
+      won: integerCell(cells[3], 'won'),
+      drawn: integerCell(cells[4], 'drawn'),
+      lost: integerCell(cells[5], 'lost'),
+      goalsFor: integerCell(cells[6], 'goalsFor'),
+      goalsAgainst: integerCell(cells[7], 'goalsAgainst'),
+    };
+  });
+  const parsed = normalizedStandingArraySchema.parse(standings);
+  if (
+    parsed.length !== 20 ||
+    new Set(parsed.map((standing) => standing.teamExternalId)).size !== 20
+  ) {
+    throw new Error(`CBF standings must contain 20 unique teams; received ${parsed.length}.`);
+  }
+  return parsed;
+}
+
+export function parseCbfSerieA2026Round(
+  payload: string,
+  expectedRound: number,
+): CbfRoundParseResult {
   const projected = projectRoundPayload(JSON.parse(payload));
-  const games = projected.groups.flatMap((group) => group.games).map((game) =>
-    projectGame(game, expectedRound),
-  );
+  const games = projected.groups
+    .flatMap((group) => group.games)
+    .map((game) => projectGame(game, expectedRound));
   const teams = new Map<string, NormalizedTeam>();
   const schedule: NormalizedMatch[] = [];
   const results: NormalizedResult[] = [];
@@ -288,6 +372,7 @@ export interface CbfSerieA2026Evidence {
   unscheduledMatches: number;
   finishedResults: number;
   teams: number;
+  standings: number;
   documents: Array<{
     kind: 'BASIC_TABLE' | 'REGULATION';
     url: string;
@@ -301,6 +386,7 @@ interface CbfCollection {
   teams: NormalizedTeam[];
   schedule: NormalizedMatch[];
   results: NormalizedResult[];
+  standings: NormalizedStanding[];
   evidence: CbfSerieA2026Evidence;
 }
 
@@ -309,7 +395,10 @@ export class CbfSerieA2026Provider implements CompetitionDataProvider {
   readonly source = CBF_SERIE_A_2026_TABLE_URL;
   private collected?: Promise<CbfCollection>;
 
-  constructor(private readonly fetchPolicy: FetchTextPolicy = CBF_POLICY) {}
+  constructor(
+    private readonly fetchPolicy: FetchTextPolicy = CBF_POLICY,
+    private readonly documentPins: readonly CbfDocumentPin[] = CBF_SERIE_A_2026_DOCUMENT_PINS,
+  ) {}
 
   private collect() {
     this.collected ??= this.collectOnce();
@@ -318,11 +407,18 @@ export class CbfSerieA2026Provider implements CompetitionDataProvider {
 
   private async collectOnce(): Promise<CbfCollection> {
     const collectedAt = new Date().toISOString();
+    const standingsPayload = fetchTextWithPolicy(
+      CBF_SERIE_A_2026_TABLE_URL,
+      {
+        headers: {
+          accept: 'text/html',
+          'user-agent': 'BolaoCopa2026-CBF-Reconciler/1.0',
+        },
+      },
+      { ...this.fetchPolicy, maxBytes: Math.max(this.fetchPolicy.maxBytes, 2 * 1024 * 1024) },
+    );
     const documents = await Promise.all(
-      [
-        { kind: 'BASIC_TABLE' as const, url: CBF_SERIE_A_2026_BASIC_TABLE_URL },
-        { kind: 'REGULATION' as const, url: CBF_SERIE_A_2026_REGULATION_URL },
-      ].map(async (document) => {
+      this.documentPins.map(async (document) => {
         const bytes = await fetchBytesWithPolicy(
           document.url,
           {
@@ -333,9 +429,16 @@ export class CbfSerieA2026Provider implements CompetitionDataProvider {
           },
           { ...this.fetchPolicy, maxBytes: Math.max(this.fetchPolicy.maxBytes, 5 * 1024 * 1024) },
         );
+        const actualChecksum = bytesSha256(bytes);
+        if (actualChecksum !== document.sha256 || bytes.byteLength !== document.bytes) {
+          throw new Error(
+            `CBF ${document.kind} document changed: expected ${document.sha256}/${document.bytes}, got ${actualChecksum}/${bytes.byteLength}.`,
+          );
+        }
         return {
-          ...document,
-          checksum: checksum(bytes.toString('base64')),
+          kind: document.kind,
+          url: document.url,
+          checksum: actualChecksum,
           bytes: bytes.byteLength,
           collectedAt,
         };
@@ -378,6 +481,7 @@ export class CbfSerieA2026Provider implements CompetitionDataProvider {
       teams: normalizedTeamArraySchema.parse([...teams.values()]),
       schedule: normalizedMatchArraySchema.parse([...schedule.values()]),
       results: normalizedResultArraySchema.parse([...results.values()]),
+      standings: parseCbfSerieA2026Standings(await standingsPayload),
     };
     return {
       ...collection,
@@ -385,13 +489,22 @@ export class CbfSerieA2026Provider implements CompetitionDataProvider {
         source: this.source,
         collectedAt,
         timezone: 'America/Sao_Paulo',
-        checksum: checksum({ collection, documents }),
+        checksum: checksum({
+          collection,
+          documents: documents.map(({ kind, url, checksum: documentChecksum, bytes }) => ({
+            kind,
+            url,
+            checksum: documentChecksum,
+            bytes,
+          })),
+        }),
         roundsFetched: payloads.length,
         rawMatches,
         reconciledMatches: collection.schedule.length,
         unscheduledMatches,
         finishedResults: collection.results.length,
         teams: collection.teams.length,
+        standings: collection.standings.length,
         documents,
       },
     };
@@ -411,6 +524,10 @@ export class CbfSerieA2026Provider implements CompetitionDataProvider {
 
   async syncResults(_context: ProviderContext) {
     return (await this.collect()).results;
+  }
+
+  async syncStandings(_context: ProviderContext) {
+    return (await this.collect()).standings;
   }
 
   async healthCheck(_context: ProviderContext): Promise<ProviderHealth> {

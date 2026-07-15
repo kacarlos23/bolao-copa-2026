@@ -15,7 +15,13 @@ import { RankingTable } from '../../components/RankingTable';
 import { ScoreInput } from '../../components/ScoreInput';
 import { TeamBadge } from '../../components/TeamBadge';
 import { useToast } from '../../components/Toast';
-import { api, errorMessage, LatestRequest } from '../../api';
+import {
+  api,
+  errorMessage,
+  LatestRequest,
+  type EngagementDashboard,
+  type PoolSeasonRules,
+} from '../../api';
 import {
   draftReducer,
   draftStorageKey,
@@ -121,6 +127,8 @@ export function SeasonWorkspace({
   const [ranking, setRanking] = useState<RankingRowDto[]>([]);
   const [roundRanking, setRoundRanking] = useState<RankingRowDto[]>([]);
   const [previousRanks, setPreviousRanks] = useState<Map<string, number>>(new Map());
+  const [rules, setRules] = useState<PoolSeasonRules | null>(null);
+  const [engagement, setEngagement] = useState<EngagementDashboard | null>(null);
   const [scope, setScope] = useState<RankingScope>('overall');
   const [draft, setDraft] = useState<DraftState>({ items: {} });
   const [poolSeasonId, setPoolSeasonId] = useState('');
@@ -130,6 +138,7 @@ export function SeasonWorkspace({
   const selectedRound = rounds.find((round) => round.id === roundId);
   const dataRequest = useRef(new LatestRequest()).current;
   const draftRef = useRef(draft);
+  const visitedSeasonRef = useRef('');
   draftRef.current = draft;
   const stablePoolSeasonKey = poolSeasonId || (season ? `pool:${POOL_SLUG}:season:${season.id}` : 'pending');
   const storageKey = draftStorageKey(currentUserId, stablePoolSeasonKey, 'league-predictions');
@@ -172,14 +181,16 @@ export function SeasonWorkspace({
       if (!quiet) setStatus(matches.length ? 'refreshing' : 'loading');
       const result = await dataRequest.run(async () => {
         const query = rankingQuery(scope, selectedRound, matches);
-        const [matchesResult, standingsResult, predictionsResult, rankingResult, roundResult] = await Promise.all([
+        const [matchesResult, standingsResult, predictionsResult, rankingResult, roundResult, rulesResult, engagementResult] = await Promise.all([
           api.seasonMatches(season.id, roundId),
           api.seasonStandings(season.id),
           api.seasonPredictions(POOL_SLUG, season.id),
           api.seasonRanking(POOL_SLUG, season.id, query),
           api.seasonRanking(POOL_SLUG, season.id, `scope=round&roundId=${encodeURIComponent(roundId)}`),
+          api.seasonRules(POOL_SLUG, season.id),
+          api.seasonEngagement(POOL_SLUG, season.id),
         ]);
-        return { matchesResult, standingsResult, predictionsResult, rankingResult, roundResult };
+        return { matchesResult, standingsResult, predictionsResult, rankingResult, roundResult, rulesResult, engagementResult };
       });
       if (!active || !result) return;
       const values = Object.fromEntries(result.predictionsResult.predictions.map((prediction) => [
@@ -192,18 +203,19 @@ export function SeasonWorkspace({
       setStandings(result.standingsResult.standingsByGroup.flatMap((group) => group.rows));
       setRanking(result.rankingResult.ranking);
       setRoundRanking(result.roundResult.ranking);
+      setRules(result.rulesResult);
+      setEngagement(result.engagementResult);
       dispatch({ type: 'hydrate', values });
       setError('');
       setStatus(result.matchesResult.matches.length ? 'success' : 'empty');
 
-      const snapshotKey = `bolao:ranking-snapshot:${currentUserId}:${stablePoolSeasonKey}`;
-      if (typeof window !== 'undefined') {
+      if (visitedSeasonRef.current !== season.id) {
+        visitedSeasonRef.current = season.id;
         try {
-          const previous = JSON.parse(window.localStorage.getItem(snapshotKey) ?? '{}') as Record<string, number>;
-          setPreviousRanks(new Map(Object.entries(previous)));
-          window.localStorage.setItem(snapshotKey, JSON.stringify(Object.fromEntries(result.rankingResult.ranking.map((row) => [row.userId, row.rank]))));
+          const visit = await api.recordRankingVisit(POOL_SLUG, season.id);
+          if (visit.summary) setPreviousRanks(new Map([[currentUserId, visit.summary.fromRank]]));
         } catch {
-          setPreviousRanks(new Map());
+          visitedSeasonRef.current = '';
         }
       }
     };
@@ -270,6 +282,20 @@ export function SeasonWorkspace({
     }
   }
 
+  async function togglePreference(field: 'pushEnabled' | 'emailEnabled' | 'quietHoursEnabled') {
+    if (!season || !engagement) return;
+    const enabled = !engagement.preferences[field];
+    const next = {
+      ...engagement.preferences,
+      [field]: enabled,
+      ...(field === 'quietHoursEnabled' && enabled
+        ? { quietHoursStart: engagement.preferences.quietHoursStart ?? '22:00', quietHoursEnd: engagement.preferences.quietHoursEnd ?? '08:00' }
+        : {}),
+    };
+    const result = await api.updateNotificationPreferences(POOL_SLUG, season.id, next);
+    setEngagement({ ...engagement, preferences: result.preferences });
+  }
+
   if (!season && status === 'loading') return <AsyncState status="loading" skeletonLines={6} />;
 
   const dirtyOpenIds = matches
@@ -286,6 +312,25 @@ export function SeasonWorkspace({
         </View>
         <ConnectionIndicator status={connection} />
       </View>
+
+      {rules ? (
+        <View style={styles.rulesPanel} accessibilityLabel={`Regra de pontuação ${rules.scoring.name}, versão ${rules.scoring.version}`}>
+          <View>
+            <Text style={styles.sectionEyebrow}>REGULAMENTO · VERSÃO {rules.scoring.version}</Text>
+            <Text style={styles.sectionTitle}>Como seus pontos e empates são calculados</Text>
+            <Text style={styles.rulesHelp}>A regra vinculada à temporada fica registrada em cada score. Empates completos compartilham posição.</Text>
+          </View>
+          <View style={styles.rulePointsRow}>
+            {[
+              [rules.scoring.rules.exactScore, 'Placar exato'],
+              [rules.scoring.rules.correctOutcome, 'Resultado'],
+              [rules.scoring.rules.oneTeamGoals, 'Gol de um time'],
+              [rules.scoring.rules.miss, 'Erro'],
+            ].map(([points, label]) => <Text key={label} style={styles.ruleChip}>{points} pts · {label}</Text>)}
+          </View>
+          <Text style={styles.tieBreakText}>Desempate: {rules.tieBreakers.criteria.map((item) => item.label).join(' → ')}.</Text>
+        </View>
+      ) : null}
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.roundRail} accessibilityRole="tablist">
         {rounds.map((round) => {
@@ -387,6 +432,40 @@ export function SeasonWorkspace({
         </View>
         {ranking.length ? <RankingTable ranking={ranking} roundRanking={roundRanking} currentUserId={currentUserId} previousRanks={previousRanks} /> : <AsyncState status="empty" emptyTitle="Ranking ainda vazio" emptyMessage="Faça seus palpites; os pontos aparecem após resultados elegíveis." />}
       </View>
+
+      {engagement ? (
+        <View style={styles.engagementGrid} accessibilityLabel="Conquistas e caixa de entrada">
+          <View style={styles.engagementPanel}>
+            <Text style={styles.sectionEyebrow}>PROGRESSO</Text>
+            <Text style={styles.sectionTitle}>Conquistas</Text>
+            <Text style={styles.rulesHelp}>Somente resultados finais consolidam sequências. Progresso ao vivo é identificado como provisório.</Text>
+            {engagement.achievements.map((item) => (
+              <View key={item.id} style={styles.achievementRow}>
+                <Text style={styles.achievementName}>{item.definition.name}{item.achievedAt ? ' · conquistada' : item.revokedAt ? ' · progresso recalculado' : ' · em progresso'}{item.isProvisional ? ' · provisório' : ''}</Text>
+                <Text style={styles.rulesHelp}>{item.definition.description}</Text>
+              </View>
+            ))}
+            {!engagement.achievements.length ? <Text style={styles.rulesHelp}>Seu progresso aparece aqui conforme resultados finais forem publicados.</Text> : null}
+          </View>
+          <View style={styles.engagementPanel}>
+            <Text style={styles.sectionEyebrow}>INBOX IN-APP</Text>
+            <Text style={styles.sectionTitle}>Novidades</Text>
+            {engagement.notifications.slice(0, 5).map((notification) => (
+              <Pressable key={notification.id} accessibilityRole="button" accessibilityLabel={`${notification.title}. ${notification.body}`} onPress={() => season && void api.markNotificationRead(POOL_SLUG, season.id, notification.id)} style={styles.notificationRow}>
+                <Text style={styles.achievementName}>{notification.title}{notification.isProvisional ? ' · provisório' : ''}</Text>
+                <Text style={styles.rulesHelp}>{notification.body}</Text>
+              </Pressable>
+            ))}
+            {!engagement.notifications.length ? <Text style={styles.rulesHelp}>Sua caixa de entrada está vazia.</Text> : null}
+            <Text style={styles.preferenceHelp}>Push e e-mail começam desligados e só são usados com seu consentimento. Quiet hours serão respeitadas nesses canais.</Text>
+            <View style={styles.preferenceRow}>
+              <Pressable aria-checked={engagement.preferences.pushEnabled} accessibilityRole="switch" accessibilityState={{ checked: engagement.preferences.pushEnabled }} onPress={() => void togglePreference('pushEnabled')} style={styles.preferenceButton}><Text style={styles.preferenceButtonText}>Push: {engagement.preferences.pushEnabled ? 'ativado' : 'desativado'}</Text></Pressable>
+              <Pressable aria-checked={engagement.preferences.emailEnabled} accessibilityRole="switch" accessibilityState={{ checked: engagement.preferences.emailEnabled }} onPress={() => void togglePreference('emailEnabled')} style={styles.preferenceButton}><Text style={styles.preferenceButtonText}>E-mail: {engagement.preferences.emailEnabled ? 'ativado' : 'desativado'}</Text></Pressable>
+              <Pressable aria-checked={engagement.preferences.quietHoursEnabled} accessibilityRole="switch" accessibilityState={{ checked: engagement.preferences.quietHoursEnabled }} onPress={() => void togglePreference('quietHoursEnabled')} style={styles.preferenceButton}><Text style={styles.preferenceButtonText}>Quiet hours: {engagement.preferences.quietHoursEnabled ? `${engagement.preferences.quietHoursStart}–${engagement.preferences.quietHoursEnd}` : 'desativado'}</Text></Pressable>
+            </View>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -447,6 +526,20 @@ const styles = StyleSheet.create({
   standingName: { color: theme.color.text, flex: 1, fontSize: 11, fontWeight: '800' },
   standingPoints: { color: theme.color.accent, fontWeight: '900', width: 40 },
   rankingSection: { borderTopColor: theme.color.borderMuted, borderTopWidth: 1, gap: theme.space.lg, paddingTop: theme.space.xl },
+  rulesPanel: { backgroundColor: theme.color.surface, borderColor: theme.color.border, borderRadius: theme.radius.md, borderWidth: 1, gap: theme.space.md, padding: theme.space.lg },
+  rulesHelp: { color: theme.color.textMuted, fontSize: 12, lineHeight: 18, marginTop: 4 },
+  rulePointsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  ruleChip: { backgroundColor: 'rgba(255, 211, 21, 0.12)', borderRadius: theme.radius.pill, color: theme.color.gold, fontSize: 12, fontWeight: '800', overflow: 'hidden', paddingHorizontal: 11, paddingVertical: 7 },
+  tieBreakText: { color: theme.color.text, fontSize: 12, lineHeight: 19 },
+  engagementGrid: { alignItems: 'flex-start', flexDirection: 'row', flexWrap: 'wrap', gap: theme.space.lg },
+  engagementPanel: { backgroundColor: theme.color.surface, borderColor: theme.color.borderMuted, borderRadius: theme.radius.md, borderWidth: 1, flex: 1, gap: theme.space.sm, minWidth: 280, padding: theme.space.lg },
+  achievementRow: { borderTopColor: theme.color.borderMuted, borderTopWidth: 1, paddingTop: theme.space.sm },
+  achievementName: { color: theme.color.text, fontSize: 13, fontWeight: '900' },
+  notificationRow: { borderTopColor: theme.color.borderMuted, borderTopWidth: 1, minHeight: theme.touchTarget, paddingVertical: theme.space.sm },
+  preferenceHelp: { color: theme.color.textMuted, fontSize: 11, lineHeight: 17, marginTop: theme.space.sm },
+  preferenceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  preferenceButton: { borderColor: theme.color.border, borderRadius: theme.radius.sm, borderWidth: 1, justifyContent: 'center', minHeight: theme.touchTarget, paddingHorizontal: theme.space.md },
+  preferenceButtonText: { color: theme.color.text, fontSize: 11, fontWeight: '800' },
   scopeRail: { gap: 5 },
   scopeTab: { borderColor: theme.color.border, borderRadius: theme.radius.pill, borderWidth: 1, justifyContent: 'center', minHeight: theme.touchTarget, paddingHorizontal: theme.space.md },
   scopeTabActive: { backgroundColor: theme.color.gold, borderColor: theme.color.gold },

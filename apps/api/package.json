@@ -9,11 +9,15 @@
     "start": "node dist/src/server.js",
     "lint": "eslint src prisma --ext .ts",
     "test": "vitest run",
+    "test:contract": "vitest run src/app.test.ts src/modules/generic-routes.contract.test.ts src/realtime/sse.test.ts src/runtime/shutdown.test.ts src/middleware/auth.test.ts",
+    "test:integration:vitest": "vitest run --config vitest.integration.config.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "seed": "tsx prisma/seed.ts",
     "backfill:world-cup-2026": "tsx prisma/backfill-world-cup-2026.ts",
+    "backfill:stage7-engagement": "tsx src/scripts/backfill-stage7-engagement.ts",
     "load:brasileirao-2026": "tsx src/scripts/load-brasileirao-2026.ts",
+    "reconcile:cbf-2026": "tsx src/scripts/reconcile-cbf-2026.ts",
     "scrape:ge-scores": "tsx src/scripts/scrape-ge-scores.ts",
     "scrape:ge-scores:once": "tsx src/scripts/scrape-ge-scores.ts --once",
     "scrape:ge-scores:watch": "tsx src/scripts/scrape-ge-scores.ts --watch"
@@ -51,7 +55,7 @@
     "prisma": "^6.19.0",
     "supertest": "^7.1.4",
     "tsx": "^4.21.0",
-    "vitest": "^2.1.9"
+    "vitest": "^4.1.10"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

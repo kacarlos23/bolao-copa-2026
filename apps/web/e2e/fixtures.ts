@@ -52,10 +52,12 @@ function apiError(status: number) {
   };
 }
 
-export async function installApiMocks(page: Page, options: { authenticated?: boolean; loginStatus?: number } = {}) {
+export async function installApiMocks(page: Page, options: { authenticated?: boolean; loginStatus?: number; admin?: boolean; closed?: boolean } = {}) {
   let authenticated = options.authenticated ?? true;
+  const signedInUser = options.admin ? { ...currentUser, role: 'ADMIN' } : currentUser;
+  let managedUser = { ...currentUser, id: 'user-managed', username: 'joao', nickname: 'João', status: 'ACTIVE' };
   const predictionBoard = {
-    checkedAt: '2026-07-15T12:00:00.000Z', predictionCloseMinutes: 5, canPredict: true, groupStageComplete: true,
+    checkedAt: '2026-07-15T12:00:00.000Z', predictionCloseMinutes: 5, canPredict: !options.closed, groupStageComplete: true,
     groups: [{
       group: 'A', standings: [
         { rank: 1, team: brazil, played: 3, wins: 2, draws: 1, losses: 0, goalsFor: 5, goalsAgainst: 1, goalDifference: 4, points: 7 },
@@ -77,13 +79,26 @@ export async function installApiMocks(page: Page, options: { authenticated?: boo
     const json = (body: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     if (path === '/api/events') return route.continue();
     if (path === '/api/auth/csrf') return json({ csrfToken: 'x'.repeat(40) });
-    if (path === '/api/auth/me') return authenticated ? json({ user: currentUser }) : json(apiError(401), 401);
+    if (path === '/api/auth/me') return authenticated ? json({ user: signedInUser }) : json(apiError(401), 401);
     if (path === '/api/auth/login') {
       if (options.loginStatus) return json(apiError(options.loginStatus), options.loginStatus);
       authenticated = true;
-      return json({ user: currentUser });
+      return json({ user: signedInUser });
     }
-    if (path === '/api/auth/logout') return json({}, 204);
+    if (path === '/api/auth/logout') { authenticated = false; return json({}, 204); }
+    if (path === '/api/admin/overview') return json({ seasons: [{ ...leagueSeason, rounds: [round], poolSeasons: [{ id: 'pool-season-league', scoringRuleSetVersionId: 'rules-v1', pool: { name: 'Bolão fixture' } }], _count: { matches: 1, teams: 2 } }] });
+    if (path === '/api/admin/divergences') return json({ quarantine: [], overrides: [{ id: 'override-fixture', provenance: 'MANUAL', rollback: true }], mappings: [], runs: [{ id: 'run-fixture' }] });
+    if (path === '/api/admin/jobs') return json({ jobs: [] });
+    if (path === '/api/admin/audit') return json({ logs: [{ id: 'audit-fixture' }] });
+    if (path === '/api/admin/health') return json({ checkedAt: '2026-07-15T12:00:00.000Z', provider: { ok: true }, sse: { ok: true }, backup: { ok: true } });
+    if (path === '/api/admin/teams') return json({ teams: [brazil, argentina] });
+    if (path === '/api/admin/users') return json({ users: [signedInUser, managedUser] });
+    if (path === '/api/admin/settings/predictions') return json({ predictionCloseMinutes: 5, reopenedMatches: 0, closedMatches: 0 });
+    if (path === '/api/admin/settings/score-sync') return json({ enabled: true, updatedAt: '2026-07-15T12:00:00.000Z' });
+    if (path === '/api/admin/seed-worldcup-2026' && method === 'POST') return json({ teams: 48, matches: 72 });
+    if (path === `/api/admin/users/${managedUser.id}/status` && method === 'PATCH') { managedUser = { ...managedUser, status: 'BLOCKED' }; return json({ user: managedUser }); }
+    if (path === `/api/admin/seasons/${leagueSeason.id}/features` && method === 'GET') return json({ flags: { readEnabled: true, writeEnabled: true, uiEnabled: true, reason: 'Fixture local de canário', updatedAt: '2026-07-15T12:00:00.000Z', updatedById: signedInUser.id } });
+    if (path === `/api/admin/seasons/${leagueSeason.id}/features` && method === 'PUT') return json({ flags: { ...JSON.parse(request.postData() ?? '{}'), updatedAt: '2026-07-15T12:01:00.000Z', updatedById: signedInUser.id } });
     if (path === '/api/competitions') return json({ competitions: [
       { id: 'competition-world', slug: 'world-cup', name: 'Copa do Mundo', capabilities: { groupStage: true, knockoutBracket: true, liveScoring: true } },
       { id: 'competition-league', slug: 'brasileirao-serie-a', name: 'Brasileirão Série A', capabilities: { format: 'LEAGUE', standings: true, knockout: false, rankingScopes: ['OVERALL', 'ROUND', 'MONTH', 'TURN'] } },
@@ -96,9 +111,17 @@ export async function installApiMocks(page: Page, options: { authenticated?: boo
     if (path === `/api/seasons/${leagueSeason.id}/standings`) return json({ standingsByGroup: [{ group: 'Série A', rows: [standing(1, brazil, 40), standing(2, argentina, 37)] }], pagination: { ...pagination, total: 2 } });
     if (path.includes(`/api/pools/${POOL_SLUG}/seasons/${leagueSeason.id}/predictions`) && method === 'GET') return json({ predictions: [], pagination: { ...pagination, total: 0, totalPages: 0 } });
     if (path.includes(`/api/pools/${POOL_SLUG}/seasons/${leagueSeason.id}/predictions`) && method === 'PUT') return json({ predictions: [{ id: 'prediction-1', poolSeasonId: 'pool-season-league', userId: currentUser.id, matchId: genericMatch.id, predictedHomeScore: 2, predictedAwayScore: 1, updatedAt: '2026-07-15T12:30:00.000Z' }] });
+    if (path === `/api/pools/${POOL_SLUG}/seasons/${leagueSeason.id}/rules`) return json({
+      scoring: { id: 'rules-v1', key: 'classic', name: 'PontuaÃ§Ã£o clÃ¡ssica', version: 1, rules: { exactScore: 15, correctOutcome: 3, oneTeamGoals: 1, miss: 0 } },
+      tieBreakers: { id: 'tie-v1', key: 'classic', name: 'Desempate clÃ¡ssico', version: 1, allowSharedPositions: false, criteria: [{ field: 'exactScores', direction: 'desc', label: 'Placares exatos' }] },
+    });
+    if (path === `/api/pools/${POOL_SLUG}/seasons/${leagueSeason.id}/engagement`) return json({
+      achievements: [], streaks: [], notifications: [],
+      preferences: { inAppEnabled: true, pushEnabled: false, emailEnabled: false, quietHoursEnabled: false, quietHoursStart: null, quietHoursEnd: null, timezone: 'America/Sao_Paulo' },
+    });
     if (path.includes(`/api/pools/${POOL_SLUG}/seasons/${leagueSeason.id}/ranking`)) return json({ ranking, pagination: { ...pagination, total: 2 } });
-    if (path === '/api/match-days') return json({ predictionCloseMinutes: 5, matchDays: [{ id: 'day-1', date: '2026-12-02', firstMatchStartsAt: genericMatch.startsAt, predictionsCloseAt: genericMatch.predictionClosesAt, status: 'OPEN', isOpenForPredictions: true, predictionsArePublic: false, matches: [{ ...genericMatch, predictionsCloseAt: genericMatch.predictionClosesAt, isOpenForPredictions: true, predictionsArePublic: false, predictions: [], rawPayload: null }] }] });
-    if (path === '/api/match-days/day-1' && method === 'GET') return json({ predictionCloseMinutes: 5, matchDay: { id: 'day-1', date: '2026-12-02', firstMatchStartsAt: genericMatch.startsAt, predictionsCloseAt: genericMatch.predictionClosesAt, status: 'OPEN', isOpenForPredictions: true, predictionsArePublic: false, matches: [{ ...genericMatch, predictionsCloseAt: genericMatch.predictionClosesAt, isOpenForPredictions: true, predictionsArePublic: false, predictions: [], rawPayload: null }] } });
+    if (path === '/api/match-days') return json({ predictionCloseMinutes: 5, matchDays: [{ id: 'day-1', date: '2026-12-02', firstMatchStartsAt: genericMatch.startsAt, predictionsCloseAt: genericMatch.predictionClosesAt, status: options.closed ? 'CLOSED' : 'OPEN', isOpenForPredictions: !options.closed, predictionsArePublic: Boolean(options.closed), matches: [{ ...genericMatch, predictionsCloseAt: genericMatch.predictionClosesAt, isOpenForPredictions: !options.closed, predictionsArePublic: Boolean(options.closed), predictions: [], rawPayload: null }] }] });
+    if (path === '/api/match-days/day-1' && method === 'GET') return json({ predictionCloseMinutes: 5, matchDay: { id: 'day-1', date: '2026-12-02', firstMatchStartsAt: genericMatch.startsAt, predictionsCloseAt: genericMatch.predictionClosesAt, status: options.closed ? 'CLOSED' : 'OPEN', isOpenForPredictions: !options.closed, predictionsArePublic: Boolean(options.closed), matches: [{ ...genericMatch, predictionsCloseAt: genericMatch.predictionClosesAt, isOpenForPredictions: !options.closed, predictionsArePublic: Boolean(options.closed), predictions: [], rawPayload: null }] } });
     if (path === '/api/match-days/day-1/predictions' && method === 'PUT') return json({ predictions: [{ id: 'legacy-prediction', userId: currentUser.id, matchId: genericMatch.id, predictedHomeScore: 2, predictedAwayScore: 1 }] });
     if (path === '/api/prediction-board' && method === 'GET') return json(predictionBoard);
     if (path === '/api/prediction-board/simulation' && method === 'PUT') return json(predictionBoard);

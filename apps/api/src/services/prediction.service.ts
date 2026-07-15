@@ -1,6 +1,6 @@
-import { Prisma } from '@prisma/client';
 import type { UpsertMatchDayPredictionsInput } from '@bolao/shared';
 import { prisma } from '../prisma.js';
+import { serializableTransaction } from '../prisma-transaction.js';
 import { AppError } from '../http/errors.js';
 import { emitSse } from '../realtime/sse.js';
 import {
@@ -102,9 +102,7 @@ export async function listMatchDays(
           include: {
             homeTeam: true,
             awayTeam: true,
-            predictions: userId
-              ? { where: { userId, poolSeasonId: context.poolSeasonId } }
-              : false,
+            predictions: userId ? { where: { userId, poolSeasonId: context.poolSeasonId } } : false,
           },
         },
       },
@@ -171,12 +169,8 @@ export async function listMatchDays(
         current.firstMatchStartsAt,
         predictionCloseMinutes,
       );
-      current.isOpenForPredictions = current.matches.some(
-        (item) => item.isOpenForPredictions,
-      );
-      current.predictionsArePublic = current.matches.every(
-        (item) => item.predictionsArePublic,
-      );
+      current.isOpenForPredictions = current.matches.some((item) => item.isOpenForPredictions);
+      current.predictionsArePublic = current.matches.every((item) => item.predictionsArePublic);
       continue;
     }
 
@@ -265,74 +259,70 @@ export async function upsertPredictions(
   input: UpsertMatchDayPredictionsInput,
 ) {
   const predictionCloseMinutes = await getPredictionCloseMinutes();
-  const saved = await prisma.$transaction(
-    async (tx) => {
-      const user = await tx.user.findUnique({
-        where: { id: userId },
-        select: { role: true, status: true },
-      });
-      if (!user || user.status !== 'ACTIVE') {
-        throw new AppError(403, 'Usuário sem permissão para salvar palpites.', 'USER_NOT_ALLOWED');
-      }
-      if (user.role === 'ADMIN') {
-        throw new AppError(403, 'Administrador não participa dos palpites.', 'ADMIN_NOT_ALLOWED');
-      }
+  const saved = await serializableTransaction(async (tx) => {
+    const user = await tx.user.findUnique({
+      where: { id: userId },
+      select: { role: true, status: true },
+    });
+    if (!user || user.status !== 'ACTIVE') {
+      throw new AppError(403, 'Usuário sem permissão para salvar palpites.', 'USER_NOT_ALLOWED');
+    }
+    if (user.role === 'ADMIN') {
+      throw new AppError(403, 'Administrador não participa dos palpites.', 'ADMIN_NOT_ALLOWED');
+    }
 
-      const day = await tx.matchDay.findUnique({
-        where: { id: matchDayId },
-        include: {
-          matches: { select: { id: true, startsAt: true, predictionClosesAt: true } },
-        },
-      });
-      if (!day) throw new AppError(404, 'Dia de jogos não encontrado.', 'MATCH_DAY_NOT_FOUND');
+    const day = await tx.matchDay.findUnique({
+      where: { id: matchDayId },
+      include: {
+        matches: { select: { id: true, startsAt: true, predictionClosesAt: true } },
+      },
+    });
+    if (!day) throw new AppError(404, 'Dia de jogos não encontrado.', 'MATCH_DAY_NOT_FOUND');
 
-      const matchesById = new Map(day.matches.map((match) => [match.id, match]));
-      const now = new Date();
-      for (const prediction of input.predictions) {
-        const match = matchesById.get(prediction.matchId);
-        if (!match) {
-          throw new AppError(
-            400,
-            'Palpite contém jogo fora do dia selecionado.',
-            'MATCH_DAY_MISMATCH',
-          );
-        }
-        const closesAt =
-          match.predictionClosesAt ??
-          matchPredictionsCloseAt(match.startsAt, predictionCloseMinutes);
-        if (now >= closesAt) {
-          throw new AppError(
-            409,
-            'Os palpites desta partida já foram fechados.',
-            'PREDICTION_MATCH_CLOSED',
-          );
-        }
-      }
-
-      const predictions = [];
-      for (const prediction of input.predictions) {
-        predictions.push(
-          await tx.prediction.upsert({
-            where: { userId_matchId: { userId, matchId: prediction.matchId } },
-            update: {
-              poolSeasonId: WORLD_CUP_CONTEXT.poolSeasonId,
-              predictedHomeScore: prediction.predictedHomeScore,
-              predictedAwayScore: prediction.predictedAwayScore,
-            },
-            create: {
-              userId,
-              matchId: prediction.matchId,
-              poolSeasonId: WORLD_CUP_CONTEXT.poolSeasonId,
-              predictedHomeScore: prediction.predictedHomeScore,
-              predictedAwayScore: prediction.predictedAwayScore,
-            },
-          }),
+    const matchesById = new Map(day.matches.map((match) => [match.id, match]));
+    const now = new Date();
+    for (const prediction of input.predictions) {
+      const match = matchesById.get(prediction.matchId);
+      if (!match) {
+        throw new AppError(
+          400,
+          'Palpite contém jogo fora do dia selecionado.',
+          'MATCH_DAY_MISMATCH',
         );
       }
-      return predictions;
-    },
-    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-  );
+      const closesAt =
+        match.predictionClosesAt ?? matchPredictionsCloseAt(match.startsAt, predictionCloseMinutes);
+      if (now >= closesAt) {
+        throw new AppError(
+          409,
+          'Os palpites desta partida já foram fechados.',
+          'PREDICTION_MATCH_CLOSED',
+        );
+      }
+    }
+
+    const predictions = [];
+    for (const prediction of input.predictions) {
+      predictions.push(
+        await tx.prediction.upsert({
+          where: { userId_matchId: { userId, matchId: prediction.matchId } },
+          update: {
+            poolSeasonId: WORLD_CUP_CONTEXT.poolSeasonId,
+            predictedHomeScore: prediction.predictedHomeScore,
+            predictedAwayScore: prediction.predictedAwayScore,
+          },
+          create: {
+            userId,
+            matchId: prediction.matchId,
+            poolSeasonId: WORLD_CUP_CONTEXT.poolSeasonId,
+            predictedHomeScore: prediction.predictedHomeScore,
+            predictedAwayScore: prediction.predictedAwayScore,
+          },
+        }),
+      );
+    }
+    return predictions;
+  });
 
   emitSse('prediction-board.updated', {
     userId,

@@ -135,3 +135,8 @@ export function closeSseClientsForUser(userId: string) {
 export function activeSseClientCount() {
   return clients.size;
 }
+
+export function sseHealthSnapshot() {
+  const blockedClients = [...clients.values()].filter((client) => client.blocked).length;
+  return { activeClients: clients.size, blockedClients, capacity: MAX_CLIENTS, ok: clients.size < MAX_CLIENTS && blockedClients === 0 };
+}

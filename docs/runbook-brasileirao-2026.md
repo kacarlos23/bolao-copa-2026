@@ -16,8 +16,8 @@ na classificação esportiva, mas não aceitam palpites nem geram score.
 
 - Tabela vigente: <https://www.cbf.com.br/futebol-brasileiro/tabelas/campeonato-brasileiro/serie-a/2026>
 - Endpoint fixo por rodada: `https://www.cbf.com.br/api/cbf/jogos/campeonato/1260611/rodada/{1..38}/fase/1993`
-- Tabela básica oficial: <https://stcbfsiteprdimgbrs.blob.core.windows.net/img-site/cdn/Tabela_BA_sica_Brasileiro_SA_rie_A_2026_d64996b4d8.pdf>
-- Regulamento específico: <https://stcbfsiteprdimgbrs.blob.core.windows.net/img-site/cdn/REC_Brasileiro_SA_rie_A_2026_v15_12_2025_final_02692c1077.pdf>
+- Tabela oficial fixada (742.577 bytes; SHA-256 `7ee848ecac23d92be55222e5adec6c992cddbf6eb457d814e5be3d3306224782`): <https://stcbfsiteprdimgbrs.blob.core.windows.net/img-site/cdn/Tabela_Detalhada_BSA_2026_16_01_7a2261a9d7.pdf>
+- Regulamento específico (598.606 bytes; SHA-256 `1dadb33c3b2174540a0ff46489ff9b8392072118c47b334240d1351335d76f6a`): <https://stcbfsiteprdimgbrs.blob.core.windows.net/img-site/cdn/REC_Brasileiro_Serie_A_2026_c984f8cf05.pdf>
 
 A coleta registra URL, `collectedAt`, timezone `America/Sao_Paulo`, tamanho e
 SHA-256 dos documentos, além do checksum determinístico dos DTOs normalizados.
@@ -30,6 +30,7 @@ Configure `DATABASE_URL` e execute:
 
 ```powershell
 npm run snapshot:copa -- --output snapshots/copa-before-brasileirao.json
+npm run reconcile:cbf-2026
 npm run prisma:migrate
 npm run load:brasileirao-2026
 npm run snapshot:copa -- --output snapshots/copa-after-brasileirao.json
@@ -39,14 +40,14 @@ npm run snapshot:compare -- snapshots/copa-before-brasileirao.json snapshots/cop
 O loader para antes de qualquer escrita se não encontrar exatamente 20 clubes,
 380 referências na tabela e 10 partidas com horário na rodada de abertura do
 bolão. Em seguida executa `dryRun`, `apply` e uma segunda importação para `TEAMS`,
-`SCHEDULE` e `RESULTS`. O processo falha se a segunda carga produzir insert ou
+`SCHEDULE`, `RESULTS` e `STANDINGS`. O processo falha se a segunda carga produzir insert ou
 quarentena.
 
 Os mesmos passos podem ser acionados pelo admin:
 
 1. `POST /api/admin/brasileirao-2026/prepare`;
 2. `POST /api/admin/providers/sync` com provider `cbf-serie-a-2026`, uma chave de
-   idempotência nova e os tipos na ordem `TEAMS`, `SCHEDULE`, `RESULTS`;
+   idempotência nova e os tipos na ordem `TEAMS`, `SCHEDULE`, `RESULTS`, `STANDINGS`;
 3. repetir com novas chaves e conferir inserts/quarentenas zerados;
 4. consultar `/api/admin/providers/sync-runs` e
    `/api/admin/providers/quarantine`.

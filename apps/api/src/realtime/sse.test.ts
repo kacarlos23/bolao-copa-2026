@@ -1,6 +1,6 @@
 import type { Response } from 'express';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { activeSseClientCount, addSseClient, closeAllSseClients, emitSse } from './sse.js';
+import { activeSseClientCount, addSseClient, closeAllSseClients, closeSseClientsForUser, emitSse, sseHealthSnapshot } from './sse.js';
 
 describe('SSE delivery', () => {
   afterEach(() => {
@@ -95,5 +95,37 @@ describe('SSE delivery', () => {
     expect(response.write).toHaveBeenCalledWith(
       `event: prediction.updated\nid: ${expected.eventId}\ndata: ${JSON.stringify(expected)}\n\n`,
     );
+  });
+
+  it('applies backpressure until drain instead of buffering without limit', () => {
+    const handlers = new Map<string, () => void>();
+    const response = {
+      write: vi.fn(() => false), flush: vi.fn(),
+      once: vi.fn((event: string, handler: () => void) => { handlers.set(event, handler); }),
+      off: vi.fn(), end: vi.fn(), writableEnded: false, destroyed: false,
+    } as unknown as Response;
+    addSseClient(response);
+    expect(sseHealthSnapshot().blockedClients).toBe(1);
+    const writes = vi.mocked(response.write).mock.calls.length;
+    emitSse('ranking.updated', { fixture: true });
+    expect(response.write).toHaveBeenCalledTimes(writes);
+    vi.mocked(response.write).mockReturnValue(true);
+    handlers.get('drain')?.();
+    emitSse('ranking.updated', { fixture: true });
+    expect(response.write).toHaveBeenCalledTimes(writes + 1);
+  });
+
+  it('closes every connection of a blocked or logged-out user', () => {
+    const response = {
+      write: vi.fn(() => true), flush: vi.fn(), once: vi.fn(), off: vi.fn(), end: vi.fn(), writableEnded: false, destroyed: false,
+    } as unknown as Response;
+    const request = {
+      session: { user: { id: 'blocked-user' } },
+      once: vi.fn(), off: vi.fn(),
+    } as never;
+    addSseClient(response, request);
+    closeSseClientsForUser('blocked-user');
+    expect(response.end).toHaveBeenCalledOnce();
+    expect(activeSseClientCount()).toBe(0);
   });
 });

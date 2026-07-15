@@ -143,28 +143,61 @@ enum AuditAction {
   MATCH_OVERRIDE_SET
   MATCH_OVERRIDE_REMOVED
   SETTING_UPDATED
+  SEASON_UPDATED
+  ROUND_UPDATED
+  SYNC_REQUESTED
+  MAPPING_RESOLVED
+  RULE_SET_ASSIGNED
+  USER_SESSION_REVOKED
+  JOB_QUEUED
+  JOB_PAUSED
+  JOB_RETRIED
+}
+
+enum AdminOperationStatus {
+  PREVIEW
+  RUNNING
+  COMPLETED
+  FAILED
+  CONSUMED
+}
+
+enum AdminJobStatus {
+  QUEUED
+  RUNNING
+  PAUSED
+  SUCCEEDED
+  FAILED
+  CANCELLED
 }
 
 model User {
-  id               String                         @id @default(cuid())
-  username         String                         @unique
-  usernameLower    String                         @unique
-  nickname         String
-  avatarUrl        String?
-  passwordHash     String
-  sessionVersion   Int                            @default(1)
-  role             UserRole                       @default(USER)
-  status           UserStatus                     @default(ACTIVE)
-  createdAt        DateTime                       @default(now())
-  updatedAt        DateTime                       @updatedAt
-  predictions      Prediction[]
-  scores           PredictionScore[]
-  auditLogs        AdminAuditLog[]                @relation("AdminAuditActor")
-  knockoutBrackets KnockoutBracket[]
-  knockoutScores   KnockoutPredictionScore[]
-  groupSimulations KnockoutGroupSimulationScore[]
-  poolMemberships  PoolMembership[]
-  matchOverrides   MatchOverride[]
+  id                      String                         @id @default(cuid())
+  username                String                         @unique
+  usernameLower           String                         @unique
+  nickname                String
+  avatarUrl               String?
+  passwordHash            String
+  sessionVersion          Int                            @default(1)
+  role                    UserRole                       @default(USER)
+  status                  UserStatus                     @default(ACTIVE)
+  createdAt               DateTime                       @default(now())
+  updatedAt               DateTime                       @updatedAt
+  predictions             Prediction[]
+  scores                  PredictionScore[]
+  auditLogs               AdminAuditLog[]                @relation("AdminAuditActor")
+  knockoutBrackets        KnockoutBracket[]
+  knockoutScores          KnockoutPredictionScore[]
+  groupSimulations        KnockoutGroupSimulationScore[]
+  poolMemberships         PoolMembership[]
+  matchOverrides          MatchOverride[]
+  scoreAudits             ScoreRecomputationAudit[]
+  achievements            UserAchievement[]
+  streaks                 Streak[]
+  rankingMovements        RankingMovement[]
+  rankingVisits           UserPoolSeasonVisit[]
+  notifications           NotificationInbox[]
+  notificationPreferences NotificationPreference[]
 
   @@index([role, status])
   @@index([nickname])
@@ -184,33 +217,36 @@ model Competition {
 }
 
 model CompetitionSeason {
-  id                  String                  @id @default(cuid())
-  competitionId       String
-  slug                String
-  name                String
-  year                Int?
-  timezone            String
-  status              CompetitionSeasonStatus @default(DRAFT)
-  startsAt            DateTime?
-  endsAt              DateTime?
-  capabilities        Json?
-  metadata            Json?
-  createdAt           DateTime                @default(now())
-  updatedAt           DateTime                @updatedAt
-  competition         Competition             @relation(fields: [competitionId], references: [id])
-  stages              Stage[]
-  rounds              Round[]
-  teams               SeasonTeam[]
-  matchDays           MatchDay[]
-  matches             Match[]
-  knockoutFixtures    KnockoutFixture[]
-  knockoutGenerations KnockoutGeneration[]
-  poolSeasons         PoolSeason[]
-  providerMappings    ProviderEntityMapping[]
-  rankingSnapshots    RankingSnapshot[]
-  providerSyncRuns    ProviderSyncRun[]
-  providerSyncLocks   ProviderSyncLock[]
-  syncQuarantines     SyncQuarantine[]
+  id                     String                  @id @default(cuid())
+  competitionId          String
+  slug                   String
+  name                   String
+  year                   Int?
+  timezone               String
+  status                 CompetitionSeasonStatus @default(DRAFT)
+  startsAt               DateTime?
+  endsAt                 DateTime?
+  capabilities           Json?
+  metadata               Json?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  competition            Competition             @relation(fields: [competitionId], references: [id])
+  stages                 Stage[]
+  rounds                 Round[]
+  teams                  SeasonTeam[]
+  matchDays              MatchDay[]
+  matches                Match[]
+  knockoutFixtures       KnockoutFixture[]
+  knockoutGenerations    KnockoutGeneration[]
+  poolSeasons            PoolSeason[]
+  providerMappings       ProviderEntityMapping[]
+  rankingSnapshots       RankingSnapshot[]
+  scoringRuleVersions    ScoringRuleSetVersion[]
+  tieBreakerRuleSets     TieBreakerRuleSet[]
+  achievementDefinitions AchievementDefinition[]
+  providerSyncRuns       ProviderSyncRun[]
+  providerSyncLocks      ProviderSyncLock[]
+  syncQuarantines        SyncQuarantine[]
 
   @@unique([competitionId, slug])
   @@index([competitionId, status])
@@ -252,6 +288,7 @@ model Round {
   stage            Stage             @relation(fields: [stageId], references: [id])
   matches          Match[]
   rankingSnapshots RankingSnapshot[]
+  rankingMovements RankingMovement[]
 
   @@unique([stageId, order])
   @@index([seasonId, status, startsAt])
@@ -339,6 +376,8 @@ model PoolSeason {
   poolId                     String
   seasonId                   String
   scoringRuleSetId           String?
+  scoringRuleSetVersionId    String?
+  tieBreakerRuleSetId        String?
   scoreableFromRound         Int?
   scoreableFrom              DateTime?
   startsAtRound              Int?
@@ -349,6 +388,8 @@ model PoolSeason {
   pool                       Pool                           @relation(fields: [poolId], references: [id])
   season                     CompetitionSeason              @relation(fields: [seasonId], references: [id])
   scoringRuleSet             ScoringRuleSet?                @relation(fields: [scoringRuleSetId], references: [id])
+  scoringRuleSetVersion      ScoringRuleSetVersion?         @relation(fields: [scoringRuleSetVersionId], references: [id])
+  tieBreakerRuleSet          TieBreakerRuleSet?             @relation(fields: [tieBreakerRuleSetId], references: [id])
   predictions                Prediction[]
   predictionScores           PredictionScore[]
   rankingSnapshots           RankingSnapshot[]
@@ -356,10 +397,19 @@ model PoolSeason {
   knockoutPicks              KnockoutPick[]
   knockoutGroupSimulations   KnockoutGroupSimulationScore[]
   knockoutPredictionScores   KnockoutPredictionScore[]
+  scoreAudits                ScoreRecomputationAudit[]
+  userAchievements           UserAchievement[]
+  streaks                    Streak[]
+  rankingMovements           RankingMovement[]
+  rankingVisits              UserPoolSeasonVisit[]
+  notifications              NotificationInbox[]
+  notificationPreferences    NotificationPreference[]
 
   @@unique([poolId, seasonId])
   @@index([seasonId])
   @@index([scoringRuleSetId])
+  @@index([scoringRuleSetVersionId])
+  @@index([tieBreakerRuleSetId])
   @@index([scoreableFrom])
 }
 
@@ -377,6 +427,46 @@ model ScoringRuleSet {
 
   @@unique([key, version])
   @@index([effectiveAt])
+}
+
+model ScoringRuleSetVersion {
+  id                       String                    @id @default(cuid())
+  key                      String
+  name                     String
+  version                  Int
+  rules                    Json
+  checksum                 String
+  effectiveAt              DateTime?
+  createdAt                DateTime                  @default(now())
+  seasonId                 String?
+  season                   CompetitionSeason?        @relation(fields: [seasonId], references: [id], onDelete: Restrict)
+  poolSeasons              PoolSeason[]
+  predictionScores         PredictionScore[]
+  knockoutPredictionScores KnockoutPredictionScore[]
+  scoreAudits              ScoreRecomputationAudit[]
+
+  @@unique([key, version])
+  @@unique([checksum])
+  @@index([seasonId, effectiveAt])
+}
+
+model TieBreakerRuleSet {
+  id                   String             @id @default(cuid())
+  key                  String
+  name                 String
+  version              Int
+  criteria             Json
+  allowSharedPositions Boolean            @default(true)
+  checksum             String
+  effectiveAt          DateTime?
+  createdAt            DateTime           @default(now())
+  seasonId             String?
+  season               CompetitionSeason? @relation(fields: [seasonId], references: [id], onDelete: Restrict)
+  poolSeasons          PoolSeason[]
+
+  @@unique([key, version])
+  @@unique([checksum])
+  @@index([seasonId, effectiveAt])
 }
 
 model ProviderEntityMapping {
@@ -483,25 +573,33 @@ model Prediction {
 }
 
 model PredictionScore {
-  id           String      @id @default(cuid())
-  predictionId String      @unique
-  matchId      String
-  userId       String
-  poolSeasonId String?
-  points       Int
-  scoreType    ScoreType
-  isFinal      Boolean     @default(false)
-  calculatedAt DateTime    @default(now())
-  prediction   Prediction  @relation(fields: [predictionId], references: [id], onDelete: Cascade)
-  match        Match       @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  poolSeason   PoolSeason? @relation(fields: [poolSeasonId], references: [id], onDelete: SetNull)
+  id                      String                @id @default(cuid())
+  predictionId            String                @unique
+  matchId                 String
+  userId                  String
+  poolSeasonId            String?
+  points                  Int
+  scoreType               ScoreType
+  isFinal                 Boolean               @default(false)
+  calculatedAt            DateTime              @default(now())
+  scoringRuleSetVersionId String
+  scoringVersion          Int
+  breakdown               Json
+  calculationKey          String
+  resultRevision          String
+  prediction              Prediction            @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+  match                   Match                 @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  user                    User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  poolSeason              PoolSeason?           @relation(fields: [poolSeasonId], references: [id], onDelete: SetNull)
+  scoringRuleSetVersion   ScoringRuleSetVersion @relation(fields: [scoringRuleSetVersionId], references: [id], onDelete: Restrict)
 
+  @@unique([predictionId, calculationKey])
   @@index([userId, isFinal])
   @@index([matchId, isFinal])
   @@index([points])
   @@index([poolSeasonId, userId, isFinal])
   @@index([poolSeasonId, matchId, isFinal])
+  @@index([scoringRuleSetVersionId, scoringVersion])
 }
 
 model KnockoutFixture {
@@ -625,50 +723,217 @@ model KnockoutGroupSimulationScore {
 }
 
 model KnockoutPredictionScore {
-  id           String          @id @default(cuid())
-  pickId       String          @unique
-  fixtureId    String
-  userId       String
-  poolSeasonId String?
-  points       Int
-  scoreType    ScoreType
-  isFinal      Boolean         @default(false)
-  calculatedAt DateTime        @default(now())
-  pick         KnockoutPick    @relation(fields: [pickId], references: [id], onDelete: Cascade)
-  fixture      KnockoutFixture @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
-  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  poolSeason   PoolSeason?     @relation(fields: [poolSeasonId], references: [id], onDelete: SetNull)
+  id                      String                @id @default(cuid())
+  pickId                  String                @unique
+  fixtureId               String
+  userId                  String
+  poolSeasonId            String?
+  points                  Int
+  scoreType               ScoreType
+  isFinal                 Boolean               @default(false)
+  calculatedAt            DateTime              @default(now())
+  scoringRuleSetVersionId String
+  scoringVersion          Int
+  breakdown               Json
+  calculationKey          String
+  resultRevision          String
+  pick                    KnockoutPick          @relation(fields: [pickId], references: [id], onDelete: Cascade)
+  fixture                 KnockoutFixture       @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
+  user                    User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  poolSeason              PoolSeason?           @relation(fields: [poolSeasonId], references: [id], onDelete: SetNull)
+  scoringRuleSetVersion   ScoringRuleSetVersion @relation(fields: [scoringRuleSetVersionId], references: [id], onDelete: Restrict)
 
+  @@unique([pickId, calculationKey])
   @@index([userId, isFinal])
   @@index([fixtureId, isFinal])
   @@index([points])
   @@index([poolSeasonId, userId, isFinal])
+  @@index([scoringRuleSetVersionId, scoringVersion])
 }
 
 model RankingSnapshot {
-  id           String             @id @default(cuid())
-  userId       String
-  seasonId     String?
-  poolSeasonId String?
-  roundId      String?
-  points       Int
-  finalPoints  Int
-  exactScores  Int
-  resultHits   Int
-  oneGoalHits  Int
-  rank         Int
-  hasLiveData  Boolean            @default(false)
-  calculatedAt DateTime           @default(now())
-  season       CompetitionSeason? @relation(fields: [seasonId], references: [id], onDelete: SetNull)
-  poolSeason   PoolSeason?        @relation(fields: [poolSeasonId], references: [id], onDelete: SetNull)
-  round        Round?             @relation(fields: [roundId], references: [id], onDelete: SetNull)
+  id             String                @id @default(cuid())
+  userId         String
+  seasonId       String?
+  poolSeasonId   String?
+  roundId        String?
+  points         Int
+  finalPoints    Int
+  exactScores    Int
+  resultHits     Int
+  oneGoalHits    Int
+  misses         Int                   @default(0)
+  rank           Int
+  hasLiveData    Boolean               @default(false)
+  snapshotKey    String
+  sourceRevision String
+  calculatedAt   DateTime              @default(now())
+  season         CompetitionSeason?    @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+  poolSeason     PoolSeason?           @relation(fields: [poolSeasonId], references: [id], onDelete: SetNull)
+  round          Round?                @relation(fields: [roundId], references: [id], onDelete: SetNull)
+  movementsFrom  RankingMovement[]     @relation("MovementFromSnapshot")
+  movementsTo    RankingMovement[]     @relation("MovementToSnapshot")
+  visits         UserPoolSeasonVisit[]
 
+  @@unique([poolSeasonId, userId, snapshotKey])
   @@index([rank])
   @@index([points])
   @@index([userId])
   @@index([calculatedAt])
   @@index([seasonId, roundId, calculatedAt])
   @@index([poolSeasonId, roundId, calculatedAt])
+}
+
+model ScoreRecomputationAudit {
+  id                      String                @id @default(cuid())
+  poolSeasonId            String
+  userId                  String
+  targetType              String
+  targetId                String
+  sourceRevision          String
+  scoringRuleSetVersionId String
+  before                  Json?
+  after                   Json?
+  reason                  String
+  idempotencyKey          String                @unique
+  createdAt               DateTime              @default(now())
+  poolSeason              PoolSeason            @relation(fields: [poolSeasonId], references: [id], onDelete: Cascade)
+  user                    User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scoringRuleSetVersion   ScoringRuleSetVersion @relation(fields: [scoringRuleSetVersionId], references: [id], onDelete: Restrict)
+
+  @@index([poolSeasonId, targetType, targetId, createdAt])
+  @@index([userId, createdAt])
+}
+
+model AchievementDefinition {
+  id          String             @id @default(cuid())
+  key         String
+  version     Int
+  name        String
+  description String
+  rarity      String
+  criteria    Json
+  checksum    String             @unique
+  seasonId    String?
+  createdAt   DateTime           @default(now())
+  season      CompetitionSeason? @relation(fields: [seasonId], references: [id], onDelete: Restrict)
+  awards      UserAchievement[]
+
+  @@unique([key, version])
+  @@index([seasonId, key])
+}
+
+model UserAchievement {
+  id             String                @id @default(cuid())
+  poolSeasonId   String
+  userId         String
+  definitionId   String
+  idempotencyKey String                @unique
+  progress       Json
+  isProvisional  Boolean               @default(false)
+  achievedAt     DateTime?
+  revokedAt      DateTime?
+  sourceRevision String
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  poolSeason     PoolSeason            @relation(fields: [poolSeasonId], references: [id], onDelete: Cascade)
+  user           User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  definition     AchievementDefinition @relation(fields: [definitionId], references: [id], onDelete: Restrict)
+
+  @@unique([poolSeasonId, userId, definitionId])
+  @@index([poolSeasonId, userId, achievedAt])
+}
+
+model Streak {
+  id             String     @id @default(cuid())
+  poolSeasonId   String
+  userId         String
+  type           String
+  currentCount   Int
+  bestCount      Int
+  lastEventKey   String?
+  sourceRevision String
+  updatedAt      DateTime   @updatedAt
+  poolSeason     PoolSeason @relation(fields: [poolSeasonId], references: [id], onDelete: Cascade)
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([poolSeasonId, userId, type])
+  @@index([poolSeasonId, type, bestCount])
+}
+
+model RankingMovement {
+  id             String          @id @default(cuid())
+  poolSeasonId   String
+  roundId        String?
+  userId         String
+  fromSnapshotId String
+  toSnapshotId   String
+  fromRank       Int
+  toRank         Int
+  delta          Int
+  isProvisional  Boolean         @default(false)
+  idempotencyKey String          @unique
+  createdAt      DateTime        @default(now())
+  poolSeason     PoolSeason      @relation(fields: [poolSeasonId], references: [id], onDelete: Cascade)
+  round          Round?          @relation(fields: [roundId], references: [id], onDelete: SetNull)
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fromSnapshot   RankingSnapshot @relation("MovementFromSnapshot", fields: [fromSnapshotId], references: [id], onDelete: Cascade)
+  toSnapshot     RankingSnapshot @relation("MovementToSnapshot", fields: [toSnapshotId], references: [id], onDelete: Cascade)
+
+  @@unique([poolSeasonId, userId, fromSnapshotId, toSnapshotId])
+  @@index([poolSeasonId, userId, createdAt])
+}
+
+model UserPoolSeasonVisit {
+  id                 String           @id @default(cuid())
+  poolSeasonId       String
+  userId             String
+  lastSeenSnapshotId String?
+  lastSeenAt         DateTime         @default(now())
+  poolSeason         PoolSeason       @relation(fields: [poolSeasonId], references: [id], onDelete: Cascade)
+  user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastSeenSnapshot   RankingSnapshot? @relation(fields: [lastSeenSnapshotId], references: [id], onDelete: SetNull)
+
+  @@unique([poolSeasonId, userId])
+  @@index([userId, lastSeenAt])
+}
+
+model NotificationInbox {
+  id             String     @id @default(cuid())
+  poolSeasonId   String
+  userId         String
+  type           String
+  title          String
+  body           String
+  data           Json?
+  idempotencyKey String     @unique
+  isProvisional  Boolean    @default(false)
+  availableAt    DateTime   @default(now())
+  readAt         DateTime?
+  createdAt      DateTime   @default(now())
+  poolSeason     PoolSeason @relation(fields: [poolSeasonId], references: [id], onDelete: Cascade)
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([poolSeasonId, userId, readAt, availableAt])
+}
+
+model NotificationPreference {
+  id                String     @id @default(cuid())
+  poolSeasonId      String
+  userId            String
+  inAppEnabled      Boolean    @default(true)
+  pushEnabled       Boolean    @default(false)
+  emailEnabled      Boolean    @default(false)
+  quietHoursEnabled Boolean    @default(false)
+  quietHoursStart   String?
+  quietHoursEnd     String?
+  timezone          String     @default("America/Sao_Paulo")
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  poolSeason        PoolSeason @relation(fields: [poolSeasonId], references: [id], onDelete: Cascade)
+  user              User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([poolSeasonId, userId])
 }
 
 model ApiSyncLog {
@@ -770,17 +1035,86 @@ model MatchOverride {
 }
 
 model AdminAuditLog {
-  id        String      @id @default(cuid())
-  actorId   String?
-  action    AuditAction
-  targetId  String?
-  details   Json?
-  createdAt DateTime    @default(now())
-  actor     User?       @relation("AdminAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  id             String      @id @default(cuid())
+  actorId        String?
+  action         AuditAction
+  targetId       String?
+  requestId      String?
+  seasonId       String?
+  poolSeasonId   String?
+  justification  String?
+  idempotencyKey String?     @unique
+  origin         String?
+  before         Json?
+  after          Json?
+  details        Json?
+  createdAt      DateTime    @default(now())
+  actor          User?       @relation("AdminAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
 
   @@index([actorId, createdAt])
   @@index([action, createdAt])
   @@index([targetId])
+  @@index([seasonId, poolSeasonId, createdAt])
+  @@index([requestId])
+}
+
+model AdminOperation {
+  id               String               @id @default(cuid())
+  actorId          String
+  action           String
+  targetType       String
+  targetId         String?
+  seasonId         String?
+  poolSeasonId     String?
+  requestId        String
+  idempotencyKey   String               @unique
+  requestHash      String
+  status           AdminOperationStatus
+  justification    String
+  preview          Json?
+  affectedCount    Int                  @default(0)
+  confirmationHash String?
+  expiresAt        DateTime?
+  result           Json?
+  errorCode        String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  completedAt      DateTime?
+
+  @@index([actorId, createdAt])
+  @@index([seasonId, poolSeasonId, createdAt])
+  @@index([status, expiresAt])
+}
+
+model AdminJob {
+  id                      String         @id @default(cuid())
+  type                    String
+  status                  AdminJobStatus @default(QUEUED)
+  seasonId                String
+  poolSeasonId            String?
+  ruleSetVersionId        String?
+  requestedById           String
+  requestId               String
+  justification           String
+  idempotencyKey          String         @unique
+  payload                 Json
+  preview                 Json
+  affectedCount           Int            @default(0)
+  processedCount          Int            @default(0)
+  attempts                Int            @default(0)
+  maxAttempts             Int            @default(3)
+  pauseRequested          Boolean        @default(false)
+  result                  Json?
+  errorCode               String?
+  errorMessage            String?
+  createdAt               DateTime       @default(now())
+  startedAt               DateTime?
+  finishedAt              DateTime?
+  updatedAt               DateTime       @updatedAt
+
+  @@index([status, createdAt])
+  @@index([seasonId, poolSeasonId, createdAt])
+  @@index([type, status, createdAt])
 }
 
 model AppSetting {
@@ -790,17 +1124,18 @@ model AppSetting {
 }
 
 model OutboxEvent {
-  id           String    @id @default(cuid())
-  type         String
-  seasonId     String
-  poolSeasonId String?
-  version      Int       @default(1)
-  payload      Json
-  occurredAt   DateTime  @default(now())
-  publishedAt  DateTime?
-  attempts     Int       @default(0)
-  lastError    String?
-  createdAt    DateTime  @default(now())
+  id             String    @id @default(cuid())
+  type           String
+  seasonId       String
+  poolSeasonId   String?
+  version        Int       @default(1)
+  payload        Json
+  occurredAt     DateTime  @default(now())
+  publishedAt    DateTime?
+  attempts       Int       @default(0)
+  lastError      String?
+  idempotencyKey String?   @unique
+  createdAt      DateTime  @default(now())
 
   @@index([publishedAt, occurredAt])
   @@index([seasonId, occurredAt])

@@ -41,6 +41,7 @@ export function assertBrasileirao2026Readiness(input: {
     .filter((value): value is Date => Boolean(value) && !Number.isNaN(value!.getTime()));
   if (
     input.teams.length !== 20 ||
+    input.evidence.standings !== 20 ||
     input.evidence.rawMatches !== 380 ||
     openingMatches.length !== 10 ||
     openingTimes.length !== 10 ||
@@ -226,6 +227,8 @@ export async function prepareBrasileirao2026(input: {
         poolId: pool.id,
         seasonId: season.id,
         scoringRuleSetId: scoringRuleSet.id,
+        scoringRuleSetVersionId: 'scoring-rule-set-version-15-3-1-0-v1',
+        tieBreakerRuleSetId: 'tie-breaker-classic-v1',
         scoreableFromRound: BRASILEIRAO_2026_STARTS_AT_ROUND,
         scoreableFrom: input.readiness.openingStartsAt,
         startsAtRound: BRASILEIRAO_2026_STARTS_AT_ROUND,
@@ -234,6 +237,8 @@ export async function prepareBrasileirao2026(input: {
       },
       update: {
         scoringRuleSetId: scoringRuleSet.id,
+        scoringRuleSetVersionId: 'scoring-rule-set-version-15-3-1-0-v1',
+        tieBreakerRuleSetId: 'tie-breaker-classic-v1',
         scoreableFromRound: BRASILEIRAO_2026_STARTS_AT_ROUND,
         scoreableFrom: input.readiness.openingStartsAt,
         startsAtRound: BRASILEIRAO_2026_STARTS_AT_ROUND,

@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { requireAuth } from './auth.js';
+import { requireAdmin, requireAuth } from './auth.js';
 
 const findUnique = vi.hoisted(() => vi.fn());
 
@@ -70,5 +70,24 @@ describe('session revalidation', () => {
 
     requireAuth(req, {} as Response, next);
     await vi.waitFor(() => expect(next).toHaveBeenCalledWith(failure));
+  });
+
+  it('does not grant admin access to a regular member', async () => {
+    const req = authenticatedRequest();
+    findUnique.mockResolvedValue({ ...req.session.user });
+    const next = vi.fn() as NextFunction;
+    requireAdmin(req, {} as Response, next);
+    await vi.waitFor(() => expect(next).toHaveBeenCalled());
+    expect(vi.mocked(next).mock.calls[0]?.[0]).toMatchObject({ code: 'FORBIDDEN' });
+  });
+
+  it('authorizes a global admin without fabricating or querying social membership', async () => {
+    const req = authenticatedRequest({ role: 'ADMIN' });
+    findUnique.mockResolvedValue({ ...req.session.user });
+    const next = vi.fn() as NextFunction;
+    requireAdmin(req, {} as Response, next);
+    await vi.waitFor(() => expect(next).toHaveBeenCalledWith());
+    expect(findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'user-1' } }));
+    expect(JSON.stringify(findUnique.mock.calls[0]?.[0])).not.toContain('membership');
   });
 });

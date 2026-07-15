@@ -6,6 +6,7 @@ dist-test/
 web-build/
 coverage/
 output/playwright/
+output/release-gates/
 .env
 .env.*
 !.env.example
@@ -25,3 +26,10 @@ snapshots/
 logs/
 uploads/
 apps/api/uploads/
+
+# Local diagnostics may contain production-derived data.
+/TESTE_FUNCIONALIDADE.md
+/get-user-data.js
+/test-api.js
+/test-visual.html
+/api-test-result.json

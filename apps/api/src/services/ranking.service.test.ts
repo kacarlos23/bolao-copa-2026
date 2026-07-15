@@ -73,7 +73,7 @@ describe('ranking tie-breaks', () => {
     ).toBe('Bia');
   });
 
-  it('orders remaining ties by fewer misses and then nickname', () => {
+  it('orders remaining ties by fewer misses and keeps complete ties shared', () => {
     expect(
       [
         rankingRow({ nickname: 'Ana', points: 10, misses: 2 }),
@@ -82,11 +82,11 @@ describe('ranking tie-breaks', () => {
     ).toBe('Bia');
 
     expect(
-      [
+      compareRankingRows(
         rankingRow({ nickname: 'Carlos', points: 10, misses: 1 }),
         rankingRow({ nickname: 'Ana', points: 10, misses: 1 }),
-      ].sort(compareRankingRows)[0].nickname,
-    ).toBe('Ana');
+      ),
+    ).toBe(0);
   });
 });
 
@@ -115,7 +115,7 @@ describe('award winners', () => {
     });
   });
 
-  it('uses goals, fewer misses and nickname as scoped award tie-breaks', () => {
+  it('uses goals and fewer misses as scoped award tie-breaks', () => {
     expect(
       buildAwardWinner([
         awardScore({ userId: 'u1', nickname: 'Ana', points: 10, scoreType: 'RESULT' }),
@@ -132,11 +132,5 @@ describe('award winners', () => {
       ])?.nickname,
     ).toBe('Bia');
 
-    expect(
-      buildAwardWinner([
-        awardScore({ userId: 'u1', nickname: 'Carlos', points: 10, scoreType: 'RESULT' }),
-        awardScore({ userId: 'u2', nickname: 'Ana', points: 10, scoreType: 'RESULT' }),
-      ])?.nickname,
-    ).toBe('Ana');
   });
 });

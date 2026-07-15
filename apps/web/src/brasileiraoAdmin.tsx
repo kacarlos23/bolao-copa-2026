@@ -91,7 +91,12 @@ export function BrasileiraoCanaryAdmin() {
         A preparação consulta a CBF antes de escrever. Leitura, palpites e UI são liberados de forma independente.
       </Text>
       {!seasonId ? (
-        <Pressable onPress={() => void prepare()} style={styles.primaryButton} disabled={loading}>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => void prepare()}
+          style={styles.primaryButton}
+          disabled={loading}
+        >
           <Text style={styles.primaryText}>Preparar com fonte oficial</Text>
         </Pressable>
       ) : (
@@ -107,6 +112,7 @@ export function BrasileiraoCanaryAdmin() {
               <Pressable
                 key={key}
                 accessibilityLabel={`Flag ${label}`}
+                accessibilityRole="button"
                 onPress={() => setFlags((current) => ({ ...current, [key]: !current[key] }))}
                 style={[styles.flag, flags[key] && styles.flagEnabled]}
               >
@@ -118,10 +124,16 @@ export function BrasileiraoCanaryAdmin() {
             ))}
           </View>
           <View style={styles.actions}>
-            <Pressable onPress={() => void save()} style={styles.primaryButton} disabled={loading}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => void save()}
+              style={styles.primaryButton}
+              disabled={loading}
+            >
               <Text style={styles.primaryText}>Salvar flags</Text>
             </Pressable>
             <Pressable
+              accessibilityRole="button"
               onPress={() => {
                 setFlags((current) => ({
                   ...current,

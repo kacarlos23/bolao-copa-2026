@@ -18,11 +18,11 @@ export const competitionFeatureFlagsSchema = z
 export type CompetitionFeatureFlags = z.infer<typeof competitionFeatureFlagsSchema>;
 export type CompetitionFeature = 'read' | 'write' | 'ui';
 
-const defaults: CompetitionFeatureFlags = {
-  readEnabled: true,
-  writeEnabled: true,
-  uiEnabled: true,
-  reason: 'Temporada legada sem gate de exposição.',
+export const COMPETITION_FEATURES_FAIL_CLOSED_DEFAULTS: CompetitionFeatureFlags = {
+  readEnabled: false,
+  writeEnabled: false,
+  uiEnabled: false,
+  reason: 'Registro de feature flags ausente; exposição bloqueada por segurança.',
   updatedAt: new Date(0).toISOString(),
   updatedById: null,
 };
@@ -33,7 +33,9 @@ function featureKey(seasonId: string) {
 
 export async function getCompetitionFeatureFlags(seasonId: string) {
   const setting = await prisma.appSetting.findUnique({ where: { key: featureKey(seasonId) } });
-  return setting ? competitionFeatureFlagsSchema.parse(setting.value) : defaults;
+  return setting
+    ? competitionFeatureFlagsSchema.parse(setting.value)
+    : COMPETITION_FEATURES_FAIL_CLOSED_DEFAULTS;
 }
 
 export async function assertCompetitionFeature(

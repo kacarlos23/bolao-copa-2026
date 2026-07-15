@@ -25,7 +25,7 @@ registra as pendências de hardening que foram encontradas e concluídas depois.
 npm run lint                 aprovado
 npm test                     69 testes aprovados no gate integrado dos Prompts 0–2
 npm run build                aprovado
-npm audit --omit=dev         0 high, 0 critical; 1 low e 14 moderate triados
+npm run audit:dependencies   0 high, 0 critical; 13 moderate triados
 ```
 
 A suíte inclui falhas de callback de sessão, revogação, CSRF negativo,
@@ -39,14 +39,15 @@ merge dirty e sucesso parcial.
   upload passaram.
 - `undici` transitivo do Expo foi fixado em `6.27.0`; os avisos high deixaram de
   aparecer.
-- Os 14 avisos moderate restantes pertencem à cadeia Expo 54/CLI
+- Os 13 avisos moderate restantes pertencem à cadeia Expo 54/CLI
   (`@expo/*`, `postcss`, `uuid`/`xcode`) e a correção sugerida pelo npm exige
   upgrade major para Expo 57. Esse upgrade foi adiado para uma entrega isolada,
   pois não há exploração por payload de negócio no runtime da API e uma
   atualização forçada quebraria a matriz Expo/React Native atual.
-- O aviso low de `esbuild@0.28.0` afeta o servidor de desenvolvimento no
-  Windows; ele não é executado no runtime de produção. A correção fica
-  condicionada a uma versão compatível de `tsx`/`esbuild`.
+- O aviso low de `esbuild@0.28.0` foi removido por atualização compatível.
+- `vitest` foi atualizado de 2.1.9 para 4.1.10. Isso removeu a vulnerabilidade
+  crítica direta e as duas altas transitivas de Vite/form-data; as suítes e os
+  builds foram repetidos depois da atualização.
 - Não foi usado `npm audit fix --force`.
 
 Não permanece P0/P1 do Prompt 0 aberto. A repetição de um restore drill no
