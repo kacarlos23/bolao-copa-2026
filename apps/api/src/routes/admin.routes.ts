@@ -46,6 +46,7 @@ import {
   getCompetitionFeatureFlags,
   updateCompetitionFeatureFlags,
 } from '../modules/competitions/competition-feature.service.js';
+import { isAuditedCompetitionFeatureMutation } from './admin-legacy-mutation.js';
 
 export const adminRouter = Router();
 
@@ -55,7 +56,11 @@ adminRouter.use(adminResourceRouter);
 adminRouter.use(adminProviderRouter);
 adminRouter.use(adminJobRouter);
 adminRouter.use((req, res, next) => {
-  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || (req.method === 'POST' && req.path === '/providers/sync')) {
+  if (
+    ['GET', 'HEAD', 'OPTIONS'].includes(req.method) ||
+    (req.method === 'POST' && req.path === '/providers/sync') ||
+    isAuditedCompetitionFeatureMutation(req.method, req.path)
+  ) {
     next();
     return;
   }
