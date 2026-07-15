@@ -27,6 +27,7 @@ import {
 } from './api';
 import { flagSources } from './flagSources';
 import { SoftReveal } from './motion';
+import { mergePredictionDraft, predictionSaveFailureMessage } from './predictionDraft';
 
 const c = {
   bg: '#00143a',
@@ -40,6 +41,15 @@ const c = {
   greenDark: '#008a4f',
   gold: '#ffd315',
   red: '#ff6b59',
+};
+
+type DraftSaveState = 'dirty' | 'saving' | 'saved' | 'failed';
+
+const draftSaveLabels: Record<DraftSaveState, string> = {
+  dirty: 'Não salvo',
+  saving: 'Salvando',
+  saved: 'Salvo',
+  failed: 'Falhou',
 };
 
 function localDay(value: string | Date) {
@@ -273,6 +283,7 @@ export function DailyPredictionsV2({
   const [board, setBoard] = useState<PredictionBoard | null>(null);
   const [closeMinutes, setCloseMinutes] = useState(5);
   const [draft, setDraft] = useState<Record<string, { home: string; away: string }>>({});
+  const [saveStateByMatch, setSaveStateByMatch] = useState<Record<string, DraftSaveState>>({});
   const [savingAll, setSavingAll] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -281,6 +292,8 @@ export function DailyPredictionsV2({
   const skipNextDaysRefreshUntil = useRef(0);
   const dateScrollerRef = useRef<ScrollView>(null);
   const daysRef = useRef<MatchDay[]>([]);
+  const dirtyMatchIds = useRef(new Set<string>());
+  const loadDaySequence = useRef(0);
 
   const loadDays = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -308,6 +321,7 @@ export function DailyPredictionsV2({
 
   const loadDay = useCallback(
     async (id: string, quiet = false) => {
+      const requestSequence = ++loadDaySequence.current;
       if (!quiet) setDay(null);
       try {
         const listedDay = daysRef.current.find((item) => item.id === id);
@@ -318,29 +332,29 @@ export function DailyPredictionsV2({
         const result = isSyntheticDay || hasKnockoutMatches ? null : await api.matchDay(id);
         const matchDay = result?.matchDay ?? listedDay;
         if (!matchDay) return;
-        const nextBoard =
-          matchDay.matches.some((match) => knockoutMatchNumber(match) != null)
-            ? await api.predictionBoard()
-            : null;
+        const nextBoard = matchDay.matches.some((match) => knockoutMatchNumber(match) != null)
+          ? await api.predictionBoard()
+          : null;
+        if (requestSequence !== loadDaySequence.current) return;
         if (nextBoard) setBoard(nextBoard);
         setDay(matchDay);
         if (result) setCloseMinutes(result.predictionCloseMinutes);
+        const serverDraft: Record<string, { home: string; away: string }> = {};
+        for (const match of matchDay.matches) {
+          const matchNumber = knockoutMatchNumber(match);
+          const own =
+            matchNumber != null
+              ? nextBoard?.knockout.savedBracket?.picks.find(
+                  (pick) => pick.matchNumber === matchNumber,
+                )
+              : match.predictions.find((prediction) => prediction.userId === currentUserId);
+          serverDraft[match.id] = {
+            home: own ? String(own.predictedHomeScore) : '',
+            away: own ? String(own.predictedAwayScore) : '',
+          };
+        }
         setDraft((current) => {
-          const next = { ...current };
-          for (const match of matchDay.matches) {
-            const matchNumber = knockoutMatchNumber(match);
-            const own =
-              matchNumber != null
-                ? nextBoard?.knockout.savedBracket?.picks.find(
-                    (pick) => pick.matchNumber === matchNumber,
-                  )
-                : match.predictions.find((prediction) => prediction.userId === currentUserId);
-            next[match.id] = {
-              home: own ? String(own.predictedHomeScore) : (next[match.id]?.home ?? ''),
-              away: own ? String(own.predictedAwayScore) : (next[match.id]?.away ?? ''),
-            };
-          }
-          return next;
+          return mergePredictionDraft(current, serverDraft, dirtyMatchIds.current);
         });
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : 'Não foi possível abrir este dia.');
@@ -380,6 +394,39 @@ export function DailyPredictionsV2({
     });
   }, [days.length, selectedId]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const warnOnUnsaved = (event: BeforeUnloadEvent) => {
+      if (dirtyMatchIds.current.size === 0) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnOnUnsaved);
+    return () => window.removeEventListener('beforeunload', warnOnUnsaved);
+  }, []);
+
+  function updateDraftScore(matchId: string, side: 'home' | 'away', value: string) {
+    const normalized = value.replace(/\D/g, '').slice(0, 2);
+    dirtyMatchIds.current.add(matchId);
+    setSaved(false);
+    setSaveStateByMatch((current) => ({ ...current, [matchId]: 'dirty' }));
+    setDraft((current) => ({
+      ...current,
+      [matchId]: {
+        ...(current[matchId] ?? { home: '', away: '' }),
+        [side]: normalized,
+      },
+    }));
+  }
+
+  function setMatchSaveState(matchIds: string[], state: DraftSaveState) {
+    setSaveStateByMatch((current) => {
+      const next = { ...current };
+      for (const matchId of matchIds) next[matchId] = state;
+      return next;
+    });
+  }
+
   const completeOpenItems = useMemo(() => {
     if (!day) return [];
     return day.matches
@@ -407,15 +454,30 @@ export function DailyPredictionsV2({
     if (!day || completeOpenItems.length === 0) return;
     setSavingAll(true);
     setError('');
-    try {
-      skipNextDaysRefreshUntil.current = Date.now() + 4000;
-      if (completeOpenPredictions.length) {
+    const regularIds = completeOpenPredictions.map((item) => item.matchId);
+    const knockoutIds = completeOpenKnockoutPredictions.map((item) => item.matchId);
+    setMatchSaveState([...regularIds, ...knockoutIds], 'saving');
+    const savedIds: string[] = [];
+    const failures: string[] = [];
+    skipNextDaysRefreshUntil.current = Date.now() + 4000;
+
+    if (completeOpenPredictions.length) {
+      try {
         await api.savePredictions(
           day.id,
           completeOpenPredictions.map(({ match: _match, ...prediction }) => prediction),
         );
+        savedIds.push(...regularIds);
+      } catch (caught) {
+        setMatchSaveState(regularIds, 'failed');
+        failures.push(
+          `fase de grupos: ${caught instanceof Error ? caught.message : 'falha ao salvar'}`,
+        );
       }
-      if (completeOpenKnockoutPredictions.length) {
+    }
+
+    if (completeOpenKnockoutPredictions.length) {
+      try {
         const nextBoard = board ?? (await api.predictionBoard());
         const picks = completeOpenKnockoutPredictions.map((item) => {
           const matchNumber = knockoutMatchNumber(item.match);
@@ -439,7 +501,9 @@ export function DailyPredictionsV2({
           } else if (item.predictedHomeScore === item.predictedAwayScore) {
             if (
               existingPick?.advancingTeamId &&
-              [item.match.homeTeam.id, item.match.awayTeam.id].includes(existingPick.advancingTeamId)
+              [item.match.homeTeam.id, item.match.awayTeam.id].includes(
+                existingPick.advancingTeamId,
+              )
             ) {
               advancingTeamId = existingPick.advancingTeamId;
             } else {
@@ -457,14 +521,25 @@ export function DailyPredictionsV2({
         });
         const updatedBoard = await api.saveKnockoutBracket(picks);
         setBoard(updatedBoard);
+        savedIds.push(...knockoutIds);
+      } catch (caught) {
+        setMatchSaveState(knockoutIds, 'failed');
+        failures.push(`mata-mata: ${caught instanceof Error ? caught.message : 'falha ao salvar'}`);
       }
-      await loadDay(day.id, true);
-      setSaved(true);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Nao foi possivel salvar os palpites.');
-    } finally {
-      setSavingAll(false);
     }
+
+    for (const matchId of savedIds) dirtyMatchIds.current.delete(matchId);
+    if (savedIds.length) {
+      setMatchSaveState(savedIds, 'saved');
+      await loadDay(day.id, true);
+    }
+    if (failures.length) {
+      setError(predictionSaveFailureMessage(savedIds.length, failures));
+      setSaved(false);
+    } else {
+      setSaved(true);
+    }
+    setSavingAll(false);
   }
 
   /*
@@ -501,7 +576,9 @@ export function DailyPredictionsV2({
       <View style={styles.pageHeader}>
         <View>
           <Text style={styles.pageTitle}>Jogos por dia</Text>
-          <Text style={styles.pageSubtitle}>Preencha os placares e salve todos os palpites do dia.</Text>
+          <Text style={styles.pageSubtitle}>
+            Preencha os placares e salve todos os palpites do dia.
+          </Text>
         </View>
         <RulesBar closeMinutes={closeMinutes} />
       </View>
@@ -560,6 +637,7 @@ export function DailyPredictionsV2({
         {day?.matches.map((match) => {
           const open = Boolean(match.isOpenForPredictions);
           const values = draft[match.id] ?? { home: '', away: '' };
+          const saveState = saveStateByMatch[match.id];
           const officialScore = score(match);
           const scoreInputs = (
             <View style={[styles.guessColumn, styles.scoreInputs, compact && styles.mobileGuess]}>
@@ -567,12 +645,7 @@ export function DailyPredictionsV2({
                 value={values.home}
                 editable={open}
                 keyboardType="number-pad"
-                onChangeText={(home) =>
-                  setDraft((current) => ({
-                    ...current,
-                    [match.id]: { ...values, home: home.replace(/\D/g, '').slice(0, 2) },
-                  }))
-                }
+                onChangeText={(home) => updateDraftScore(match.id, 'home', home)}
                 style={[styles.scoreInput, !open && styles.scoreInputLocked]}
               />
               <Text style={styles.scoreSeparator}>x</Text>
@@ -580,14 +653,19 @@ export function DailyPredictionsV2({
                 value={values.away}
                 editable={open}
                 keyboardType="number-pad"
-                onChangeText={(away) =>
-                  setDraft((current) => ({
-                    ...current,
-                    [match.id]: { ...values, away: away.replace(/\D/g, '').slice(0, 2) },
-                  }))
-                }
+                onChangeText={(away) => updateDraftScore(match.id, 'away', away)}
                 style={[styles.scoreInput, !open && styles.scoreInputLocked]}
               />
+              {saveState ? (
+                <Text
+                  style={[
+                    styles.draftSaveState,
+                    saveState === 'failed' && styles.draftSaveStateFailed,
+                  ]}
+                >
+                  {draftSaveLabels[saveState]}
+                </Text>
+              ) : null}
             </View>
           );
           const action = !open ? (
@@ -885,7 +963,9 @@ function ThirdPlacedTable({ groups }: { groups: CupStandingGroup[] }) {
                 <View style={[styles.thirdTeamColumn, styles.thirdTeam]}>
                   <TeamFlag team={row.team} size={18} />
                   <View style={styles.thirdTeamCopy}>
-                    <Text style={styles.thirdTeamName} numberOfLines={1}>{row.team.name}</Text>
+                    <Text style={styles.thirdTeamName} numberOfLines={1}>
+                      {row.team.name}
+                    </Text>
                     <Text style={styles.thirdGroupLabel}>Grupo {row.group}</Text>
                   </View>
                 </View>
@@ -897,7 +977,9 @@ function ThirdPlacedTable({ groups }: { groups: CupStandingGroup[] }) {
                   {row.goalDifference > 0 ? `+${row.goalDifference}` : row.goalDifference}
                 </Text>
                 <Text style={styles.thirdPlacedCell}>{row.goalsFor}</Text>
-                <View style={styles.thirdFormColumn}><ThirdPlacedForm values={row.lastFive} /></View>
+                <View style={styles.thirdFormColumn}>
+                  <ThirdPlacedForm values={row.lastFive} />
+                </View>
                 <Text style={[styles.thirdPlacedCell, styles.thirdPointsColumn]}>{row.points}</Text>
               </View>
             );
@@ -1342,7 +1424,21 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   versus: { color: c.gold, fontSize: 12, fontWeight: '900' },
-  scoreInputs: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  scoreInputs: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  draftSaveState: {
+    width: '100%',
+    color: c.muted,
+    fontSize: 10,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  draftSaveStateFailed: { color: c.red },
   scoreInput: {
     width: 52,
     height: 42,

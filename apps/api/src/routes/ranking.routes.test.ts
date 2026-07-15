@@ -43,6 +43,22 @@ vi.mock('../services/ge-score-sync.service.js', () => ({
   })),
 }));
 
+vi.mock('../prisma.js', () => ({
+  prisma: {
+    user: {
+      findUnique: vi.fn(async () => ({
+        id: 'user-1',
+        username: 'ana',
+        nickname: 'Ana',
+        avatarUrl: null,
+        role: 'USER',
+        status: 'ACTIVE',
+        sessionVersion: 1,
+      })),
+    },
+  },
+}));
+
 function createRankingTestApp(authenticated: boolean) {
   const app = express();
   app.use(express.json());
@@ -56,7 +72,10 @@ function createRankingTestApp(authenticated: boolean) {
               nickname: 'Ana',
               avatarUrl: null,
               role: 'USER',
+              status: 'ACTIVE',
+              sessionVersion: 1,
             },
+            destroy: (callback: (error?: unknown) => void) => callback(),
           }
         : {},
     });

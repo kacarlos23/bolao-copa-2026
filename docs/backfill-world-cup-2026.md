@@ -1,21 +1,17 @@
 # Backfill da Copa do Mundo 2026
 
-O comando abaixo preenche o modelo multi-competição depois da migration
-`20260714234454_add_multi_competition_model`:
+O backfill preenche o modelo multi-competição depois das migrations aditivas:
 
 ```powershell
 npm run backfill:world-cup-2026 -- --report .\snapshots\backfill-report.json
 ```
 
-O backfill roda em uma transação `SERIALIZABLE`, usa um advisory lock para impedir
-duas execuções concorrentes e aborta se detectar alteração em IDs, palpites,
-resultados, pontos ou posições. O relatório JSON contém contagens antes/depois,
-deltas, IDs criados e hashes de preservação. O diretório `snapshots/` continua
-ignorado pelo Git.
+Ele executa uma transação `SERIALIZABLE`, adquire advisory lock e aborta se
+detectar mudança de IDs ou dados de negócio da Copa. O relatório inclui
+contagens, deltas, hashes e validações explícitas de órfãos, duplicidades e
+relações cruzadas.
 
-## Identidades e estrutura
-
-As identidades padrão são determinísticas:
+## Identidades determinísticas
 
 - `Competition`: `competition-world-cup`, slug `world-cup`;
 - `CompetitionSeason`: `competition-season-world-cup-2026`, slug
@@ -24,40 +20,27 @@ As identidades padrão são determinísticas:
 - `PoolSeason`: `pool-season-bolao-do-trabalho-world-cup-2026`;
 - `ScoringRuleSet`: `scoring-rule-set-15-3-1-0-v1`.
 
-Se uma entidade com a mesma chave natural já existir, seu ID é preservado e
-somente campos divergentes são corrigidos. IDs das entidades de junção e dos
-mappings são derivados por SHA-256 da chave natural.
+Entidades que já existem por chave natural conservam seus IDs. IDs de junção e
+mappings são derivados deterministicamente da chave natural.
 
-A fase de grupos usa um `Stage` com três `Round`s e todas as partidas legadas são
-associadas à rodada indicada em `rawPayload.round`, com fallback para a tabela
-oficial local. O mata-mata usa outro `Stage` e seis `Round`s descritivos. A lógica
-existente continua baseada em `KnockoutFixture.stage`; nenhum fixture, palpite ou
-serviço público foi convertido para outro modelo.
+## Mapa do preenchimento
 
-O status da temporada é `FINISHED` apenas quando a final e todos os jogos
-armazenados estão encerrados. Enquanto houver dados não encerrados, é `ACTIVE`.
-Em banco vazio, o calendário oficial local decide entre `DRAFT`, `ACTIVE` e
-`FINISHED`.
+- cria a competição, a temporada, os stages de grupos/mata-mata e nove rounds;
+- vincula seleções a `SeasonTeam` e as classifica como `NATIONAL_TEAM`;
+- preenche `seasonId`, stage/round e fechamento individual de `MatchDay` e
+  `Match`;
+- cria pool, memberships, `PoolSeason` e o ruleset imutável 15/3/1/0;
+- preenche `poolSeasonId` em palpites, scores, ranking, chave, picks,
+  simulações de grupos e scores do mata-mata;
+- vincula fixtures e gerações do mata-mata à temporada, sem substituir o
+  modelo legado;
+- registra equipes, partidas e fixtures em `ProviderEntityMapping`.
 
-## Escopo vinculado
-
-O comando associa:
-
-- seleções da Copa a `SeasonTeam` e as classifica como `NATIONAL_TEAM`;
-- partidas da fase de grupos, seus `MatchDay`s e palpites/scores relacionados;
-- fixtures, gerações e chaves do mata-mata;
-- snapshots de ranking legados;
-- todos os usuários com papel `USER` ou atividade de palpite/ranking ao pool;
-- IDs de `Team.externalId`, `Match.externalId` e números oficiais 73–104 a
-  `ProviderEntityMapping`;
-- o conjunto de regras imutável 15/3/1/0 ao `PoolSeason`.
+O `PoolSeason` inicia na primeira rodada e em `scoreableFrom` igual ao começo
+do torneio. O status da temporada deriva dos jogos armazenados. O dual write do
+runtime preserva os mesmos IDs enquanto as rotas genéricas ainda não existem.
 
 ## Comparação de snapshots
-
-Para uma mudança estrutural, gere snapshots com `--backfill`. O snapshot mantém
-o hash físico integral e acrescenta hashes das colunas de negócio, excluindo
-somente as novas FKs, os novos campos aditivos e `updatedAt` alterado pelo
-preenchimento dessas FKs:
 
 ```powershell
 npm run snapshot:copa -- --backfill --output .\snapshots\before.json
@@ -66,21 +49,27 @@ npm run snapshot:copa -- --backfill --output .\snapshots\after.json
 npm run snapshot:compare -- --backfill .\snapshots\before.json .\snapshots\after.json
 ```
 
-Para provar idempotência byte a byte, capture um snapshot normal depois da
-primeira execução, rode o backfill novamente e use o comparador sem a opção
-`--backfill`.
+O modo `--backfill` exclui somente os novos campos estruturais e os
+`updatedAt` necessariamente tocados pelo preenchimento. IDs, partidas,
+resultados, palpites, scores, pontos e posições continuam protegidos. Para
+provar idempotência física, capture um snapshot normal depois da primeira
+execução, repita o backfill e compare sem `--backfill`.
 
-## Evidência local de 14/07/2026
+## Evidência do rehearsal de 14/07/2026
 
-Em uma cópia restaurada do banco atual, a primeira execução criou 1 competição,
-1 temporada ativa, 2 stages, 9 rounds, 48 `SeasonTeam`, 1 pool, 1 membership,
-1 `PoolSeason`, 1 regra e 152 mappings. Foram vinculados 17 `MatchDay`, 72
-partidas, 72 palpites, 20 scores, 32 fixtures, 1 geração, 1 chave e 1 snapshot de
-ranking. Os hashes protegidos ficaram idênticos antes/depois.
+Sobre uma cópia restaurada do banco real, a primeira execução resultou em:
 
-Na segunda execução, todos os 21 deltas do relatório foram zero e o snapshot
-físico integral permaneceu idêntico. O ensaio separado em banco limpo aplicou as
-cinco migrations, executou o seed do administrador, criou a estrutura padrão e
-também produziu deltas zero e snapshot integral idêntico na segunda execução.
-O banco local original foi usado somente para dump e snapshot de leitura e
-continuou sem a migration multi-competição aplicada.
+- 1 competição, 1 temporada, 2 stages, 9 rounds e 48 `SeasonTeam`;
+- 1 pool, 1 membership, 1 `PoolSeason`, 1 ruleset e 152 mappings;
+- 17 dias, 72 partidas, 72 palpites e 20 scores;
+- 32 fixtures, 1 geração, 1 chave, 1 pick e 72 simulações de grupos;
+- 0 scores de mata-mata e 1 snapshot de ranking.
+
+Órfãos, duplicidades e relações cruzadas ficaram todos em zero. O hash de
+preservação antes/depois foi
+`e4c1e6f8237328874bb09e343741c5871588567114f4bd2155b6edfb2dc8fbde`.
+O comparador confirmou snapshots de negócio idênticos.
+
+Na segunda execução, todos os deltas foram zero e o snapshot físico integral
+permaneceu idêntico. A evidência completa está em
+[evidencia-prompt-2-schema-backfill.md](evidencia-prompt-2-schema-backfill.md).

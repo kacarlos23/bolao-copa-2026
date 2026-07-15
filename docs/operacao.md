@@ -175,6 +175,19 @@ npm run snapshot:compare -- --backfill .\snapshots\before.json .\snapshots\after
 O procedimento completo do backfill da Copa está em
 [backfill-world-cup-2026.md](backfill-world-cup-2026.md).
 
+Para o rehearsal da migration, use um banco PostgreSQL restaurado e isolado.
+Depois de `prisma migrate deploy` e do backfill, valide também as constraints:
+
+```powershell
+$env:DATABASE_URL = "postgresql://usuario:senha@localhost:porta/banco_isolado"
+npm run test:migration:constraints
+```
+
+O teste abre uma transação, tenta cruzamentos de temporada/pool e sempre a
+reverte. Não aponte esse comando para produção. A evidência aprovada da Etapa 2
+está em
+[evidencia-prompt-2-schema-backfill.md](evidencia-prompt-2-schema-backfill.md).
+
 ### 5. Tag de baseline — somente após confirmação do operador
 
 Não crie nem mova a tag durante a preparação da baseline. Após backup validado, restore drill aprovado, snapshots idênticos e confirmação humana, fixe a tag no commit revisado:
@@ -193,6 +206,10 @@ Se `git tag --list` já retornar a tag, pare. Não use `-f`, não apague e não 
 ### Evidência do ensaio local
 
 O seed, backup completo, restore temporário, comparação de snapshots, verificação de avatares e limpeza executados em 2026-07-14 estão registrados em [evidencia-preservacao-local.md](evidencia-preservacao-local.md).
+
+As correções de sessão, CSRF, shutdown, fechamento transacional, drafts,
+upload, provider e retenção, junto da triagem atual do `npm audit`, estão em
+[evidencia-prompt-0-hardening.md](evidencia-prompt-0-hardening.md).
 
 ## Agendamento de backup
 

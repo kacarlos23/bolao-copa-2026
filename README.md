@@ -10,15 +10,18 @@ Monorepo TypeScript do bolão entre amigos da Copa do Mundo 2026, em evolução 
 - `scripts`: operação do PostgreSQL local, healthcheck, backup e restore.
 - `docs`: arquitetura, operação e plano faseado.
 
-Baseline verificada em 14/07/2026:
+Baseline verificada em 14/07/2026 após os Prompts 0–2:
 
 ```text
-npm test       38 testes aprovados
+npm test       69 testes aprovados
 npm run lint   aprovado
 npm run build  aprovado
 ```
 
-A suíte ainda não possui testes reais do frontend nem integração PostgreSQL completa. Antes de habilitar múltiplas competições, siga [o plano de evolução](docs/plano-de-evolucao-bolao.md).
+A suíte possui os primeiros testes de reconciliação de drafts do frontend, e a
+integração PostgreSQL da Etapa 2 foi ensaiada sobre backup restaurado. Antes de
+habilitar múltiplas competições, siga
+[o plano de evolução](docs/plano-de-evolucao-bolao.md).
 
 ## Desenvolvimento
 
@@ -68,7 +71,7 @@ O build não substitui os gates de migration rehearsal, restore drill, concorrê
 - Não altere o ranking histórico da Copa sem regra versionada e auditoria.
 - Use migrations aditivas no padrão expand–migrate–contract.
 - Toda nova query esportiva deve ter `seasonId`; palpites e ranking também devem ter `poolSeasonId`.
-- O backup PostgreSQL atual não inclui `uploads/avatars`; preserve banco e arquivos até a Etapa 0 completar o contrato de backup.
+- O backup versionado inclui `uploads/avatars`, manifests e SHA-256; valide o conjunto antes de qualquer restore.
 - Pare API e jobs antes de restore. Faça o primeiro teste de restore em banco isolado.
 - A origem oficial vigente deve ser verificada antes de importar horários do Brasileirão.
 
@@ -78,5 +81,8 @@ Consulte também:
 - [Plano de expansão](<docs/PLANO DE EXPANSÃO>)
 - [Arquivo canônico de execução — comece pela pré-execução](docs/PROMPTS_CODEX_EXPANSAO_BRASILEIRAO_2026.md#pre-execucao)
 - [Operação](docs/operacao.md)
+- [Evidência do Prompt 0](docs/evidencia-prompt-0-hardening.md)
+- [ADRs e evidência do Prompt 1](docs/evidencia-prompt-1-adrs.md)
+- [Schema, backfill e evidência do Prompt 2](docs/evidencia-prompt-2-schema-backfill.md)
 - [Etapa 0 — preservação](<docs/Etapa 0 — Preservação do bolão da Copa>)
 - [Etapa 9 — testes](<docs/Etapa 9 — Testes obrigatórios>)

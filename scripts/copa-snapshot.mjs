@@ -89,7 +89,7 @@ async function createContentHashes(client) {
 }
 
 const BUSINESS_HASH_TABLES = {
-  User: [],
+  User: ['sessionVersion'],
   Team: ['type', 'crestUrl', 'updatedAt'],
   MatchDay: ['seasonId', 'updatedAt'],
   Match: ['seasonId', 'stageId', 'roundId', 'predictionClosesAt', 'updatedAt'],
@@ -98,9 +98,9 @@ const BUSINESS_HASH_TABLES = {
   KnockoutFixture: ['seasonId', 'updatedAt'],
   KnockoutGeneration: ['seasonId', 'updatedAt'],
   KnockoutBracket: ['poolSeasonId', 'updatedAt'],
-  KnockoutPick: [],
-  KnockoutGroupSimulationScore: [],
-  KnockoutPredictionScore: [],
+  KnockoutPick: ['poolSeasonId', 'updatedAt'],
+  KnockoutGroupSimulationScore: ['poolSeasonId', 'updatedAt'],
+  KnockoutPredictionScore: ['poolSeasonId'],
   RankingSnapshot: ['seasonId', 'poolSeasonId', 'roundId'],
 };
 

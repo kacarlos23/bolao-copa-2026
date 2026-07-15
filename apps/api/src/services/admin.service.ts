@@ -4,6 +4,8 @@ import { prisma } from '../prisma.js';
 import { AppError } from '../http/errors.js';
 import { worldCup2026GroupStageMatches, worldCup2026Teams } from '../data/world-cup-2026.js';
 import { getPredictionCloseMinutes, predictionCloseAt } from './prediction-settings.service.js';
+import { closeSseClientsForUser } from '../realtime/sse.js';
+import { WORLD_CUP_CONTEXT } from '../domain/world-cup-context.js';
 
 export async function listUsers() {
   return prisma.user.findMany({
@@ -32,7 +34,10 @@ export async function setUserStatus(actorId: string, userId: string, blocked: bo
 
   const user = await prisma.user.update({
     where: { id: userId },
-    data: { status: blocked ? 'BLOCKED' : 'ACTIVE' },
+    data: {
+      status: blocked ? 'BLOCKED' : 'ACTIVE',
+      sessionVersion: { increment: 1 },
+    },
     select: {
       id: true,
       username: true,
@@ -53,6 +58,8 @@ export async function setUserStatus(actorId: string, userId: string, blocked: bo
     },
   });
 
+  closeSseClientsForUser(userId);
+
   return user;
 }
 
@@ -62,10 +69,14 @@ export async function resetUserPassword(actorId: string, userId: string, passwor
   }
 
   const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
-  await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+  await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash, sessionVersion: { increment: 1 } },
+  });
   await prisma.adminAuditLog.create({
     data: { actorId, action: 'PASSWORD_RESET', targetId: userId },
   });
+  closeSseClientsForUser(userId);
 }
 
 function localDateStart(date: Date) {
@@ -175,11 +186,13 @@ export async function createOrUpdateMatch({
   const matchDay = await prisma.matchDay.upsert({
     where: { date },
     update: {
+      seasonId: WORLD_CUP_CONTEXT.seasonId,
       firstMatchStartsAt,
       predictionsCloseAt: matchDayCloseAt,
       status: matchDayCloseAt.getTime() > Date.now() ? 'OPEN' : 'CLOSED',
     },
     create: {
+      seasonId: WORLD_CUP_CONTEXT.seasonId,
       date,
       firstMatchStartsAt,
       predictionsCloseAt: closeAt,
@@ -192,9 +205,11 @@ export async function createOrUpdateMatch({
     where: { externalId },
     update: {
       matchDayId: matchDay.id,
+      seasonId: WORLD_CUP_CONTEXT.seasonId,
       homeTeamId: homeTeam.id,
       awayTeamId: awayTeam.id,
       startsAt: startsAtDate,
+      predictionClosesAt: closeAt,
       status: 'SCHEDULED',
       rawPayload: metadata,
       lastSyncedAt: null,
@@ -202,9 +217,11 @@ export async function createOrUpdateMatch({
     create: {
       externalId,
       matchDayId: matchDay.id,
+      seasonId: WORLD_CUP_CONTEXT.seasonId,
       homeTeamId: homeTeam.id,
       awayTeamId: awayTeam.id,
       startsAt: startsAtDate,
+      predictionClosesAt: closeAt,
       status: 'SCHEDULED',
       rawPayload: metadata,
     },

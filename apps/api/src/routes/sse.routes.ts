@@ -9,5 +9,5 @@ sseRouter.get('/events', requireAuth, (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders?.();
-  addSseClient(res);
+  addSseClient(res, req);
 });

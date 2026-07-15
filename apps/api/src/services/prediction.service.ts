@@ -9,6 +9,7 @@ import {
   predictionCloseAt,
   predictionState,
 } from './prediction-settings.service.js';
+import { WORLD_CUP_CONTEXT } from '../domain/world-cup-context.js';
 
 function knockoutStageLabel(stage: string) {
   const labels: Record<string, string> = {
@@ -224,62 +225,74 @@ export async function upsertPredictions(
   userId: string,
   input: UpsertMatchDayPredictionsInput,
 ) {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { role: true, status: true },
-  });
-
-  if (!user || user.status !== 'ACTIVE') {
-    throw new AppError(403, 'Usuário sem permissão para salvar palpites.', 'USER_NOT_ALLOWED');
-  }
-
-  if (user.role === 'ADMIN') {
-    throw new AppError(403, 'Administrador não participa dos palpites.', 'ADMIN_NOT_ALLOWED');
-  }
-
-  const [predictionCloseMinutes, day] = await Promise.all([
-    getPredictionCloseMinutes(),
-    prisma.matchDay.findUnique({
-      where: { id: matchDayId },
-      include: { matches: { select: { id: true, startsAt: true } } },
-    }),
-  ]);
-
-  if (!day) throw new AppError(404, 'Dia de jogos não encontrado.', 'MATCH_DAY_NOT_FOUND');
-
-  const matchesById = new Map(day.matches.map((match) => [match.id, match]));
-  const now = new Date();
-  for (const prediction of input.predictions) {
-    const match = matchesById.get(prediction.matchId);
-    if (!match) {
-      throw new AppError(400, 'Palpite contem jogo fora do dia selecionado.', 'MATCH_DAY_MISMATCH');
-    }
-    if (!matchPredictionState(match.startsAt, now, predictionCloseMinutes).isOpenForPredictions) {
-      throw new AppError(
-        409,
-        'Os palpites desta partida já foram fechados.',
-        'PREDICTION_MATCH_CLOSED',
-      );
-    }
-  }
-
+  const predictionCloseMinutes = await getPredictionCloseMinutes();
   const saved = await prisma.$transaction(
-    input.predictions.map((prediction) =>
-      prisma.prediction.upsert({
-        where: { userId_matchId: { userId, matchId: prediction.matchId } },
-        update: {
-          predictedHomeScore: prediction.predictedHomeScore,
-          predictedAwayScore: prediction.predictedAwayScore,
+    async (tx) => {
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+        select: { role: true, status: true },
+      });
+      if (!user || user.status !== 'ACTIVE') {
+        throw new AppError(403, 'Usuário sem permissão para salvar palpites.', 'USER_NOT_ALLOWED');
+      }
+      if (user.role === 'ADMIN') {
+        throw new AppError(403, 'Administrador não participa dos palpites.', 'ADMIN_NOT_ALLOWED');
+      }
+
+      const day = await tx.matchDay.findUnique({
+        where: { id: matchDayId },
+        include: {
+          matches: { select: { id: true, startsAt: true, predictionClosesAt: true } },
         },
-        create: {
-          userId,
-          matchId: prediction.matchId,
-          predictedHomeScore: prediction.predictedHomeScore,
-          predictedAwayScore: prediction.predictedAwayScore,
-        },
-      }),
-    ),
-    { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
+      });
+      if (!day) throw new AppError(404, 'Dia de jogos não encontrado.', 'MATCH_DAY_NOT_FOUND');
+
+      const matchesById = new Map(day.matches.map((match) => [match.id, match]));
+      const now = new Date();
+      for (const prediction of input.predictions) {
+        const match = matchesById.get(prediction.matchId);
+        if (!match) {
+          throw new AppError(
+            400,
+            'Palpite contém jogo fora do dia selecionado.',
+            'MATCH_DAY_MISMATCH',
+          );
+        }
+        const closesAt =
+          match.predictionClosesAt ??
+          matchPredictionsCloseAt(match.startsAt, predictionCloseMinutes);
+        if (now >= closesAt) {
+          throw new AppError(
+            409,
+            'Os palpites desta partida já foram fechados.',
+            'PREDICTION_MATCH_CLOSED',
+          );
+        }
+      }
+
+      const predictions = [];
+      for (const prediction of input.predictions) {
+        predictions.push(
+          await tx.prediction.upsert({
+            where: { userId_matchId: { userId, matchId: prediction.matchId } },
+            update: {
+              poolSeasonId: WORLD_CUP_CONTEXT.poolSeasonId,
+              predictedHomeScore: prediction.predictedHomeScore,
+              predictedAwayScore: prediction.predictedAwayScore,
+            },
+            create: {
+              userId,
+              matchId: prediction.matchId,
+              poolSeasonId: WORLD_CUP_CONTEXT.poolSeasonId,
+              predictedHomeScore: prediction.predictedHomeScore,
+              predictedAwayScore: prediction.predictedAwayScore,
+            },
+          }),
+        );
+      }
+      return predictions;
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
   );
 
   emitSse('prediction-board.updated', {

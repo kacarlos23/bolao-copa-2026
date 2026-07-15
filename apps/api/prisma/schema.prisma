@@ -126,6 +126,7 @@ model User {
   nickname         String
   avatarUrl        String?
   passwordHash     String
+  sessionVersion   Int                            @default(1)
   role             UserRole                       @default(USER)
   status           UserStatus                     @default(ACTIVE)
   createdAt        DateTime                       @default(now())
@@ -304,26 +305,32 @@ model PoolMembership {
 }
 
 model PoolSeason {
-  id                         String            @id @default(cuid())
+  id                         String                         @id @default(cuid())
   poolId                     String
   seasonId                   String
   scoringRuleSetId           String?
   scoreableFromRound         Int?
-  historicalMatchesScoreable Boolean           @default(false)
+  scoreableFrom              DateTime?
+  startsAtRound              Int?
+  historicalMatchesScoreable Boolean                        @default(false)
   metadata                   Json?
-  createdAt                  DateTime          @default(now())
-  updatedAt                  DateTime          @updatedAt
-  pool                       Pool              @relation(fields: [poolId], references: [id])
-  season                     CompetitionSeason @relation(fields: [seasonId], references: [id])
-  scoringRuleSet             ScoringRuleSet?   @relation(fields: [scoringRuleSetId], references: [id])
+  createdAt                  DateTime                       @default(now())
+  updatedAt                  DateTime                       @updatedAt
+  pool                       Pool                           @relation(fields: [poolId], references: [id])
+  season                     CompetitionSeason              @relation(fields: [seasonId], references: [id])
+  scoringRuleSet             ScoringRuleSet?                @relation(fields: [scoringRuleSetId], references: [id])
   predictions                Prediction[]
   predictionScores           PredictionScore[]
   rankingSnapshots           RankingSnapshot[]
   knockoutBrackets           KnockoutBracket[]
+  knockoutPicks              KnockoutPick[]
+  knockoutGroupSimulations   KnockoutGroupSimulationScore[]
+  knockoutPredictionScores   KnockoutPredictionScore[]
 
   @@unique([poolId, seasonId])
   @@index([seasonId])
   @@index([scoringRuleSetId])
+  @@index([scoreableFrom])
 }
 
 model ScoringRuleSet {
@@ -375,6 +382,7 @@ model MatchDay {
   season             CompetitionSeason? @relation(fields: [seasonId], references: [id], onDelete: SetNull)
 
   @@unique([date])
+  @@unique([seasonId, date])
   @@index([status, predictionsCloseAt])
   @@index([firstMatchStartsAt])
   @@index([seasonId, date])
@@ -436,6 +444,7 @@ model Prediction {
   poolSeason         PoolSeason?      @relation(fields: [poolSeasonId], references: [id], onDelete: SetNull)
 
   @@unique([userId, matchId])
+  @@unique([poolSeasonId, userId, matchId])
   @@index([matchId])
   @@index([userId])
   @@index([poolSeasonId, matchId])
@@ -540,6 +549,7 @@ model KnockoutPick {
   id                 String                   @id @default(cuid())
   bracketId          String
   fixtureId          String
+  poolSeasonId       String?
   homeTeamId         String
   awayTeamId         String
   advancingTeamId    String
@@ -553,10 +563,12 @@ model KnockoutPick {
   awayTeam           Team                     @relation("KnockoutPickAwayTeam", fields: [awayTeamId], references: [id])
   advancingTeam      Team                     @relation("KnockoutPickAdvancingTeam", fields: [advancingTeamId], references: [id])
   score              KnockoutPredictionScore?
+  poolSeason         PoolSeason?              @relation(fields: [poolSeasonId], references: [id], onDelete: SetNull)
 
   @@unique([bracketId, fixtureId])
   @@index([fixtureId])
   @@index([advancingTeamId])
+  @@index([poolSeasonId, bracketId])
 }
 
 model KnockoutGroupSimulationScore {
@@ -564,6 +576,7 @@ model KnockoutGroupSimulationScore {
   userId             String
   generationId       String
   matchId            String
+  poolSeasonId       String?
   predictedHomeScore Int
   predictedAwayScore Int
   createdAt          DateTime           @default(now())
@@ -571,11 +584,13 @@ model KnockoutGroupSimulationScore {
   user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   generation         KnockoutGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
   match              Match              @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  poolSeason         PoolSeason?        @relation(fields: [poolSeasonId], references: [id], onDelete: SetNull)
 
   @@unique([userId, generationId, matchId])
   @@index([generationId])
   @@index([matchId])
   @@index([userId])
+  @@index([poolSeasonId, userId])
 }
 
 model KnockoutPredictionScore {
@@ -583,6 +598,7 @@ model KnockoutPredictionScore {
   pickId       String          @unique
   fixtureId    String
   userId       String
+  poolSeasonId String?
   points       Int
   scoreType    ScoreType
   isFinal      Boolean         @default(false)
@@ -590,10 +606,12 @@ model KnockoutPredictionScore {
   pick         KnockoutPick    @relation(fields: [pickId], references: [id], onDelete: Cascade)
   fixture      KnockoutFixture @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
   user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  poolSeason   PoolSeason?     @relation(fields: [poolSeasonId], references: [id], onDelete: SetNull)
 
   @@index([userId, isFinal])
   @@index([fixtureId, isFinal])
   @@index([points])
+  @@index([poolSeasonId, userId, isFinal])
 }
 
 model RankingSnapshot {

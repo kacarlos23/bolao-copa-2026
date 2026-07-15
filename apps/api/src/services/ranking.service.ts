@@ -2,6 +2,7 @@ import type { KnockoutStage, Prisma, ScoreType } from '@prisma/client';
 import { calculatePredictionScore } from '@bolao/shared';
 import { prisma } from '../prisma.js';
 import { emitSse } from '../realtime/sse.js';
+import { WORLD_CUP_CONTEXT } from '../domain/world-cup-context.js';
 
 export type RankingPeriod = 'all' | 'week' | 'day';
 
@@ -52,6 +53,12 @@ export interface RankingAwardScoreInput {
   points: number;
   isFinal: boolean;
   scoreType: ScoreType;
+}
+
+export const RANKING_SNAPSHOT_RETENTION_DAYS = 90;
+
+export function rankingSnapshotRetentionCutoff(calculatedAt: Date) {
+  return new Date(calculatedAt.getTime() - RANKING_SNAPSHOT_RETENTION_DAYS * 24 * 60 * 60 * 1000);
 }
 
 type AwardWinnerAccumulator = RankingAwardWinner & {
@@ -158,6 +165,7 @@ export async function recalculateScoresForMatch(
     await prisma.predictionScore.upsert({
       where: { predictionId: prediction.id },
       update: {
+        poolSeasonId: prediction.poolSeasonId ?? WORLD_CUP_CONTEXT.poolSeasonId,
         points: score.points,
         scoreType: score.scoreType as ScoreType,
         isFinal: match.status === 'FINISHED',
@@ -167,6 +175,7 @@ export async function recalculateScoresForMatch(
         predictionId: prediction.id,
         matchId: match.id,
         userId: prediction.userId,
+        poolSeasonId: prediction.poolSeasonId ?? WORLD_CUP_CONTEXT.poolSeasonId,
         points: score.points,
         scoreType: score.scoreType as ScoreType,
         isFinal: match.status === 'FINISHED',
@@ -192,10 +201,7 @@ function saoPauloDateParts(value = new Date()) {
   };
 }
 
-function addCivilDays(
-  value: { year: number; month: number; day: number },
-  amount: number,
-) {
+function addCivilDays(value: { year: number; month: number; day: number }, amount: number) {
   const next = new Date(Date.UTC(value.year, value.month - 1, value.day));
   next.setUTCDate(next.getUTCDate() + amount);
   return {
@@ -371,9 +377,7 @@ function buildRankingRows(
     })
     .filter((row) => period === 'all' || row.played > 0);
 
-  return rows
-    .sort(compareRankingRows)
-    .map((row, index) => ({ rank: index + 1, ...row }));
+  return rows.sort(compareRankingRows).map((row, index) => ({ rank: index + 1, ...row }));
 }
 
 export async function getRanking(period: RankingPeriod = 'all') {
@@ -571,7 +575,9 @@ export async function getRankingAwards() {
   });
 
   for (const round of [1, 2, 3] as const) {
-    const roundMatches = groupMatches.filter((match) => groupRoundNumber(match.rawPayload) === round);
+    const roundMatches = groupMatches.filter(
+      (match) => groupRoundNumber(match.rawPayload) === round,
+    );
     const roundScores = groupScoreRows
       .filter((score) => groupRoundNumber(score.match.rawPayload) === round)
       .map(({ match: _match, ...score }) => score);
@@ -698,9 +704,12 @@ export async function getRankingAwards() {
 
 export async function refreshRankingSnapshot() {
   const ranking = await getRanking('all');
+  const calculatedAt = new Date();
   await prisma.rankingSnapshot.createMany({
     data: ranking.map((row) => ({
       userId: row.userId,
+      seasonId: WORLD_CUP_CONTEXT.seasonId,
+      poolSeasonId: WORLD_CUP_CONTEXT.poolSeasonId,
       points: row.points,
       finalPoints: row.finalPoints,
       exactScores: row.exactScores,
@@ -708,9 +717,13 @@ export async function refreshRankingSnapshot() {
       oneGoalHits: row.oneGoalHits,
       rank: row.rank,
       hasLiveData: row.hasLiveData,
+      calculatedAt,
     })),
   });
 
-  emitSse('ranking.updated', { ranking, updatedAt: new Date().toISOString() });
+  const retentionCutoff = rankingSnapshotRetentionCutoff(calculatedAt);
+  await prisma.rankingSnapshot.deleteMany({ where: { calculatedAt: { lt: retentionCutoff } } });
+
+  emitSse('ranking.updated', { ranking, updatedAt: calculatedAt.toISOString() });
   return ranking;
 }

@@ -8,10 +8,8 @@ import {
   syncOfficialKnockoutParticipants,
 } from './knockout.service.js';
 import { recalculateScoresForMatch, refreshRankingSnapshot } from './ranking.service.js';
-import {
-  shouldIgnoreScoreRegression,
-  statusAllowedByKickoff,
-} from './score-sync.logic.js';
+import { shouldIgnoreScoreRegression, statusAllowedByKickoff } from './score-sync.logic.js';
+import { fetchTextWithPolicy } from '../http/fetch-policy.js';
 
 const GE_COPA_URL = 'https://ge.globo.com/futebol/copa-do-mundo/';
 const GE_URLS = ['https://ge.globo.com/', GE_COPA_URL];
@@ -19,6 +17,11 @@ export const GE_SCORE_SCRAPE_POLL_MS = 5 * 60_000;
 const TOP_SCORERS_SETTING_KEY = 'cup.topScorers';
 const SCORE_LOOKBACK_MS = 72 * 60 * 60_000;
 const SCORE_LOOKAHEAD_MS = 36 * 60 * 60_000;
+const GE_FETCH_POLICY = {
+  timeoutMs: 10_000,
+  maxBytes: 5 * 1024 * 1024,
+  retries: 2,
+} as const;
 
 interface ScrapedScore {
   sourceUrl?: string;
@@ -316,10 +319,11 @@ async function scrapeGeScores() {
   const scores = new Map<string, ScrapedScore>();
 
   for (const url of GE_URLS) {
-    const response = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0' } });
-    if (!response.ok) throw new Error(`GE respondeu ${response.status} para ${url}`);
-
-    const html = await response.text();
+    const html = await fetchTextWithPolicy(
+      url,
+      { headers: { 'user-agent': 'Mozilla/5.0' } },
+      GE_FETCH_POLICY,
+    );
     const matchObjects = extractObjectsAfterProperty(html, '"match"');
     const scheduleScores = parseGeScheduleScores(html);
 
@@ -328,13 +332,10 @@ async function scrapeGeScores() {
       ...scheduleScores,
     ]) {
       if (!score) continue;
-      scores.set(
-        `${normalizeName(score.homeTeam)}:${normalizeName(score.awayTeam)}`,
-        {
-          ...score,
-          sourceUrl: score.sourceUrl || url,
-        },
-      );
+      scores.set(`${normalizeName(score.homeTeam)}:${normalizeName(score.awayTeam)}`, {
+        ...score,
+        sourceUrl: score.sourceUrl || url,
+      });
     }
   }
 
@@ -383,10 +384,11 @@ function parseTopScorersFromHtml(html: string) {
 }
 
 async function scrapeGeTopScorers() {
-  const response = await fetch(GE_COPA_URL, { headers: { 'user-agent': 'Mozilla/5.0' } });
-  if (!response.ok) throw new Error(`GE respondeu ${response.status} para ${GE_COPA_URL}`);
-
-  const html = await response.text();
+  const html = await fetchTextWithPolicy(
+    GE_COPA_URL,
+    { headers: { 'user-agent': 'Mozilla/5.0' } },
+    GE_FETCH_POLICY,
+  );
   return parseTopScorersFromHtml(html);
 }
 
@@ -565,7 +567,9 @@ async function applyKnockoutScore(score: ScrapedScore) {
       homeTeamId: homeTeam.id,
       awayTeamId: awayTeam.id,
       winnerTeamId:
-        status === MatchStatus.FINISHED ? (winnerTeam?.id ?? fixture.winnerTeamId) : fixture.winnerTeamId,
+        status === MatchStatus.FINISHED
+          ? (winnerTeam?.id ?? fixture.winnerTeamId)
+          : fixture.winnerTeamId,
       homeScore: score.homeScore,
       awayScore: score.awayScore,
       finalHomeScore: status === MatchStatus.FINISHED ? score.homeScore : fixture.finalHomeScore,
@@ -663,10 +667,7 @@ async function runGeScoreScrapeCore(requestedByUserId?: string | null) {
       if (!isChangedResult(result)) continue;
       changedEntries += 1;
       if ('matchId' in result && typeof result.matchId === 'string') updatedMatches += 1;
-      if (
-        'knockoutFixtureId' in result &&
-        typeof result.knockoutFixtureId === 'string'
-      ) {
+      if ('knockoutFixtureId' in result && typeof result.knockoutFixtureId === 'string') {
         updatedKnockoutFixtures += 1;
       }
     }

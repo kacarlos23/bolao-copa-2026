@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildAwardWinner,
   compareRankingRows,
+  rankingSnapshotRetentionCutoff,
   type RankingAwardScoreInput,
   type RankingRowBase,
 } from './ranking.service.js';
@@ -86,6 +87,14 @@ describe('ranking tie-breaks', () => {
         rankingRow({ nickname: 'Ana', points: 10, misses: 1 }),
       ].sort(compareRankingRows)[0].nickname,
     ).toBe('Ana');
+  });
+});
+
+describe('ranking snapshot retention', () => {
+  it('keeps a deterministic rolling 90-day window', () => {
+    expect(rankingSnapshotRetentionCutoff(new Date('2026-07-14T12:00:00.000Z')).toISOString()).toBe(
+      '2026-04-15T12:00:00.000Z',
+    );
   });
 });
 

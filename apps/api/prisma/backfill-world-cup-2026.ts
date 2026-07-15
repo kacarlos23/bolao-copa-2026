@@ -16,17 +16,18 @@ import {
 } from '@prisma/client';
 import { knockoutFixtureSeeds } from '../src/data/knockout-fixtures.js';
 import { worldCup2026GroupStageMatches, worldCup2026Teams } from '../src/data/world-cup-2026.js';
+import { WORLD_CUP_CONTEXT } from '../src/domain/world-cup-context.js';
 
 const prisma = new PrismaClient();
 
 const IDS = {
-  competition: 'competition-world-cup',
-  season: 'competition-season-world-cup-2026',
-  groupStage: 'stage-world-cup-2026-group-stage',
-  knockoutStage: 'stage-world-cup-2026-knockout',
-  pool: 'pool-bolao-do-trabalho',
-  poolSeason: 'pool-season-bolao-do-trabalho-world-cup-2026',
-  scoringRuleSet: 'scoring-rule-set-15-3-1-0-v1',
+  competition: WORLD_CUP_CONTEXT.competitionId,
+  season: WORLD_CUP_CONTEXT.seasonId,
+  groupStage: WORLD_CUP_CONTEXT.groupStageId,
+  knockoutStage: WORLD_CUP_CONTEXT.knockoutStageId,
+  pool: WORLD_CUP_CONTEXT.poolId,
+  poolSeason: WORLD_CUP_CONTEXT.poolSeasonId,
+  scoringRuleSet: WORLD_CUP_CONTEXT.scoringRuleSetId,
 } as const;
 
 const COMPETITION_SLUG = 'world-cup';
@@ -74,6 +75,11 @@ interface BackfillReport {
     delta: Record<string, number>;
   };
   expectedScope: Record<string, number>;
+  validation: {
+    orphans: number;
+    duplicates: number;
+    crossScopeRelations: number;
+  };
   preservation: {
     unchanged: boolean;
     before: PreservationState;
@@ -120,6 +126,14 @@ function jsonString(value: Prisma.JsonValue | null, key: string) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const result = value[key];
   return typeof result === 'string' && result.trim() ? result : null;
+}
+
+function predictionCloseMinutes(value: Prisma.JsonValue | null | undefined) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 5;
+  const minutes = value.minutes;
+  return typeof minutes === 'number' && Number.isInteger(minutes) && minutes >= 1 && minutes <= 120
+    ? minutes
+    : 5;
 }
 
 function legacyRoundNumber(value: Prisma.JsonValue | null) {
@@ -287,9 +301,45 @@ async function preservationState(tx: Transaction): Promise<PreservationState> {
       },
       orderBy: { id: 'asc' },
     }),
-    tx.knockoutPick.findMany({ orderBy: { id: 'asc' } }),
-    tx.knockoutGroupSimulationScore.findMany({ orderBy: { id: 'asc' } }),
-    tx.knockoutPredictionScore.findMany({ orderBy: { id: 'asc' } }),
+    tx.knockoutPick.findMany({
+      select: {
+        id: true,
+        bracketId: true,
+        fixtureId: true,
+        homeTeamId: true,
+        awayTeamId: true,
+        advancingTeamId: true,
+        predictedHomeScore: true,
+        predictedAwayScore: true,
+        createdAt: true,
+      },
+      orderBy: { id: 'asc' },
+    }),
+    tx.knockoutGroupSimulationScore.findMany({
+      select: {
+        id: true,
+        userId: true,
+        generationId: true,
+        matchId: true,
+        predictedHomeScore: true,
+        predictedAwayScore: true,
+        createdAt: true,
+      },
+      orderBy: { id: 'asc' },
+    }),
+    tx.knockoutPredictionScore.findMany({
+      select: {
+        id: true,
+        pickId: true,
+        fixtureId: true,
+        userId: true,
+        points: true,
+        scoreType: true,
+        isFinal: true,
+        calculatedAt: true,
+      },
+      orderBy: { id: 'asc' },
+    }),
     tx.rankingSnapshot.findMany({
       select: {
         id: true,
@@ -592,6 +642,8 @@ async function ensurePoolSeason(
   const expected = {
     scoringRuleSetId,
     scoreableFromRound: 1,
+    startsAtRound: 1,
+    scoreableFrom: TOURNAMENT_START,
     historicalMatchesScoreable: true,
     metadata: { legacyDefault: true },
   };
@@ -604,6 +656,8 @@ async function ensurePoolSeason(
   if (existing.scoringRuleSetId !== scoringRuleSetId)
     data.scoringRuleSet = { connect: { id: scoringRuleSetId } };
   if (existing.scoreableFromRound !== 1) data.scoreableFromRound = 1;
+  if (existing.startsAtRound !== 1) data.startsAtRound = 1;
+  if (!sameDate(existing.scoreableFrom, TOURNAMENT_START)) data.scoreableFrom = TOURNAMENT_START;
   if (!existing.historicalMatchesScoreable) data.historicalMatchesScoreable = true;
   if (!sameJson(existing.metadata, expected.metadata)) data.metadata = expected.metadata;
   return Object.keys(data).length > 0
@@ -651,6 +705,10 @@ async function main() {
       });
       const generations = await tx.knockoutGeneration.findMany({ orderBy: { sequence: 'asc' } });
       const generationIds = generations.map((generation) => generation.id);
+      const closeSetting = await tx.appSetting.findUnique({
+        where: { key: 'prediction.closeMinutes' },
+      });
+      const closeMinutes = predictionCloseMinutes(closeSetting?.value);
       const currentSeasonStatus = seasonStatus(matches, fixtures);
       const storedDates = [...matches, ...fixtures].map((item) => item.startsAt);
       const startsAt = storedDates.length
@@ -795,6 +853,16 @@ async function main() {
           },
           data: { seasonId: season.id, stageId: groupStage.id, roundId },
         });
+        for (const match of roundMatches) {
+          const closesAt = new Date(match.startsAt.getTime() - closeMinutes * 60 * 1000);
+          await tx.match.updateMany({
+            where: {
+              id: match.id,
+              OR: [{ predictionClosesAt: null }, { predictionClosesAt: { not: closesAt } }],
+            },
+            data: { predictionClosesAt: closesAt },
+          });
+        }
       }
       if (fixtures.length > 0) {
         await tx.knockoutFixture.updateMany({
@@ -836,19 +904,26 @@ async function main() {
               where: { generationId: { in: generationIds } },
               select: { id: true, userId: true },
             });
+      const knockoutPicks =
+        brackets.length === 0
+          ? []
+          : await tx.knockoutPick.findMany({
+              where: { bracketId: { in: brackets.map((bracket) => bracket.id) } },
+              select: { id: true },
+            });
       const knockoutScores =
         fixtures.length === 0
           ? []
           : await tx.knockoutPredictionScore.findMany({
               where: { fixtureId: { in: fixtures.map((fixture) => fixture.id) } },
-              select: { userId: true },
+              select: { id: true, userId: true },
             });
       const simulations =
         matchIds.length === 0
           ? []
           : await tx.knockoutGroupSimulationScore.findMany({
               where: { matchId: { in: matchIds } },
-              select: { userId: true },
+              select: { id: true, userId: true },
             });
       const rankingSnapshots = await tx.rankingSnapshot.findMany({
         select: { id: true, userId: true },
@@ -912,6 +987,33 @@ async function main() {
         await tx.knockoutBracket.updateMany({
           where: {
             id: { in: brackets.map((bracket) => bracket.id) },
+            OR: [{ poolSeasonId: null }, { poolSeasonId: { not: poolSeason.id } }],
+          },
+          data: { poolSeasonId: poolSeason.id },
+        });
+      }
+      if (knockoutPicks.length > 0) {
+        await tx.knockoutPick.updateMany({
+          where: {
+            id: { in: knockoutPicks.map((pick) => pick.id) },
+            OR: [{ poolSeasonId: null }, { poolSeasonId: { not: poolSeason.id } }],
+          },
+          data: { poolSeasonId: poolSeason.id },
+        });
+      }
+      if (knockoutScores.length > 0) {
+        await tx.knockoutPredictionScore.updateMany({
+          where: {
+            id: { in: knockoutScores.map((score) => score.id) },
+            OR: [{ poolSeasonId: null }, { poolSeasonId: { not: poolSeason.id } }],
+          },
+          data: { poolSeasonId: poolSeason.id },
+        });
+      }
+      if (simulations.length > 0) {
+        await tx.knockoutGroupSimulationScore.updateMany({
+          where: {
+            id: { in: simulations.map((score) => score.id) },
             OR: [{ poolSeasonId: null }, { poolSeasonId: { not: poolSeason.id } }],
           },
           data: { poolSeasonId: poolSeason.id },
@@ -1014,6 +1116,9 @@ async function main() {
         linkedFixtures,
         linkedGenerations,
         linkedBrackets,
+        linkedKnockoutPicks,
+        linkedKnockoutScores,
+        linkedSimulations,
         linkedRankingSnapshots,
         storedMappings,
       ] = await Promise.all([
@@ -1032,6 +1137,7 @@ async function main() {
             seasonId: season.id,
             stageId: groupStage.id,
             roundId: { not: null },
+            predictionClosesAt: { not: null },
           },
         }),
         tx.prediction.count({
@@ -1051,6 +1157,24 @@ async function main() {
         }),
         tx.knockoutBracket.count({
           where: { id: { in: brackets.map((item) => item.id) }, poolSeasonId: poolSeason.id },
+        }),
+        tx.knockoutPick.count({
+          where: {
+            id: { in: knockoutPicks.map((item) => item.id) },
+            poolSeasonId: poolSeason.id,
+          },
+        }),
+        tx.knockoutPredictionScore.count({
+          where: {
+            id: { in: knockoutScores.map((item) => item.id) },
+            poolSeasonId: poolSeason.id,
+          },
+        }),
+        tx.knockoutGroupSimulationScore.count({
+          where: {
+            id: { in: simulations.map((item) => item.id) },
+            poolSeasonId: poolSeason.id,
+          },
         }),
         tx.rankingSnapshot.count({
           where: {
@@ -1074,18 +1198,89 @@ async function main() {
       assertLinked('SeasonTeam', linkedSeasonTeams, teams.length);
       assertLinked('PoolMembership', linkedMemberships, participants.length);
       assertLinked('MatchDay.seasonId', linkedMatchDays, matchDayIds.length);
-      assertLinked('Match.seasonId/stageId/roundId', linkedMatches, matches.length);
+      assertLinked(
+        'Match.seasonId/stageId/roundId/predictionClosesAt',
+        linkedMatches,
+        matches.length,
+      );
       assertLinked('Prediction.poolSeasonId', linkedPredictions, predictions.length);
       assertLinked('PredictionScore.poolSeasonId', linkedPredictionScores, predictionScores.length);
       assertLinked('KnockoutFixture.seasonId', linkedFixtures, fixtures.length);
       assertLinked('KnockoutGeneration.seasonId', linkedGenerations, generations.length);
       assertLinked('KnockoutBracket.poolSeasonId', linkedBrackets, brackets.length);
+      assertLinked('KnockoutPick.poolSeasonId', linkedKnockoutPicks, knockoutPicks.length);
+      assertLinked(
+        'KnockoutPredictionScore.poolSeasonId',
+        linkedKnockoutScores,
+        knockoutScores.length,
+      );
+      assertLinked(
+        'KnockoutGroupSimulationScore.poolSeasonId',
+        linkedSimulations,
+        simulations.length,
+      );
       assertLinked(
         'RankingSnapshot.seasonId/poolSeasonId',
         linkedRankingSnapshots,
         rankingSnapshots.length,
       );
       assertLinked('ProviderEntityMapping', linkedMappings, mappings.length);
+
+      const [orphanRows, duplicateRows, crossScopeRows] = await Promise.all([
+        tx.$queryRaw<[{ orphans: number }]>`
+          SELECT (
+            (SELECT COUNT(*) FROM "Match" WHERE "id" = ANY(${matchIds}) AND "seasonId" IS NULL) +
+            (SELECT COUNT(*) FROM "Prediction" WHERE "id" = ANY(${predictions.map((item) => item.id)}) AND "poolSeasonId" IS NULL) +
+            (SELECT COUNT(*) FROM "PredictionScore" WHERE "id" = ANY(${predictionScores.map((item) => item.id)}) AND "poolSeasonId" IS NULL) +
+            (SELECT COUNT(*) FROM "KnockoutPick" WHERE "id" = ANY(${knockoutPicks.map((item) => item.id)}) AND "poolSeasonId" IS NULL) +
+            (SELECT COUNT(*) FROM "KnockoutGroupSimulationScore" WHERE "id" = ANY(${simulations.map((item) => item.id)}) AND "poolSeasonId" IS NULL) +
+            (SELECT COUNT(*) FROM "KnockoutPredictionScore" WHERE "id" = ANY(${knockoutScores.map((item) => item.id)}) AND "poolSeasonId" IS NULL)
+          )::int AS orphans
+        `,
+        tx.$queryRaw<[{ duplicates: number }]>`
+          SELECT (
+            (SELECT COUNT(*) FROM (
+              SELECT "poolSeasonId", "userId", "matchId" FROM "Prediction"
+              WHERE "poolSeasonId" IS NOT NULL
+              GROUP BY 1, 2, 3 HAVING COUNT(*) > 1
+            ) prediction_duplicates) +
+            (SELECT COUNT(*) FROM (
+              SELECT "seasonId", "date" FROM "MatchDay"
+              WHERE "seasonId" IS NOT NULL
+              GROUP BY 1, 2 HAVING COUNT(*) > 1
+            ) match_day_duplicates)
+          )::int AS duplicates
+        `,
+        tx.$queryRaw<[{ crossScopeRelations: number }]>`
+          SELECT COUNT(*)::int AS "crossScopeRelations" FROM (
+            SELECT p."id" FROM "Prediction" p
+            JOIN "PoolSeason" ps ON ps."id" = p."poolSeasonId"
+            JOIN "Match" m ON m."id" = p."matchId"
+            WHERE ps."seasonId" IS DISTINCT FROM m."seasonId"
+            UNION ALL
+            SELECT r."id" FROM "Round" r
+            JOIN "Stage" s ON s."id" = r."stageId"
+            WHERE r."seasonId" IS DISTINCT FROM s."seasonId"
+            UNION ALL
+            SELECT m."id" FROM "Match" m
+            JOIN "Round" r ON r."id" = m."roundId"
+            WHERE m."seasonId" IS DISTINCT FROM r."seasonId"
+               OR m."stageId" IS DISTINCT FROM r."stageId"
+            UNION ALL
+            SELECT rs."id" FROM "RankingSnapshot" rs
+            JOIN "PoolSeason" ps ON ps."id" = rs."poolSeasonId"
+            WHERE rs."seasonId" IS DISTINCT FROM ps."seasonId"
+          ) invalid_relations
+        `,
+      ]);
+      const orphans = orphanRows[0]?.orphans ?? -1;
+      const duplicates = duplicateRows[0]?.duplicates ?? -1;
+      const crossScopeRelations = crossScopeRows[0]?.crossScopeRelations ?? -1;
+      if (orphans !== 0 || duplicates !== 0 || crossScopeRelations !== 0) {
+        throw new Error(
+          `Validacao estrutural falhou: orphans=${orphans}, duplicates=${duplicates}, crossScope=${crossScopeRelations}.`,
+        );
+      }
 
       const preservationAfter = await preservationState(tx);
       if (preservationBefore.combinedHash !== preservationAfter.combinedHash) {
@@ -1121,10 +1316,14 @@ async function main() {
           knockoutFixtures: fixtures.length,
           knockoutGenerations: generations.length,
           knockoutBrackets: brackets.length,
+          knockoutPicks: knockoutPicks.length,
+          knockoutPredictionScores: knockoutScores.length,
+          knockoutGroupSimulations: simulations.length,
           rankingSnapshots: rankingSnapshots.length,
           participants: participants.length,
           providerMappings: mappings.length,
         },
+        validation: { orphans, duplicates, crossScopeRelations },
         preservation: {
           unchanged: true,
           before: preservationBefore,

@@ -2,9 +2,10 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { loginSchema, registerSchema } from '@bolao/shared';
 import { asyncHandler } from '../http/async-handler.js';
-import { getPublicUser, loginUser, registerUser } from '../services/auth.service.js';
+import { getPublicUser, loginUser, publicUser, registerUser } from '../services/auth.service.js';
 import { requireAuth } from '../middleware/auth.js';
 import { avatarUpload, resetUserAvatar, updateUserAvatar } from '../services/avatar.service.js';
+import { createCsrfToken, destroySession, ensureCsrfToken, regenerateSession } from '../session.js';
 
 export const authRouter = Router();
 
@@ -15,14 +16,20 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+authRouter.get('/csrf', (req, res) => {
+  res.json({ csrfToken: ensureCsrfToken(req) });
+});
+
 authRouter.post(
   '/register',
   authLimiter,
   asyncHandler(async (req, res) => {
     const input = registerSchema.parse(req.body);
     const user = await registerUser(input);
+    await regenerateSession(req);
     req.session.user = user;
-    res.status(201).json({ user });
+    req.session.csrfToken = createCsrfToken();
+    res.status(201).json({ user: publicUser(user) });
   }),
 );
 
@@ -32,20 +39,22 @@ authRouter.post(
   asyncHandler(async (req, res) => {
     const input = loginSchema.parse(req.body);
     const user = await loginUser(input);
-    req.session.regenerate((error) => {
-      if (error) throw error;
-      req.session.user = user;
-      res.json({ user });
-    });
+    await regenerateSession(req);
+    req.session.user = user;
+    req.session.csrfToken = createCsrfToken();
+    res.json({ user: publicUser(user) });
   }),
 );
 
-authRouter.post('/logout', requireAuth, (req, res) => {
-  req.session.destroy(() => {
+authRouter.post(
+  '/logout',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    await destroySession(req);
     res.clearCookie('bolao.sid');
     res.status(204).send();
-  });
-});
+  }),
+);
 
 authRouter.get(
   '/me',
@@ -53,7 +62,7 @@ authRouter.get(
   asyncHandler(async (req, res) => {
     const user = await getPublicUser(req.session.user!.id);
     req.session.user = user;
-    res.json({ user });
+    res.json({ user: publicUser(user) });
   }),
 );
 
@@ -63,7 +72,7 @@ authRouter.post(
   avatarUpload.single('avatar'),
   asyncHandler(async (req, res) => {
     const user = await updateUserAvatar(req.session.user!.id, req.file);
-    req.session.user = user;
+    req.session.user = { ...req.session.user!, ...user };
     res.json({ user });
   }),
 );
@@ -73,7 +82,7 @@ authRouter.delete(
   requireAuth,
   asyncHandler(async (req, res) => {
     const user = await resetUserAvatar(req.session.user!.id);
-    req.session.user = user;
+    req.session.user = { ...req.session.user!, ...user };
     res.json({ user });
   }),
 );

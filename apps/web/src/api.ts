@@ -1,15 +1,33 @@
 export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? '';
 
+async function fetchCsrfToken() {
+  const response = await fetch(`${API_URL}/api/auth/csrf`, { credentials: 'include' });
+  if (!response.ok) throw new Error('Não foi possível iniciar uma requisição segura.');
+  const body = (await response.json()) as { csrfToken?: unknown };
+  if (typeof body.csrfToken !== 'string' || body.csrfToken.length < 32) {
+    throw new Error('O servidor não forneceu um token de segurança válido.');
+  }
+  return body.csrfToken;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+  const method = (options.method ?? 'GET').toUpperCase();
+  const csrfToken = ['GET', 'HEAD', 'OPTIONS'].includes(method)
+    ? undefined
+    : await fetchCsrfToken();
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     credentials: 'include',
     headers: isFormData
-      ? options.headers
+      ? {
+          ...(options.headers ?? {}),
+          ...(csrfToken ? { 'x-csrf-token': csrfToken } : {}),
+        }
       : {
           'content-type': 'application/json',
           ...(options.headers ?? {}),
+          ...(csrfToken ? { 'x-csrf-token': csrfToken } : {}),
         },
   });
 
@@ -461,8 +479,7 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ predictionCloseMinutes }),
     }),
-  adminScoreSyncSettings: () =>
-    request<AdminScoreSyncSettings>('/api/admin/settings/score-sync'),
+  adminScoreSyncSettings: () => request<AdminScoreSyncSettings>('/api/admin/settings/score-sync'),
   updateAdminScoreSyncSettings: (enabled: boolean) =>
     request<AdminScoreSyncSettings>('/api/admin/settings/score-sync', {
       method: 'PATCH',

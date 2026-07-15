@@ -8,6 +8,9 @@ declare module 'express-session' {
       nickname: string;
       avatarUrl?: string | null;
       role: UserRole;
+      status: 'ACTIVE' | 'BLOCKED';
+      sessionVersion: number;
     };
+    csrfToken?: string;
   }
 }

@@ -29,7 +29,15 @@ export async function registerUser(input: RegisterInput) {
       nickname,
       passwordHash,
     },
-    select: { id: true, username: true, nickname: true, avatarUrl: true, role: true, status: true },
+    select: {
+      id: true,
+      username: true,
+      nickname: true,
+      avatarUrl: true,
+      role: true,
+      status: true,
+      sessionVersion: true,
+    },
   });
 }
 
@@ -54,13 +62,23 @@ export async function loginUser(input: LoginInput) {
     nickname: user.nickname,
     avatarUrl: user.avatarUrl,
     role: user.role,
+    status: user.status,
+    sessionVersion: user.sessionVersion,
   };
 }
 
 export async function getPublicUser(userId: string) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, username: true, nickname: true, avatarUrl: true, role: true, status: true },
+    select: {
+      id: true,
+      username: true,
+      nickname: true,
+      avatarUrl: true,
+      role: true,
+      status: true,
+      sessionVersion: true,
+    },
   });
 
   if (!user || user.status !== 'ACTIVE') {
@@ -68,4 +86,12 @@ export async function getPublicUser(userId: string) {
   }
 
   return user;
+}
+
+export function publicUser<T extends { sessionVersion: number }>(
+  user: T,
+): Omit<T, 'sessionVersion'> {
+  const { sessionVersion: _sessionVersion, ...result } = user;
+  void _sessionVersion;
+  return result;
 }

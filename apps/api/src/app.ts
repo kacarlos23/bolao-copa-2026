@@ -2,12 +2,11 @@ import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import session from 'express-session';
-import connectPgSimple from 'connect-pg-simple';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import pinoHttpModule from 'pino-http';
-import { Pool } from 'pg';
+import type { Store } from 'express-session';
 import { config } from './config.js';
 import { logger } from './logger.js';
 import { errorHandler } from './middleware/error-handler.js';
@@ -18,16 +17,15 @@ import { adminRouter } from './routes/admin.routes.js';
 import { sseRouter } from './routes/sse.routes.js';
 import { cupRouter } from './routes/cup.routes.js';
 import { avatarUploadDir } from './services/avatar.service.js';
-import {
-  knockoutBracketRouter,
-  predictionBoardRouter,
-} from './routes/prediction-board.routes.js';
+import { knockoutBracketRouter, predictionBoardRouter } from './routes/prediction-board.routes.js';
 import { internalRouter } from './routes/internal.routes.js';
+import { csrfProtection } from './middleware/csrf.js';
 
-const PgSession = connectPgSimple(session);
-const pinoHttp = pinoHttpModule as unknown as (options: { logger: typeof logger }) => express.RequestHandler;
+const pinoHttp = pinoHttpModule as unknown as (options: {
+  logger: typeof logger;
+}) => express.RequestHandler;
 
-export function createApp() {
+export function createApp(options: { sessionStore?: Store } = {}) {
   const app = express();
 
   app.set('trust proxy', 1);
@@ -62,16 +60,10 @@ export function createApp() {
         sameSite: 'lax',
         maxAge: 1000 * 60 * 60 * 24 * 7,
       },
-      store:
-        config.NODE_ENV === 'test'
-          ? undefined
-          : new PgSession({
-              pool: new Pool({ connectionString: config.DATABASE_URL }),
-              tableName: 'user_sessions',
-              createTableIfMissing: true,
-            }),
+      store: options.sessionStore,
     }),
   );
+  app.use(csrfProtection);
 
   app.get('/health', (_req, res) => {
     res.json({ ok: true, timestamp: new Date().toISOString() });
