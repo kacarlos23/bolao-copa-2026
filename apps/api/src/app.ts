@@ -29,6 +29,9 @@ const pinoHttp = pinoHttpModule as unknown as (options: {
   logger: typeof logger;
 }) => express.RequestHandler;
 
+const EXPO_ROUTER_HYDRATION_SCRIPT_HASH =
+  "'sha256-67fhrP0+BkBqmgGGXTtgiVO/9EQs3QruYNU/7fnRkI8='";
+
 export function createApp(options: { sessionStore?: Store } = {}) {
   const app = express();
 
@@ -38,7 +41,13 @@ export function createApp(options: { sessionStore?: Store } = {}) {
     helmet({
       contentSecurityPolicy: {
         directives: {
+          connectSrc: ["'self'", 'https://cloudflareinsights.com'],
           imgSrc: ["'self'", 'data:', 'https:'],
+          scriptSrc: [
+            "'self'",
+            EXPO_ROUTER_HYDRATION_SCRIPT_HASH,
+            'https://static.cloudflareinsights.com',
+          ],
         },
       },
     }),

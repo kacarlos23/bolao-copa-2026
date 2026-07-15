@@ -11,6 +11,17 @@ describe('app', () => {
     expect(response.body.ok).toBe(true);
   });
 
+  it('allows only the generated hydration script and Cloudflare Insights in CSP', async () => {
+    const response = await request(createApp()).get('/health');
+    const policy = response.headers['content-security-policy'];
+
+    expect(policy).toContain(
+      "script-src 'self' 'sha256-67fhrP0+BkBqmgGGXTtgiVO/9EQs3QruYNU/7fnRkI8=' https://static.cloudflareinsights.com",
+    );
+    expect(policy).toContain("connect-src 'self' https://cloudflareinsights.com");
+    expect(policy).not.toContain("script-src 'self' 'unsafe-inline'");
+  });
+
   it('protects the internal realtime relay', async () => {
     const response = await request(createApp())
       .post('/api/internal/realtime/sync-completed')
