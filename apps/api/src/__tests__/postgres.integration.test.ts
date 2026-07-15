@@ -82,7 +82,7 @@ describe('PostgreSQL real: sessão e CSRF', () => {
 
 describe('PostgreSQL real: concorrência, constraints e isolamento', () => {
   it('serializa palpites concorrentes antes do limite e falha fechado no instante exato', async () => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2030-01-01T11:59:59.999Z'));
     const input = { predictions: [{ matchId: 'match-stage9-cup', predictedHomeScore: 2, predictedAwayScore: 1 }] };
     await Promise.all([
