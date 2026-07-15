@@ -22,20 +22,44 @@ async function runControlledScrape(force: boolean) {
   return runGeScoreScrapeOnce();
 }
 
+let watchTimer: NodeJS.Timeout | undefined;
+let activeScrape: Promise<unknown> | null = null;
+let shuttingDown = false;
+
+function startScrape(force: boolean) {
+  const run = runControlledScrape(force);
+  const tracked = run.finally(() => {
+    if (activeScrape === tracked) activeScrape = null;
+  });
+  activeScrape = tracked;
+  return tracked;
+}
+
+async function shutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  if (watchTimer) clearInterval(watchTimer);
+  watchTimer = undefined;
+  await activeScrape?.catch(() => undefined);
+  await prisma.$disconnect();
+  logger.info({ signal }, 'GE score watcher stopped cleanly');
+}
+
 async function main() {
   const watch = process.argv.includes('--watch');
   const force = process.argv.includes('--force');
 
   await ensureScoreSyncSetting();
-  await runControlledScrape(force);
+  await startScrape(force);
 
   if (!watch) return;
 
-  setInterval(() => {
-    runControlledScrape(false).catch((error) =>
-      logger.error({ error }, 'GE score scrape failed'),
-    );
+  watchTimer = setInterval(() => {
+    startScrape(false).catch((error) => logger.error({ error }, 'GE score scrape failed'));
   }, GE_SCORE_SCRAPE_POLL_MS);
+
+  process.once('SIGINT', () => void shutdown('SIGINT'));
+  process.once('SIGTERM', () => void shutdown('SIGTERM'));
 }
 
 main()
@@ -44,5 +68,5 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
-    if (!process.argv.includes('--watch')) await prisma.$disconnect();
+    if (!process.argv.includes('--watch') || !watchTimer) await prisma.$disconnect();
   });

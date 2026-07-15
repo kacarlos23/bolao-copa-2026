@@ -84,4 +84,20 @@ describe('bounded HTTP fetch', () => {
     ).rejects.toBeInstanceOf(ResponseTooLargeError);
     expect(oversized).toHaveBeenCalledOnce();
   });
+
+  it('forbids redirects instead of following a provider-controlled location', async () => {
+    const fetchImpl = vi.fn(async () => new Response('ok')) as unknown as typeof fetch;
+    await fetchTextWithPolicy(
+      'https://provider.example/fixed-feed',
+      {},
+      {
+        ...basePolicy,
+        fetchImpl,
+      },
+    );
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://provider.example/fixed-feed',
+      expect.objectContaining({ redirect: 'error', signal: expect.any(AbortSignal) }),
+    );
+  });
 });

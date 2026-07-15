@@ -22,7 +22,7 @@
     "lint:shared": "npm --workspace @bolao/shared run lint",
     "format": "prettier --write .",
     "test": "npm-run-all test:preservation test:shared test:api test:web",
-    "test:api": "npm --workspace @bolao/api run test",
+    "test:api": "npm run build:shared && npm --workspace @bolao/api run test",
     "test:preservation": "node --test scripts/*.test.mjs",
     "test:migration:constraints": "node scripts/verify-multi-competition-db.mjs",
     "test:shared": "npm --workspace @bolao/shared run test",

@@ -1,4 +1,10 @@
 import type { Request, Response } from 'express';
+import { randomUUID } from 'node:crypto';
+import {
+  realtimeEventEnvelopeSchema,
+  type RealtimeEventEnvelope,
+} from '@bolao/shared';
+import { WORLD_CUP_CONTEXT } from '../domain/world-cup-context.js';
 
 type EventPayload = Record<string, unknown>;
 
@@ -8,6 +14,8 @@ const HEARTBEAT_MS = 25_000;
 interface ClientState {
   blocked: boolean;
   userId?: string;
+  seasonId?: string;
+  poolSeasonId?: string | null;
   cleanup: () => void;
 }
 
@@ -47,7 +55,11 @@ function ensureHeartbeat() {
   heartbeat.unref?.();
 }
 
-export function addSseClient(res: Response, req?: Request) {
+export function addSseClient(
+  res: Response,
+  req?: Request,
+  context?: { seasonId: string; poolSeasonId?: string | null },
+) {
   if (clients.size >= MAX_CLIENTS) {
     res.status(503).end();
     return false;
@@ -59,7 +71,13 @@ export function addSseClient(res: Response, req?: Request) {
     req?.off('aborted', onClose);
   };
   const onClose = () => removeClient(res);
-  clients.set(res, { blocked: false, userId: req?.session.user?.id, cleanup });
+  clients.set(res, {
+    blocked: false,
+    userId: req?.session.user?.id,
+    seasonId: context?.seasonId,
+    poolSeasonId: context?.poolSeasonId,
+    cleanup,
+  });
   res.once('close', onClose);
   res.once('error', onClose);
   req?.once('aborted', onClose);
@@ -68,11 +86,31 @@ export function addSseClient(res: Response, req?: Request) {
   return true;
 }
 
-export function emitSse(event: string, data: EventPayload) {
-  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-  for (const client of clients.keys()) {
+export function emitSseEnvelope(rawEnvelope: RealtimeEventEnvelope) {
+  const envelope = realtimeEventEnvelopeSchema.parse(rawEnvelope);
+  const payload = `event: ${envelope.type}\nid: ${envelope.eventId}\ndata: ${JSON.stringify(envelope)}\n\n`;
+  for (const [client, state] of clients.entries()) {
+    if (state.seasonId && state.seasonId !== envelope.seasonId) continue;
+    if (state.poolSeasonId && state.poolSeasonId !== envelope.poolSeasonId) continue;
     writeSse(client, payload);
   }
+  return envelope;
+}
+
+export function emitSse(
+  event: string,
+  data: EventPayload,
+  context: { seasonId: string; poolSeasonId?: string | null } = WORLD_CUP_CONTEXT,
+) {
+  return emitSseEnvelope({
+    eventId: randomUUID(),
+    type: event,
+    occurredAt: new Date().toISOString(),
+    seasonId: context.seasonId,
+    poolSeasonId: context.poolSeasonId ?? null,
+    version: 1,
+    payload: data,
+  });
 }
 
 export function closeAllSseClients() {

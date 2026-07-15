@@ -1,6 +1,7 @@
 import { MatchStatus, Prisma } from '@prisma/client';
 import { prisma } from '../prisma.js';
 import { ensureKnockoutInfrastructure } from './knockout.service.js';
+import { calculateStandings } from '../modules/standings/standings.logic.js';
 
 type TeamSummary = {
   id: string;
@@ -8,20 +9,6 @@ type TeamSummary = {
   code: string | null;
   flagUrl: string | null;
   metadata: Prisma.JsonValue | null;
-};
-
-type StandingAccumulator = {
-  group: string;
-  team: TeamSummary;
-  played: number;
-  wins: number;
-  draws: number;
-  losses: number;
-  goalsFor: number;
-  goalsAgainst: number;
-  goalDifference: number;
-  points: number;
-  lastFive: Array<'W' | 'D' | 'L'>;
 };
 
 type CupTopScorer = {
@@ -70,52 +57,6 @@ function scoreForMatch(match: {
   return { homeScore, awayScore };
 }
 
-function emptyStanding(team: TeamSummary, group: string): StandingAccumulator {
-  return {
-    group,
-    team,
-    played: 0,
-    wins: 0,
-    draws: 0,
-    losses: 0,
-    goalsFor: 0,
-    goalsAgainst: 0,
-    goalDifference: 0,
-    points: 0,
-    lastFive: [],
-  };
-}
-
-function addResult(standing: StandingAccumulator, goalsFor: number, goalsAgainst: number) {
-  standing.played += 1;
-  standing.goalsFor += goalsFor;
-  standing.goalsAgainst += goalsAgainst;
-  standing.goalDifference = standing.goalsFor - standing.goalsAgainst;
-
-  if (goalsFor > goalsAgainst) {
-    standing.wins += 1;
-    standing.points += 3;
-    standing.lastFive.push('W');
-    return;
-  }
-
-  if (goalsFor === goalsAgainst) {
-    standing.draws += 1;
-    standing.points += 1;
-    standing.lastFive.push('D');
-    return;
-  }
-
-  standing.losses += 1;
-  standing.lastFive.push('L');
-}
-
-function sortGroups(groupA: string, groupB: string) {
-  if (groupA === 'Sem grupo') return 1;
-  if (groupB === 'Sem grupo') return -1;
-  return groupA.localeCompare(groupB, 'pt-BR', { numeric: true });
-}
-
 function topScorersFromSetting(value: Prisma.JsonValue | null | undefined): CupTopScorer[] {
   const rawTopScorers = jsonObject(value).topScorers;
   if (!Array.isArray(rawTopScorers)) return [];
@@ -146,11 +87,16 @@ function topScorersFromSetting(value: Prisma.JsonValue | null | undefined): CupT
     );
 }
 
-export async function getCupOverview() {
+export async function getCupOverview(seasonId: string) {
   await ensureKnockoutInfrastructure();
-  const [teams, matches, knockoutFixtures, topScorersSetting] = await Promise.all([
-    prisma.team.findMany({ orderBy: [{ name: 'asc' }] }),
+  const [seasonTeams, matches, knockoutFixtures, topScorersSetting] = await Promise.all([
+    prisma.seasonTeam.findMany({
+      where: { seasonId },
+      orderBy: [{ team: { name: 'asc' } }],
+      select: { groupName: true, team: true },
+    }),
     prisma.match.findMany({
+      where: { seasonId },
       orderBy: { startsAt: 'asc' },
       include: {
         homeTeam: true,
@@ -158,74 +104,35 @@ export async function getCupOverview() {
       },
     }),
     prisma.knockoutFixture.findMany({
+      where: { seasonId },
       orderBy: { matchNumber: 'asc' },
       include: { homeTeam: true, awayTeam: true, winnerTeam: true },
     }),
     prisma.appSetting.findUnique({ where: { key: TOP_SCORERS_SETTING_KEY } }),
   ]);
-
-  const standings = new Map<string, StandingAccumulator>();
-  const standingKey = (teamId: string, group: string) => `${group}:${teamId}`;
-
-  for (const team of teams) {
-    const group = teamGroup(team);
-    standings.set(standingKey(team.id, group), emptyStanding(team, group));
-  }
-
-  for (const match of matches) {
-    const matchGroup = jsonString(match.rawPayload, 'group') ?? teamGroup(match.homeTeam);
-    const homeKey = standingKey(match.homeTeam.id, matchGroup);
-    const awayKey = standingKey(match.awayTeam.id, matchGroup);
-
-    if (!standings.has(homeKey)) {
-      standings.set(homeKey, emptyStanding(match.homeTeam, matchGroup));
-    }
-    if (!standings.has(awayKey)) {
-      standings.set(awayKey, emptyStanding(match.awayTeam, matchGroup));
-    }
-
-    const score = scoreForMatch(match);
-    if (match.status !== MatchStatus.FINISHED || !score) continue;
-
-    addResult(standings.get(homeKey)!, score.homeScore, score.awayScore);
-    addResult(standings.get(awayKey)!, score.awayScore, score.homeScore);
-  }
-
-  const groups = [...standings.values()]
-    .filter((row) => row.group !== 'Sem grupo' || row.played > 0)
-    .reduce<Record<string, StandingAccumulator[]>>((acc, row) => {
-      acc[row.group] = acc[row.group] ?? [];
-      acc[row.group].push(row);
-      return acc;
-    }, {});
-
-  const standingsByGroup = Object.entries(groups)
-    .sort(([groupA], [groupB]) => sortGroups(groupA, groupB))
-    .map(([group, rows]) => ({
-      group,
-      rows: rows
-        .sort(
-          (rowA, rowB) =>
-            rowB.points - rowA.points ||
-            rowB.goalDifference - rowA.goalDifference ||
-            rowB.goalsFor - rowA.goalsFor ||
-            rowA.team.name.localeCompare(rowB.team.name, 'pt-BR'),
-        )
-        .map((row, index) => ({
-          rank: index + 1,
-          group: row.group,
-          team: row.team,
-          played: row.played,
-          wins: row.wins,
-          draws: row.draws,
-          losses: row.losses,
-          goalsFor: row.goalsFor,
-          goalsAgainst: row.goalsAgainst,
-          goalDifference: row.goalDifference,
-          points: row.points,
-          lastFive: row.lastFive.slice(-5),
-        })),
-    }));
+  const groupByTeam = new Map(
+    seasonTeams.map((entry) => [entry.team.id, entry.groupName ?? teamGroup(entry.team)]),
+  );
+  const standingsByGroup = calculateStandings(
+    seasonTeams.map((entry) => ({
+      group: entry.groupName ?? teamGroup(entry.team),
+      team: entry.team,
+    })),
+    matches.map((match) => {
+      const score = scoreForMatch(match);
+      return {
+        group:
+          jsonString(match.rawPayload, 'group') ??
+          groupByTeam.get(match.homeTeam.id) ??
+          'Sem grupo',
+        status: match.status,
+        homeTeamId: match.homeTeam.id,
+        awayTeamId: match.awayTeam.id,
+        homeScore: score?.homeScore ?? null,
+        awayScore: score?.awayScore ?? null,
+      };
+    }),
+  ).filter((group) => group.group !== 'Sem grupo' || group.rows.some((row) => row.played > 0));
 
   const matchResults = matches.map((match) => {
     const score = scoreForMatch(match);

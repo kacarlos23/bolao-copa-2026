@@ -10,6 +10,12 @@ import {
 import { recalculateScoresForMatch, refreshRankingSnapshot } from './ranking.service.js';
 import { shouldIgnoreScoreRegression, statusAllowedByKickoff } from './score-sync.logic.js';
 import { fetchTextWithPolicy } from '../http/fetch-policy.js';
+import { GeProvider } from '../modules/providers/adapters/ge.provider.js';
+import {
+  runProviderSync,
+  type ProviderSyncSummary,
+} from '../modules/providers/provider-sync.service.js';
+import { WORLD_CUP_CONTEXT } from '../domain/world-cup-context.js';
 
 const GE_COPA_URL = 'https://ge.globo.com/futebol/copa-do-mundo/';
 const GE_URLS = ['https://ge.globo.com/', GE_COPA_URL];
@@ -68,6 +74,7 @@ export interface GeScoreSyncResult {
   changedEntries: number;
   updatedMatches: number;
   updatedKnockoutFixtures: number;
+  providerRuns?: ProviderSyncSummary[];
 }
 
 let activeRun: Promise<GeScoreSyncResult> | null = null;
@@ -646,6 +653,20 @@ async function notifyApiRealtime(results: unknown[]) {
 async function runGeScoreScrapeCore(requestedByUserId?: string | null) {
   const startedAt = new Date();
   try {
+    const provider = new GeProvider();
+    const bucket = Math.floor(startedAt.getTime() / GE_SCORE_SCRAPE_POLL_MS);
+    const providerRuns: ProviderSyncSummary[] = [];
+    for (const type of ['TEAMS', 'SCHEDULE', 'RESULTS'] as const) {
+      providerRuns.push(
+        await runProviderSync(provider, {
+          type,
+          seasonId: WORLD_CUP_CONTEXT.seasonId,
+          dryRun: false,
+          idempotencyKey: `ge-watch:${type}:${bucket}`,
+          requestedById: requestedByUserId,
+        }),
+      );
+    }
     const scores = await scrapeGeScores();
     const topScorers = await scrapeGeTopScorers().catch((error) => {
       logger.warn({ error }, 'GE top scorers scrape failed');
@@ -680,6 +701,7 @@ async function runGeScoreScrapeCore(requestedByUserId?: string | null) {
       changedEntries,
       updatedMatches,
       updatedKnockoutFixtures,
+      providerRuns,
     };
 
     await prisma.apiSyncLog.create({

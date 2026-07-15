@@ -56,6 +56,19 @@ vi.mock('../prisma.js', () => ({
         sessionVersion: 1,
       })),
     },
+    pool: {
+      findUnique: vi.fn(async () => ({
+        id: 'pool-bolao-do-trabalho',
+        slug: 'bolao-do-trabalho',
+        memberships: [{ role: 'MEMBER' }],
+        seasons: [
+          {
+            id: 'pool-season-bolao-do-trabalho-world-cup-2026',
+            seasonId: 'competition-season-world-cup-2026',
+          },
+        ],
+      })),
+    },
   },
 }));
 

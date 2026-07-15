@@ -26,9 +26,18 @@ describe('SSE delivery', () => {
     vi.mocked(response.write).mockClear();
     vi.mocked((response as Response & { flush: () => void }).flush).mockClear();
 
-    emitSse('ranking.updated', { ranking: [] });
+    const envelope = emitSse('ranking.updated', { ranking: [] });
 
-    expect(response.write).toHaveBeenCalledWith('event: ranking.updated\ndata: {"ranking":[]}\n\n');
+    expect(response.write).toHaveBeenCalledWith(
+      `event: ranking.updated\nid: ${envelope.eventId}\ndata: ${JSON.stringify(envelope)}\n\n`,
+    );
+    expect(envelope).toMatchObject({
+      type: 'ranking.updated',
+      seasonId: 'competition-season-world-cup-2026',
+      poolSeasonId: 'pool-season-bolao-do-trabalho-world-cup-2026',
+      version: 1,
+      payload: { ranking: [] },
+    });
     expect((response as Response & { flush: () => void }).flush).toHaveBeenCalledOnce();
     handlers.get('close')?.();
     expect(activeSseClientCount()).toBe(0);
@@ -57,5 +66,34 @@ describe('SSE delivery', () => {
     expect(response.end).toHaveBeenCalledOnce();
     expect(activeSseClientCount()).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('filters delivery by season and pool context', () => {
+    const response = {
+      write: vi.fn(() => true),
+      flush: vi.fn(),
+      once: vi.fn(),
+      off: vi.fn(),
+      end: vi.fn(),
+      writableEnded: false,
+      destroyed: false,
+    } as unknown as Response;
+
+    addSseClient(response, undefined, { seasonId: 'season-1', poolSeasonId: 'pool-season-1' });
+    vi.mocked(response.write).mockClear();
+
+    emitSse('prediction.updated', { matchIds: ['match-2'] }, {
+      seasonId: 'season-2',
+      poolSeasonId: 'pool-season-2',
+    });
+    expect(response.write).not.toHaveBeenCalled();
+
+    const expected = emitSse('prediction.updated', { matchIds: ['match-1'] }, {
+      seasonId: 'season-1',
+      poolSeasonId: 'pool-season-1',
+    });
+    expect(response.write).toHaveBeenCalledWith(
+      `event: prediction.updated\nid: ${expected.eventId}\ndata: ${JSON.stringify(expected)}\n\n`,
+    );
   });
 });

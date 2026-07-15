@@ -20,6 +20,10 @@ import { avatarUploadDir } from './services/avatar.service.js';
 import { knockoutBracketRouter, predictionBoardRouter } from './routes/prediction-board.routes.js';
 import { internalRouter } from './routes/internal.routes.js';
 import { csrfProtection } from './middleware/csrf.js';
+import { requestContext } from './middleware/request-context.js';
+import { competitionRouter } from './modules/competitions/competition.routes.js';
+import { seasonRouter } from './modules/seasons/season.routes.js';
+import { poolRouter } from './modules/pools/pool.routes.js';
 
 const pinoHttp = pinoHttpModule as unknown as (options: {
   logger: typeof logger;
@@ -29,6 +33,7 @@ export function createApp(options: { sessionStore?: Store } = {}) {
   const app = express();
 
   app.set('trust proxy', 1);
+  app.use(requestContext);
   app.use(
     helmet({
       contentSecurityPolicy: {
@@ -70,6 +75,9 @@ export function createApp(options: { sessionStore?: Store } = {}) {
   });
 
   app.use('/api/auth', authRouter);
+  app.use('/api/competitions', competitionRouter);
+  app.use('/api/seasons', seasonRouter);
+  app.use('/api/pools', poolRouter);
   app.use('/api/match-days', matchDayRouter);
   app.use('/api/ranking', rankingRouter);
   app.use('/api/cup', cupRouter);

@@ -109,6 +109,30 @@ enum SyncStatus {
   FAILED
 }
 
+enum ProviderSyncType {
+  TEAMS
+  SCHEDULE
+  RESULTS
+  STANDINGS
+}
+
+enum ProviderSyncRunStatus {
+  RUNNING
+  SUCCESS
+  PARTIAL
+  FAILED
+  DRY_RUN
+}
+
+enum SyncQuarantineReason {
+  INVALID_PAYLOAD
+  DUPLICATE_EXTERNAL_ID
+  AMBIGUOUS_NAME
+  MISSING_MAPPING
+  INVALID_REFERENCE
+  CONFLICT
+}
+
 enum AuditAction {
   USER_BLOCKED
   USER_UNBLOCKED
@@ -116,6 +140,8 @@ enum AuditAction {
   PASSWORD_RESET
   MANUAL_SYNC
   MATCH_ADJUSTED
+  MATCH_OVERRIDE_SET
+  MATCH_OVERRIDE_REMOVED
   SETTING_UPDATED
 }
 
@@ -138,6 +164,7 @@ model User {
   knockoutScores   KnockoutPredictionScore[]
   groupSimulations KnockoutGroupSimulationScore[]
   poolMemberships  PoolMembership[]
+  matchOverrides   MatchOverride[]
 
   @@index([role, status])
   @@index([nickname])
@@ -181,6 +208,9 @@ model CompetitionSeason {
   poolSeasons         PoolSeason[]
   providerMappings    ProviderEntityMapping[]
   rankingSnapshots    RankingSnapshot[]
+  providerSyncRuns    ProviderSyncRun[]
+  providerSyncLocks   ProviderSyncLock[]
+  syncQuarantines     SyncQuarantine[]
 
   @@unique([competitionId, slug])
   @@index([competitionId, status])
@@ -418,6 +448,7 @@ model Match {
   predictions        Prediction[]
   scores             PredictionScore[]
   groupSimulations   KnockoutGroupSimulationScore[]
+  manualOverride     MatchOverride?
 
   @@index([matchDayId, startsAt])
   @@index([status, startsAt])
@@ -654,6 +685,90 @@ model ApiSyncLog {
   @@index([source, createdAt])
 }
 
+model ProviderSyncRun {
+  id               String                @id @default(cuid())
+  provider         String
+  seasonId         String
+  type             ProviderSyncType
+  idempotencyKey   String
+  dryRun           Boolean               @default(false)
+  status           ProviderSyncRunStatus @default(RUNNING)
+  source           String
+  checksum         String?
+  fetchedCount     Int                   @default(0)
+  insertedCount    Int                   @default(0)
+  updatedCount     Int                   @default(0)
+  unchangedCount   Int                   @default(0)
+  quarantinedCount Int                   @default(0)
+  requestedById    String?
+  errorCode        String?
+  errorMessage     String?
+  startedAt        DateTime              @default(now())
+  finishedAt       DateTime?
+  createdAt        DateTime              @default(now())
+  season           CompetitionSeason     @relation(fields: [seasonId], references: [id], onDelete: Restrict)
+  quarantines      SyncQuarantine[]
+
+  @@unique([provider, seasonId, type, idempotencyKey])
+  @@index([seasonId, type, startedAt])
+  @@index([provider, status, startedAt])
+}
+
+model ProviderSyncLock {
+  key        String            @id
+  provider   String
+  seasonId   String
+  type       ProviderSyncType
+  ownerId    String
+  acquiredAt DateTime          @default(now())
+  expiresAt  DateTime
+  updatedAt  DateTime          @updatedAt
+  season     CompetitionSeason @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, seasonId, type])
+  @@index([expiresAt])
+}
+
+model SyncQuarantine {
+  id           String               @id @default(cuid())
+  runId        String
+  seasonId     String
+  provider     String
+  type         ProviderSyncType
+  externalId   String?
+  reason       SyncQuarantineReason
+  message      String
+  payload      Json
+  checksum     String
+  resolvedAt   DateTime?
+  resolvedById String?
+  createdAt    DateTime             @default(now())
+  run          ProviderSyncRun      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  season       CompetitionSeason    @relation(fields: [seasonId], references: [id], onDelete: Restrict)
+
+  @@index([seasonId, reason, resolvedAt])
+  @@index([runId, createdAt])
+  @@index([provider, externalId])
+}
+
+model MatchOverride {
+  id            String    @id @default(cuid())
+  matchId       String    @unique
+  actorId       String?
+  justification String
+  values        Json
+  before        Json
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  removedAt     DateTime?
+  match         Match     @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  actor         User?     @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([active, updatedAt])
+  @@index([actorId, updatedAt])
+}
+
 model AdminAuditLog {
   id        String      @id @default(cuid())
   actorId   String?
@@ -672,4 +787,23 @@ model AppSetting {
   key       String   @id
   value     Json
   updatedAt DateTime @updatedAt
+}
+
+model OutboxEvent {
+  id           String    @id @default(cuid())
+  type         String
+  seasonId     String
+  poolSeasonId String?
+  version      Int       @default(1)
+  payload      Json
+  occurredAt   DateTime  @default(now())
+  publishedAt  DateTime?
+  attempts     Int       @default(0)
+  lastError    String?
+  createdAt    DateTime  @default(now())
+
+  @@index([publishedAt, occurredAt])
+  @@index([seasonId, occurredAt])
+  @@index([poolSeasonId, occurredAt])
+  @@index([type, occurredAt])
 }

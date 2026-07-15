@@ -16,40 +16,40 @@ export const registerSchema = z.object({
   username: usernameSchema,
   nickname: nicknameSchema,
   password: passwordSchema,
-});
+}).strict();
 
 export const loginSchema = z.object({
   username: nicknameSchema,
   password: z.string().min(1).max(128),
-});
+}).strict();
 
 export const predictionInputSchema = z.object({
   matchId: z.string().cuid(),
   predictedHomeScore: z.number().int().min(0).max(99),
   predictedAwayScore: z.number().int().min(0).max(99),
-});
+}).strict();
 
 export const upsertMatchDayPredictionsSchema = z.object({
   predictions: z.array(predictionInputSchema).min(1),
-});
+}).strict();
 
 export const knockoutPickInputSchema = z.object({
   matchNumber: z.number().int().min(73).max(104),
   predictedHomeScore: z.number().int().min(0).max(99),
   predictedAwayScore: z.number().int().min(0).max(99),
   advancingTeamId: z.string().cuid(),
-});
+}).strict();
 
 export const knockoutGroupScoreInputSchema = predictionInputSchema;
 
 export const upsertKnockoutBracketSchema = z.object({
   picks: z.array(knockoutPickInputSchema).min(1).max(32),
   groupScores: z.array(knockoutGroupScoreInputSchema).optional(),
-});
+}).strict();
 
 export const upsertKnockoutSimulationSchema = z.object({
   groupScores: z.array(knockoutGroupScoreInputSchema).default([]),
-});
+}).strict();
 
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;

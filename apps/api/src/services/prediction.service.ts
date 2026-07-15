@@ -10,6 +10,7 @@ import {
   predictionState,
 } from './prediction-settings.service.js';
 import { WORLD_CUP_CONTEXT } from '../domain/world-cup-context.js';
+import type { PoolSeasonContext } from '../modules/pools/pool-context.js';
 
 function knockoutStageLabel(stage: string) {
   const labels: Record<string, string> = {
@@ -49,6 +50,27 @@ function saoPauloDateOnly(value: Date) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(value);
 }
 
+type MatchDayMatchView = {
+  startsAt: Date;
+  isOpenForPredictions: boolean;
+  predictionsArePublic: boolean;
+  [key: string]: unknown;
+};
+
+type MatchDayView = {
+  id: string;
+  date: Date | string;
+  firstMatchStartsAt: Date;
+  predictionsCloseAt: Date;
+  status: string;
+  createdAt: Date;
+  updatedAt: Date;
+  matches: MatchDayMatchView[];
+  isOpenForPredictions: boolean;
+  predictionsArePublic: boolean;
+  [key: string]: unknown;
+};
+
 export function matchPredictionsCloseAt(
   startsAt: Date,
   closeMinutes = DEFAULT_PREDICTION_CLOSE_MINUTES,
@@ -64,11 +86,15 @@ export function matchPredictionState(
   return predictionState(startsAt, closeMinutes, now);
 }
 
-export async function listMatchDays(userId?: string) {
+export async function listMatchDays(
+  userId?: string,
+  context: Pick<PoolSeasonContext, 'seasonId' | 'poolSeasonId'> = WORLD_CUP_CONTEXT,
+) {
   const now = new Date();
   const [predictionCloseMinutes, days, knockoutFixtures] = await Promise.all([
     getPredictionCloseMinutes(),
     prisma.matchDay.findMany({
+      where: { seasonId: context.seasonId },
       orderBy: { firstMatchStartsAt: 'asc' },
       include: {
         matches: {
@@ -76,21 +102,24 @@ export async function listMatchDays(userId?: string) {
           include: {
             homeTeam: true,
             awayTeam: true,
-            predictions: userId ? { where: { userId } } : false,
+            predictions: userId
+              ? { where: { userId, poolSeasonId: context.poolSeasonId } }
+              : false,
           },
         },
       },
     }),
     prisma.knockoutFixture.findMany({
+      where: { seasonId: context.seasonId },
       orderBy: { startsAt: 'asc' },
       include: { homeTeam: true, awayTeam: true, winnerTeam: true },
     }),
   ]);
 
-  const matchDaysByDate = new Map<string, any>();
+  const matchDaysByDate = new Map<string, MatchDayView>();
 
   for (const day of days) {
-    const matches = day.matches.map((match) => ({
+    const matches: MatchDayMatchView[] = day.matches.map((match) => ({
       ...match,
       ...matchPredictionState(match.startsAt, now, predictionCloseMinutes),
     }));
@@ -107,7 +136,7 @@ export async function listMatchDays(userId?: string) {
     const date = saoPauloDateOnly(fixture.startsAt);
     const current = matchDaysByDate.get(date);
     const state = matchPredictionState(fixture.startsAt, now, predictionCloseMinutes);
-    const match = {
+    const match: MatchDayMatchView = {
       id: `knockout-${fixture.id}`,
       matchDayId: current?.id ?? `knockout-day-${date}`,
       homeTeamId: fixture.homeTeamId,
@@ -135,8 +164,7 @@ export async function listMatchDays(userId?: string) {
     if (current) {
       current.matches.push(match);
       current.matches.sort(
-        (matchA: { startsAt: Date }, matchB: { startsAt: Date }) =>
-          matchA.startsAt.getTime() - matchB.startsAt.getTime(),
+        (matchA, matchB) => matchA.startsAt.getTime() - matchB.startsAt.getTime(),
       );
       current.firstMatchStartsAt = current.matches[0]?.startsAt ?? current.firstMatchStartsAt;
       current.predictionsCloseAt = predictionCloseAt(
@@ -144,10 +172,10 @@ export async function listMatchDays(userId?: string) {
         predictionCloseMinutes,
       );
       current.isOpenForPredictions = current.matches.some(
-        (item: { isOpenForPredictions?: boolean }) => item.isOpenForPredictions,
+        (item) => item.isOpenForPredictions,
       );
       current.predictionsArePublic = current.matches.every(
-        (item: { predictionsArePublic?: boolean }) => item.predictionsArePublic,
+        (item) => item.predictionsArePublic,
       );
       continue;
     }
@@ -173,11 +201,15 @@ export async function listMatchDays(userId?: string) {
   return { matchDays, predictionCloseMinutes };
 }
 
-export async function getMatchDay(matchDayId: string, viewerId: string) {
+export async function getMatchDay(
+  matchDayId: string,
+  viewerId: string,
+  context: Pick<PoolSeasonContext, 'seasonId' | 'poolSeasonId' | 'poolId'> = WORLD_CUP_CONTEXT,
+) {
   const [predictionCloseMinutes, day] = await Promise.all([
     getPredictionCloseMinutes(),
-    prisma.matchDay.findUnique({
-      where: { id: matchDayId },
+    prisma.matchDay.findFirst({
+      where: { id: matchDayId, seasonId: context.seasonId },
       include: {
         matches: {
           orderBy: { startsAt: 'asc' },
@@ -185,7 +217,14 @@ export async function getMatchDay(matchDayId: string, viewerId: string) {
             homeTeam: true,
             awayTeam: true,
             predictions: {
-              where: { user: { role: 'USER', status: 'ACTIVE' } },
+              where: {
+                poolSeasonId: context.poolSeasonId,
+                user: {
+                  role: 'USER',
+                  status: 'ACTIVE',
+                  poolMemberships: { some: { poolId: context.poolId, status: 'ACTIVE' } },
+                },
+              },
               include: { user: { select: { id: true, nickname: true, avatarUrl: true } } },
               orderBy: { user: { nickname: 'asc' } },
             },

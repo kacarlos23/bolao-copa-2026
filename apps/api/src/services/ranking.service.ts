@@ -1,10 +1,18 @@
 import type { KnockoutStage, Prisma, ScoreType } from '@prisma/client';
 import { calculatePredictionScore } from '@bolao/shared';
 import { prisma } from '../prisma.js';
-import { emitSse } from '../realtime/sse.js';
 import { WORLD_CUP_CONTEXT } from '../domain/world-cup-context.js';
+import { dispatchOutboxEvent, enqueueOutboxEvent } from '../modules/events/outbox.js';
 
 export type RankingPeriod = 'all' | 'week' | 'day';
+
+export interface RankingContext {
+  seasonId: string;
+  poolId: string;
+  poolSeasonId: string;
+}
+
+const DEFAULT_RANKING_CONTEXT: RankingContext = WORLD_CUP_CONTEXT;
 
 export type RankingAwardScope =
   | 'GROUP_ROUND'
@@ -319,8 +327,18 @@ function buildRankingRows(
       scoreType: ScoreType;
       calculatedAt: Date;
       match?: {
-        homeTeam: { id: string; name: string; code?: string | null; metadata?: any } | null;
-        awayTeam: { id: string; name: string; code?: string | null; metadata?: any } | null;
+        homeTeam: {
+          id: string;
+          name: string;
+          code?: string | null;
+          metadata?: Prisma.JsonValue | null;
+        } | null;
+        awayTeam: {
+          id: string;
+          name: string;
+          code?: string | null;
+          metadata?: Prisma.JsonValue | null;
+        } | null;
         homeScore?: number | null;
         awayScore?: number | null;
         finalHomeScore?: number | null;
@@ -334,8 +352,18 @@ function buildRankingRows(
       scoreType: ScoreType;
       calculatedAt: Date;
       fixture?: {
-        homeTeam: { id: string; name: string; code?: string | null; metadata?: any } | null;
-        awayTeam: { id: string; name: string; code?: string | null; metadata?: any } | null;
+        homeTeam: {
+          id: string;
+          name: string;
+          code?: string | null;
+          metadata?: Prisma.JsonValue | null;
+        } | null;
+        awayTeam: {
+          id: string;
+          name: string;
+          code?: string | null;
+          metadata?: Prisma.JsonValue | null;
+        } | null;
         homeScore?: number | null;
         awayScore?: number | null;
         finalHomeScore?: number | null;
@@ -348,9 +376,10 @@ function buildRankingRows(
 ) {
   const rows = users
     .map((user) => {
-      const scores = [...(user.scores as any[]), ...(user.knockoutScores as any[])].sort(
-        (a: any, b: any) => b.calculatedAt.getTime() - a.calculatedAt.getTime(),
-      );
+      const scores = [
+        ...user.scores.map((score) => ({ ...score, event: score.match })),
+        ...user.knockoutScores.map((score) => ({ ...score, event: score.fixture })),
+      ].sort((a, b) => b.calculatedAt.getTime() - a.calculatedAt.getTime());
       const points = scores.reduce((sum, score) => sum + score.points, 0);
       const finalPoints = scores
         .filter((score) => score.isFinal)
@@ -370,7 +399,7 @@ function buildRankingRows(
         lastFive: lastFiveScores.map((score) => score.points),
         lastFiveMatches: lastFiveScores.map((score) => ({
           score: score.points,
-          match: score.match || score.fixture,
+          match: score.event,
         })),
         hasLiveData: scores.some((score) => !score.isFinal),
       };
@@ -380,27 +409,29 @@ function buildRankingRows(
   return rows.sort(compareRankingRows).map((row, index) => ({ rank: index + 1, ...row }));
 }
 
-export async function getRanking(period: RankingPeriod = 'all') {
+export async function getRanking(
+  period: RankingPeriod = 'all',
+  context: RankingContext = DEFAULT_RANKING_CONTEXT,
+) {
   const window = rankingWindow(period);
   const users = await prisma.user.findMany({
-    where: { role: 'USER', status: 'ACTIVE' },
+    where: {
+      role: 'USER',
+      status: 'ACTIVE',
+      poolMemberships: { some: { poolId: context.poolId, status: 'ACTIVE' } },
+    },
     select: {
       id: true,
       nickname: true,
       avatarUrl: true,
       scores: {
-        ...(window
-          ? {
-              where: {
-                match: {
-                  startsAt: {
-                    gte: window.start,
-                    lt: window.end,
-                  },
-                },
-              },
-            }
-          : {}),
+        where: {
+          poolSeasonId: context.poolSeasonId,
+          match: {
+            seasonId: context.seasonId,
+            ...(window ? { startsAt: { gte: window.start, lt: window.end } } : {}),
+          },
+        },
         orderBy: { calculatedAt: 'desc' },
         select: {
           points: true,
@@ -436,18 +467,13 @@ export async function getRanking(period: RankingPeriod = 'all') {
         },
       },
       knockoutScores: {
-        ...(window
-          ? {
-              where: {
-                fixture: {
-                  startsAt: {
-                    gte: window.start,
-                    lt: window.end,
-                  },
-                },
-              },
-            }
-          : {}),
+        where: {
+          poolSeasonId: context.poolSeasonId,
+          fixture: {
+            seasonId: context.seasonId,
+            ...(window ? { startsAt: { gte: window.start, lt: window.end } } : {}),
+          },
+        },
         orderBy: { calculatedAt: 'desc' },
         select: {
           points: true,
@@ -489,16 +515,24 @@ export async function getRanking(period: RankingPeriod = 'all') {
   return result;
 }
 
-export async function getRankingAwards() {
+export async function getRankingAwards(context: RankingContext = DEFAULT_RANKING_CONTEXT) {
   const [overallRanking, users, groupMatches, knockoutFixtures] = await Promise.all([
-    getRanking('all'),
+    getRanking('all', context),
     prisma.user.findMany({
-      where: { role: 'USER', status: 'ACTIVE' },
+      where: {
+        role: 'USER',
+        status: 'ACTIVE',
+        poolMemberships: { some: { poolId: context.poolId, status: 'ACTIVE' } },
+      },
       select: {
         id: true,
         nickname: true,
         avatarUrl: true,
         scores: {
+          where: {
+            poolSeasonId: context.poolSeasonId,
+            match: { seasonId: context.seasonId },
+          },
           select: {
             points: true,
             isFinal: true,
@@ -507,6 +541,10 @@ export async function getRankingAwards() {
           },
         },
         knockoutScores: {
+          where: {
+            poolSeasonId: context.poolSeasonId,
+            fixture: { seasonId: context.seasonId },
+          },
           select: {
             points: true,
             isFinal: true,
@@ -516,8 +554,14 @@ export async function getRankingAwards() {
         },
       },
     }),
-    prisma.match.findMany({ select: { rawPayload: true, status: true } }),
-    prisma.knockoutFixture.findMany({ select: { stage: true, status: true } }),
+    prisma.match.findMany({
+      where: { seasonId: context.seasonId },
+      select: { rawPayload: true, status: true },
+    }),
+    prisma.knockoutFixture.findMany({
+      where: { seasonId: context.seasonId },
+      select: { stage: true, status: true },
+    }),
   ]);
 
   const groupScoreRows = users.flatMap((user) =>
@@ -702,28 +746,42 @@ export async function getRankingAwards() {
   return awards;
 }
 
-export async function refreshRankingSnapshot() {
-  const ranking = await getRanking('all');
+export async function refreshRankingSnapshot(context: RankingContext = DEFAULT_RANKING_CONTEXT) {
+  const ranking = await getRanking('all', context);
   const calculatedAt = new Date();
-  await prisma.rankingSnapshot.createMany({
-    data: ranking.map((row) => ({
-      userId: row.userId,
-      seasonId: WORLD_CUP_CONTEXT.seasonId,
-      poolSeasonId: WORLD_CUP_CONTEXT.poolSeasonId,
-      points: row.points,
-      finalPoints: row.finalPoints,
-      exactScores: row.exactScores,
-      resultHits: row.resultHits,
-      oneGoalHits: row.oneGoalHits,
-      rank: row.rank,
-      hasLiveData: row.hasLiveData,
-      calculatedAt,
-    })),
+  const retentionCutoff = rankingSnapshotRetentionCutoff(calculatedAt);
+  const eventId = await prisma.$transaction(async (tx) => {
+    await tx.rankingSnapshot.createMany({
+      data: ranking.map((row) => ({
+        userId: row.userId,
+        seasonId: context.seasonId,
+        poolSeasonId: context.poolSeasonId,
+        points: row.points,
+        finalPoints: row.finalPoints,
+        exactScores: row.exactScores,
+        resultHits: row.resultHits,
+        oneGoalHits: row.oneGoalHits,
+        rank: row.rank,
+        hasLiveData: row.hasLiveData,
+        calculatedAt,
+      })),
+    });
+    await tx.rankingSnapshot.deleteMany({
+      where: {
+        poolSeasonId: context.poolSeasonId,
+        calculatedAt: { lt: retentionCutoff },
+      },
+    });
+    return (
+      await enqueueOutboxEvent(tx, {
+        type: 'ranking.updated',
+        seasonId: context.seasonId,
+        poolSeasonId: context.poolSeasonId,
+        payload: { ranking, updatedAt: calculatedAt.toISOString() } as Prisma.InputJsonValue,
+      })
+    ).id;
   });
 
-  const retentionCutoff = rankingSnapshotRetentionCutoff(calculatedAt);
-  await prisma.rankingSnapshot.deleteMany({ where: { calculatedAt: { lt: retentionCutoff } } });
-
-  emitSse('ranking.updated', { ranking, updatedAt: calculatedAt.toISOString() });
+  await dispatchOutboxEvent(eventId);
   return ranking;
 }
