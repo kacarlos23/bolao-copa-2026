@@ -7,6 +7,8 @@ import { ConnectionIndicator } from '../../components/ConnectionIndicator';
 import { RankingTable } from '../../components/RankingTable';
 import { ScoreInput } from '../../components/ScoreInput';
 import { TeamBadge } from '../../components/TeamBadge';
+import { RouteLink } from '../../navigation/RouteLink';
+import { pathForLeagueTeam } from '../../navigation/routes';
 import { useToast } from '../../components/Toast';
 import {
   api,
@@ -175,7 +177,11 @@ function rankingQuery(scope: RankingScope, round: RoundDto | undefined, matches:
   return 'scope=overall';
 }
 
-function standingsTable(rows: StandingRowDto[], compact: boolean) {
+function standingsTable(
+  rows: StandingRowDto[],
+  compact: boolean,
+  onOpenTeam?: (teamId: string) => void,
+) {
   return (
     <ScrollView horizontal={!compact} contentContainerStyle={styles.standingsScroller}>
       <View style={styles.standingsTable} accessibilityLabel="Classificação esportiva">
@@ -194,12 +200,26 @@ function standingsTable(rows: StandingRowDto[], compact: boolean) {
             accessibilityLabel={`${row.rank}º ${row.team.name}, ${row.points} pontos`}
           >
             <Text style={[styles.standingCell, styles.standingPosition]}>{row.rank}</Text>
-            <View style={[styles.standingTeam, styles.standingIdentity]}>
-              <TeamBadge team={row.team} kind="crest" size={24} />
-              <Text style={styles.standingName} numberOfLines={1}>
-                {row.team.name}
-              </Text>
-            </View>
+            {onOpenTeam ? (
+              <RouteLink
+                href={pathForLeagueTeam(row.team.id)}
+                accessibilityLabel={`Abrir perfil de ${row.team.name}`}
+                onActivate={() => onOpenTeam(row.team.id)}
+                style={[styles.standingTeam, styles.standingIdentity]}
+              >
+                <TeamBadge team={row.team} kind="crest" size={24} />
+                <Text style={styles.standingName} numberOfLines={1}>
+                  {row.team.name}
+                </Text>
+              </RouteLink>
+            ) : (
+              <View style={[styles.standingTeam, styles.standingIdentity]}>
+                <TeamBadge team={row.team} kind="crest" size={24} />
+                <Text style={styles.standingName} numberOfLines={1}>
+                  {row.team.name}
+                </Text>
+              </View>
+            )}
             <Text style={styles.standingCell}>{row.played}</Text>
             {!compact ? <Text style={styles.standingCell}>{row.wins}</Text> : null}
             {!compact ? <Text style={styles.standingCell}>{row.goalDifference}</Text> : null}
@@ -215,10 +235,12 @@ export function SeasonWorkspace({
   currentUserId,
   refreshVersion,
   section = 'all',
+  onOpenTeam,
 }: {
   currentUserId: string;
   refreshVersion: number;
   section?: SeasonWorkspaceSection;
+  onOpenTeam?: (teamId: string) => void;
 }) {
   const context = useCompetition();
   const { showToast } = useToast();
@@ -979,7 +1001,7 @@ export function SeasonWorkspace({
               <Text style={styles.sectionTitle}>Tabela da liga</Text>
             </View>
             {standings.length ? (
-              standingsTable(standings, compact)
+              standingsTable(standings, compact, onOpenTeam)
             ) : (
               <AsyncState
                 status="empty"

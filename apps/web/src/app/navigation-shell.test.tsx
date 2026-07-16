@@ -81,4 +81,16 @@ describe('shell de navegação', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Brasileirão Série A 2025' }));
     expect(onSelectSeason).toHaveBeenCalledWith('season-2025');
   });
+
+  it('mantém Times selecionado dentro das subseções de um clube', () => {
+    render(
+      <CompetitionSubnav
+        screen="brasileirao-team-matches"
+        competitionName="Brasileirão Série A 2026"
+        onNavigate={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('link', { name: 'Times' }).getAttribute('aria-current')).toBe('page');
+  });
 });

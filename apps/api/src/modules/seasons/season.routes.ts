@@ -3,6 +3,7 @@ import {
   listMatchesQuerySchema,
   paginationQuerySchema,
   seasonParamsSchema,
+  seasonTeamParamsSchema,
 } from '@bolao/shared';
 import { asyncHandler } from '../../http/async-handler.js';
 import { requireAuth } from '../../middleware/auth.js';
@@ -11,6 +12,7 @@ import { listSeasonRounds } from '../rounds/round.use-cases.js';
 import { listSeasonStages } from '../stages/stage.use-cases.js';
 import { getSeason } from './season.use-cases.js';
 import { getSeasonStandings } from '../standings/standing.use-cases.js';
+import { getTeamProfile, listSeasonTeams } from '../teams/team.use-cases.js';
 import {
   assertCompetitionFeature,
   getCompetitionFeatureFlags,
@@ -56,6 +58,26 @@ seasonRouter.get(
     res.locals.seasonId = seasonId;
     await assertCompetitionFeature(seasonId, 'read', req.session.user!.role);
     res.json(await listSeasonMatches(seasonId, listMatchesQuerySchema.parse(req.query)));
+  }),
+);
+
+seasonRouter.get(
+  '/:seasonId/teams',
+  asyncHandler(async (req, res) => {
+    const { seasonId } = seasonParamsSchema.parse(req.params);
+    res.locals.seasonId = seasonId;
+    await assertCompetitionFeature(seasonId, 'read', req.session.user!.role);
+    res.json(await listSeasonTeams(seasonId, paginationQuerySchema.parse(req.query)));
+  }),
+);
+
+seasonRouter.get(
+  '/:seasonId/teams/:teamId/profile',
+  asyncHandler(async (req, res) => {
+    const { seasonId, teamId } = seasonTeamParamsSchema.parse(req.params);
+    res.locals.seasonId = seasonId;
+    await assertCompetitionFeature(seasonId, 'read', req.session.user!.role);
+    res.json({ profile: await getTeamProfile(seasonId, teamId) });
   }),
 );
 

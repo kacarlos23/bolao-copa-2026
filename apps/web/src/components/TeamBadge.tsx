@@ -62,6 +62,7 @@ export function TeamBadge({
   if (!source || failed) {
     return (
       <View
+        accessibilityRole="image"
         accessibilityLabel={team ? `Símbolo de ${team.name}` : 'Time a definir'}
         style={[
           styles.fallback,
@@ -94,6 +95,7 @@ export function TeamBadge({
   if (rendersCrest) {
     return (
       <View
+        accessibilityRole="image"
         accessibilityLabel={team ? `Escudo de ${team.name}` : 'Time a definir'}
         style={[
           styles.crestFrame,

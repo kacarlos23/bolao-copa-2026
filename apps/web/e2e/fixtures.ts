@@ -74,6 +74,72 @@ const rankingRow = (rank: number, userId: string, nickname: string, points: numb
   resultHits: 2, oneGoalHits: 1, misses: 0, lastFive: [15, 3], lastFiveMatches: [], hasLiveData: false,
 });
 const ranking = [rankingRow(1, 'user-leader', 'Ana', 24), rankingRow(2, currentUser.id, currentUser.nickname, 21)];
+const leagueTeamSummaries = [
+  {
+    team: santos,
+    externalId: '20008',
+    state: 'SP',
+    profileAvailable: true,
+    collectedAt: '2026-07-16T12:00:00.000Z',
+  },
+  {
+    team: vasco,
+    externalId: '60646',
+    state: 'RJ',
+    profileAvailable: true,
+    collectedAt: '2026-07-16T12:00:00.000Z',
+  },
+];
+const vascoProfile = {
+  seasonId: leagueSeason.id,
+  team: vasco,
+  externalId: '60646',
+  state: 'RJ',
+  athletes: [
+    {
+      externalId: 'athlete-1',
+      fullName: 'João da Silva',
+      nickname: 'João',
+      currentClub: { externalId: '60646', name: 'Vasco da Gama', state: 'RJ' },
+    },
+    {
+      externalId: 'athlete-2',
+      fullName: 'Carlos de Souza',
+      nickname: 'Carlos',
+      currentClub: { externalId: '20385', name: 'Mirassol', state: 'SP' },
+    },
+  ],
+  matches: [
+    {
+      externalId: '832001',
+      reference: '112',
+      round: 12,
+      startsAt: '2026-04-18T21:30:00.000Z',
+      home: { externalId: '60646', name: 'Vasco da Gama', score: 2 },
+      away: { externalId: '20005', name: 'São Paulo', score: 1 },
+      venue: 'São Januário - Rio de Janeiro - RJ',
+      result: 'WIN',
+    },
+  ],
+  statistics: {
+    goalsFor: 22,
+    goalsAgainst: 29,
+    cleanSheets: 1,
+    played: 18,
+    wins: 5,
+    draws: 5,
+    losses: 8,
+    yellowCards: 40,
+    redCards: 3,
+  },
+  source: {
+    provider: 'CBF',
+    label: 'Confederação Brasileira de Futebol',
+    url: 'https://www.cbf.com.br/futebol-brasileiro/times/campeonato-brasileiro/serie-a/2026/60646',
+    collectedAt: '2026-07-16T12:00:00.000Z',
+    checksum: 'a'.repeat(64),
+  },
+};
 
 function apiError(status: number) {
   const messages: Record<number, string> = {
@@ -151,6 +217,8 @@ export async function installApiMocks(page: Page, options: { authenticated?: boo
     if (path === `/api/seasons/${leagueSeason.id}/rounds`) return json({ rounds: [postponedRound, round], pagination: { ...pagination, total: 2 } });
     if (path === `/api/seasons/${leagueSeason.id}/matches`) return json({ matches: leagueMatches, pagination: { ...pagination, total: leagueMatches.length } });
     if (path === `/api/seasons/${leagueSeason.id}/standings`) return json({ standingsByGroup: [{ group: 'Série A', rows: [standing(1, santos, 40), standing(2, vasco, 37)] }], pagination: { ...pagination, total: 2 } });
+    if (path === `/api/seasons/${leagueSeason.id}/teams`) return json({ teams: leagueTeamSummaries, pagination: { ...pagination, total: 2 } });
+    if (path === `/api/seasons/${leagueSeason.id}/teams/${vasco.id}/profile`) return json({ profile: vascoProfile });
     if (path.includes(`/api/pools/${POOL_SLUG}/seasons/${leagueSeason.id}/predictions`) && method === 'GET') return json({ predictions: leaguePredictions, pagination: { ...pagination, total: leaguePredictions.length, totalPages: leaguePredictions.length ? 1 : 0 } });
     if (path.includes(`/api/pools/${POOL_SLUG}/seasons/${leagueSeason.id}/predictions`) && method === 'PUT') {
       const body = JSON.parse(request.postData() ?? '{}') as { predictions?: Array<{ matchId: string; predictedHomeScore: number; predictedAwayScore: number }> };

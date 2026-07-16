@@ -44,10 +44,13 @@ import { RoutedWorkspace } from './src/app/RoutedWorkspace';
 import {
   leagueScreens,
   pageTitle,
+  pathForLeagueTeam,
   pathForScreen,
   screenForCompetitionSlug,
   screenFromPath,
+  teamIdFromPath,
   type AppScreen,
+  type LeagueTeamSection,
 } from './src/navigation/routes';
 
 type Screen = AppScreen;
@@ -73,6 +76,16 @@ const DailyPredictionsV2 = lazy(() =>
 const Brasileirao2026Screen = lazy(() =>
   import('./src/brasileirao2026').then((module) => ({ default: module.Brasileirao2026Screen })),
 );
+const TeamDirectoryScreen = lazy(() =>
+  import('./src/features/teams/LeagueTeamsScreen').then((module) => ({
+    default: module.TeamDirectoryScreen,
+  })),
+);
+const TeamProfileScreen = lazy(() =>
+  import('./src/features/teams/LeagueTeamsScreen').then((module) => ({
+    default: module.TeamProfileScreen,
+  })),
+);
 const BrasileiraoCanaryAdmin = lazy(() =>
   import('./src/brasileiraoAdmin').then((module) => ({ default: module.BrasileiraoCanaryAdmin })),
 );
@@ -84,6 +97,23 @@ const knockoutDeadline = new Date('2026-06-18T23:59:59-03:00').getTime();
 function initialAppScreen(): Screen {
   if (!appIaV2 || Platform.OS !== 'web' || typeof window === 'undefined') return 'days';
   return screenFromPath(window.location.pathname);
+}
+
+function initialLeagueTeamId() {
+  if (!appIaV2 || Platform.OS !== 'web' || typeof window === 'undefined') return null;
+  return teamIdFromPath(window.location.pathname);
+}
+
+function leagueTeamSectionForScreen(screen: Screen): LeagueTeamSection {
+  if (screen === 'brasileirao-team-matches') return 'matches';
+  if (screen === 'brasileirao-team-statistics') return 'statistics';
+  return 'athletes';
+}
+
+function screenForLeagueTeamSection(section: LeagueTeamSection): Screen {
+  if (section === 'matches') return 'brasileirao-team-matches';
+  if (section === 'statistics') return 'brasileirao-team-statistics';
+  return 'brasileirao-team-athletes';
 }
 
 const colors = {
@@ -3778,6 +3808,7 @@ function TeamCatalogScreen({
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [screen, setScreen] = useState<Screen>(initialAppScreen);
+  const [leagueTeamId, setLeagueTeamId] = useState<string | null>(initialLeagueTeamId);
   const [selectedTeamCode, setSelectedTeamCode] = useState<string | null>('KOR');
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [booting, setBooting] = useState(true);
@@ -3789,9 +3820,16 @@ export default function App() {
   const appScrollY = useRef(0);
   const inactiveSince = useRef<number | null>(null);
   const screenRef = useRef<Screen>(screen);
+  const leagueTeamIdRef = useRef<string | null>(leagueTeamId);
+  const routePathRef = useRef(
+    Platform.OS === 'web' && typeof window !== 'undefined'
+      ? window.location.pathname
+      : pathForScreen(screen),
+  );
   const userRef = useRef<User | null>(user);
   const appScrollStyle = [styles.appScroll, viewportWidth < 760 && styles.appScrollCompact];
   screenRef.current = screen;
+  leagueTeamIdRef.current = leagueTeamId;
   userRef.current = user;
 
   const triggerRefresh = useCallback(() => {
@@ -3821,8 +3859,27 @@ export default function App() {
     if (nextScreen === screen) return true;
     if (!confirmContextChange()) return false;
     if (appIaV2 && Platform.OS === 'web' && typeof window !== 'undefined') {
-      window.history.pushState({ screen: nextScreen }, '', pathForScreen(nextScreen));
+      const nextPath = pathForScreen(nextScreen);
+      window.history.pushState({ screen: nextScreen }, '', nextPath);
+      routePathRef.current = nextPath;
     }
+    if (!nextScreen.startsWith('brasileirao-team-')) setLeagueTeamId(null);
+    setScreen(nextScreen);
+    appScrollY.current = 0;
+    appScrollRef.current?.scrollTo({ y: 0, animated: false });
+    focusMainContent();
+    return true;
+  }
+
+  function navigateLeagueTeam(teamId: string, section: LeagueTeamSection = 'athletes') {
+    const nextScreen = screenForLeagueTeamSection(section);
+    if (!confirmContextChange()) return false;
+    const nextPath = pathForLeagueTeam(teamId, section);
+    if (appIaV2 && Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.history.pushState({ screen: nextScreen, teamId, section }, '', nextPath);
+      routePathRef.current = nextPath;
+    }
+    setLeagueTeamId(teamId);
     setScreen(nextScreen);
     appScrollY.current = 0;
     appScrollRef.current?.scrollTo({ y: 0, animated: false });
@@ -3860,7 +3917,8 @@ export default function App() {
     }
     const handlePopState = () => {
       const nextScreen = screenFromPath(window.location.pathname);
-      if (nextScreen === screenRef.current) return;
+      const nextTeamId = teamIdFromPath(window.location.pathname);
+      if (nextScreen === screenRef.current && nextTeamId === leagueTeamIdRef.current) return;
       const currentUser = userRef.current;
       if (
         currentUser?.id &&
@@ -3869,13 +3927,11 @@ export default function App() {
           'Há alterações não salvas. Deseja sair e manter o rascunho neste navegador?',
         )
       ) {
-        window.history.pushState(
-          { screen: screenRef.current },
-          '',
-          pathForScreen(screenRef.current),
-        );
+        window.history.pushState({ screen: screenRef.current }, '', routePathRef.current);
         return;
       }
+      routePathRef.current = window.location.pathname;
+      setLeagueTeamId(nextTeamId);
       setScreen(nextScreen);
       appScrollY.current = 0;
       appScrollRef.current?.scrollTo({ y: 0, animated: false });
@@ -4019,6 +4075,35 @@ export default function App() {
           />
         );
       }
+      if (screen === 'brasileirao-teams') {
+        return (
+          <TeamDirectoryScreen
+            refreshVersion={refreshVersion}
+            onOpenTeam={(teamId) => navigateLeagueTeam(teamId)}
+          />
+        );
+      }
+      if (screen.startsWith('brasileirao-team-')) {
+        if (!leagueTeamId) {
+          return (
+            <RouteState
+              title="Time não encontrado"
+              message="O endereço deste perfil está incompleto ou inválido."
+              actionLabel="Ver todos os times"
+              onAction={() => navigate('brasileirao-teams')}
+            />
+          );
+        }
+        return (
+          <TeamProfileScreen
+            teamId={leagueTeamId}
+            section={leagueTeamSectionForScreen(screen)}
+            refreshVersion={refreshVersion}
+            onBack={() => navigate('brasileirao-teams')}
+            onOpenSection={(section) => navigateLeagueTeam(leagueTeamId, section)}
+          />
+        );
+      }
       const section =
         screen === 'brasileirao-predictions'
           ? 'predictions'
@@ -4032,6 +4117,7 @@ export default function App() {
           currentUserId={user?.id ?? ''}
           refreshVersion={refreshVersion}
           section={section}
+          onOpenTeam={(teamId) => navigateLeagueTeam(teamId)}
         />
       );
     }
@@ -4097,6 +4183,7 @@ export default function App() {
   }, [
     brasileiraoNavEnabled,
     refreshVersion,
+    leagueTeamId,
     screen,
     selectedTeamCode,
     user?.id,

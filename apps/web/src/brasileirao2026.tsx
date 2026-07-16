@@ -11,16 +11,19 @@ export function Brasileirao2026Screen({
   currentUserId,
   refreshVersion,
   section = 'all',
+  onOpenTeam,
 }: {
   currentUserId: string;
   refreshVersion: number;
   section?: SeasonWorkspaceSection;
+  onOpenTeam?: (teamId: string) => void;
 }) {
   return (
     <SeasonWorkspace
       currentUserId={currentUserId}
       refreshVersion={refreshVersion}
       section={section}
+      onOpenTeam={onOpenTeam}
     />
   );
 }

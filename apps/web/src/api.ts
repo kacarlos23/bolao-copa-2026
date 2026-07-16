@@ -6,12 +6,16 @@ import {
   rankingResponseSchema,
   roundsResponseSchema,
   savedPredictionsResponseSchema,
+  seasonTeamsResponseSchema,
   standingsResponseSchema,
+  teamProfileResponseSchema,
   type CompetitionDto,
   type MatchDto,
   type RoundDto,
   type SeasonDto,
   type StandingRowDto,
+  type TeamProfileDto,
+  type SeasonTeamSummaryDto,
 } from '@bolao/shared';
 import { request } from './services/api-client';
 import { createRealtimeClient } from './services/realtime';
@@ -29,7 +33,6 @@ export interface User {
   createdAt?: string;
   updatedAt?: string;
 }
-
 export interface PoolSeasonRules {
   scoring: {
     id: string;
@@ -200,6 +203,8 @@ export type GenericRound = RoundDto;
 export type GenericMatch = MatchDto;
 export type LeagueStandingRow = StandingRowDto;
 export type GenericCompetition = CompetitionDto;
+export type LeagueTeamSummary = SeasonTeamSummaryDto;
+export type LeagueTeamProfile = TeamProfileDto;
 
 export interface RankingRefreshResponse {
   ranking: RankingRow[];
@@ -503,6 +508,16 @@ export const api = {
     request(
       `/api/seasons/${seasonId}/standings?page=1&pageSize=100`,
       { schema: standingsResponseSchema },
+    ),
+  seasonTeams: (seasonId: string, signal?: AbortSignal) =>
+    request(`/api/seasons/${seasonId}/teams?page=1&pageSize=100`, {
+      schema: seasonTeamsResponseSchema,
+      signal,
+    }),
+  seasonTeamProfile: (seasonId: string, teamId: string, signal?: AbortSignal) =>
+    request(
+      `/api/seasons/${encodeURIComponent(seasonId)}/teams/${encodeURIComponent(teamId)}/profile`,
+      { schema: teamProfileResponseSchema, signal },
     ),
   seasonPredictions: (poolSlug: string, seasonId: string, matchDayId?: string) =>
     request(

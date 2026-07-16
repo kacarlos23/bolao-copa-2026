@@ -21,6 +21,7 @@ const leagueItems: NavItem[] = [
   { screen: 'brasileirao-predictions', label: 'Palpites', icon: 'create-outline' },
   { screen: 'brasileirao-standings', label: 'Classificação', icon: 'list-outline' },
   { screen: 'brasileirao-ranking', label: 'Ranking', icon: 'podium-outline' },
+  { screen: 'brasileirao-teams', label: 'Times', icon: 'shield-outline' },
 ];
 
 const worldCupItems: NavItem[] = [
@@ -111,7 +112,9 @@ export function CompetitionSubnav({
         accessibilityLabel={`Seções de ${title}`}
       >
         {items.map((item) => {
-          const selected = item.screen === screen;
+          const selected =
+            item.screen === screen ||
+            (item.screen === 'brasileirao-teams' && screen.startsWith('brasileirao-team-'));
           return (
             <RouteLink
               key={item.screen}

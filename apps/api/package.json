@@ -18,6 +18,7 @@
     "backfill:stage7-engagement": "tsx src/scripts/backfill-stage7-engagement.ts",
     "load:brasileirao-2026": "tsx src/scripts/load-brasileirao-2026.ts",
     "reconcile:cbf-2026": "tsx src/scripts/reconcile-cbf-2026.ts",
+    "sync:cbf-team-profiles": "tsx src/scripts/sync-cbf-team-profiles.ts",
     "scrape:ge-scores": "tsx src/scripts/scrape-ge-scores.ts",
     "scrape:ge-scores:once": "tsx src/scripts/scrape-ge-scores.ts --once",
     "scrape:ge-scores:watch": "tsx src/scripts/scrape-ge-scores.ts --watch"

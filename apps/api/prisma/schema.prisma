@@ -247,6 +247,7 @@ model CompetitionSeason {
   providerSyncRuns       ProviderSyncRun[]
   providerSyncLocks      ProviderSyncLock[]
   syncQuarantines        SyncQuarantine[]
+  teamProfileSnapshots   TeamProfileSnapshot[]
 
   @@unique([competitionId, slug])
   @@index([competitionId, status])
@@ -316,6 +317,7 @@ model Team {
   knockoutPickAway      KnockoutPick[]    @relation("KnockoutPickAwayTeam")
   knockoutPickAdvancing KnockoutPick[]    @relation("KnockoutPickAdvancingTeam")
   seasons               SeasonTeam[]
+  profileSnapshots      TeamProfileSnapshot[]
 
   @@index([name])
   @@index([code])
@@ -337,6 +339,30 @@ model SeasonTeam {
   @@unique([seasonId, teamId])
   @@index([teamId, seasonId])
   @@index([seasonId, groupName])
+}
+
+model TeamProfileSnapshot {
+  id             String            @id @default(cuid())
+  seasonId       String
+  teamId         String
+  provider       String
+  externalTeamId String
+  state          String?
+  sourceUrl      String
+  collectedAt    DateTime
+  checksum       String
+  statistics     Json
+  athletes       Json
+  matches        Json
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  season         CompetitionSeason @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  team           Team              @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([seasonId, teamId, provider])
+  @@unique([seasonId, provider, externalTeamId])
+  @@index([teamId, collectedAt])
+  @@index([seasonId, collectedAt])
 }
 
 model Pool {

@@ -49,6 +49,7 @@
     "backfill:stage7-engagement": "npm --workspace @bolao/api run backfill:stage7-engagement",
     "load:brasileirao-2026": "npm --workspace @bolao/api run load:brasileirao-2026",
     "reconcile:cbf-2026": "npm --workspace @bolao/api run reconcile:cbf-2026",
+    "sync:cbf-team-profiles": "npm --workspace @bolao/api run sync:cbf-team-profiles",
     "scrape:ge-scores": "npm --workspace @bolao/api run scrape:ge-scores",
     "scrape:ge-scores:once": "npm --workspace @bolao/api run scrape:ge-scores:once",
     "scrape:ge-scores:watch": "npm --workspace @bolao/api run scrape:ge-scores:watch",

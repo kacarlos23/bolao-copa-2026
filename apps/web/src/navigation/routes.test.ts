@@ -8,6 +8,8 @@ import {
   screenForCompetitionSlug,
   screenForPrimaryDestination,
   screenFromPath,
+  pathForLeagueTeam,
+  teamIdFromPath,
 } from './routes';
 
 describe('rotas do Bolão Sirel', () => {
@@ -15,6 +17,17 @@ describe('rotas do Bolão Sirel', () => {
     expect(pathForScreen('cup')).toBe('/competicoes/copa-do-mundo-2026');
     expect(pathForScreen('knockout')).toContain('/competicoes/copa-do-mundo-2026/');
     expect(screenFromPath('/competicoes/copa-do-mundo-2026/times/')).toBe('teams');
+  });
+
+  it('parses deep links for team profile subsections', () => {
+    const path = pathForLeagueTeam('team/with space', 'matches');
+    expect(path).toBe('/competicoes/brasileirao-serie-a-2026/times/team%2Fwith%20space/partidas');
+    expect(screenFromPath(path)).toBe('brasileirao-team-matches');
+    expect(teamIdFromPath(path)).toBe('team/with space');
+    expect(screenFromPath('/competicoes/brasileirao-serie-a-2026/times/team-1/estatisticas')).toBe(
+      'brasileirao-team-statistics',
+    );
+    expect(screenFromPath('/competicoes/brasileirao-serie-a-2026/times')).toBe('brasileirao-teams');
   });
 
   it('resolve subpáginas da liga e rejeita caminho desconhecido', () => {
