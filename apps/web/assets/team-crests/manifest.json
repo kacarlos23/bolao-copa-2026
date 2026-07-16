@@ -1,0 +1,28 @@
+{
+  "sourcePage": "https://www.cbf.com.br/futebol-brasileiro/times/campeonato-brasileiro/serie-a/2026",
+  "sourceUrlTemplate": "https://conteudo.cbf.com.br/clubes/{cbfId}/escudo.jpg",
+  "retrievedAt": "2026-07-16",
+  "licenseStatus": "Club trademarks and CBF-hosted content; verify applicable permissions before public use.",
+  "files": [
+    { "club": "Athletico Paranaense", "cbfId": "20052", "file": "athletico-paranaense.jpg", "sha256": "812b53f41aca892c67bca6cd35c495c2acc63587667200a99bcd783106fd58ea", "bytes": 29028 },
+    { "club": "Atlético Mineiro", "cbfId": "62194", "file": "atletico-mineiro.jpg", "sha256": "971a11d278663e67da88c26438fe7fb076b546226fc4b223344ffa909fd32a2d", "bytes": 2397 },
+    { "club": "Bahia", "cbfId": "61377", "file": "bahia.jpg", "sha256": "f5406e7e12b493ef89f8e169533bb8348b9c6ddf0aa26bb201fd79e0e0954e32", "bytes": 12955 },
+    { "club": "Botafogo", "cbfId": "60175", "file": "botafogo.jpg", "sha256": "05d7ceec97d572f0927be68ca67dde380ffc58dcc24ec3d19bde1efc4915944a", "bytes": 5302 },
+    { "club": "Chapecoense", "cbfId": "20086", "file": "chapecoense.jpg", "sha256": "90e6ff2fc79b9caee62b632f4776f6d8b7b8fd0853877da701100a654857e840", "bytes": 40219 },
+    { "club": "Corinthians", "cbfId": "20001", "file": "corinthians.jpg", "sha256": "6eb9d4f2fc1a5a418aa0a4fbfc3d4b8ef4b2175f19e1210e2109b8eb2d06251f", "bytes": 39167 },
+    { "club": "Coritiba SAF", "cbfId": "61590", "file": "coritiba.jpg", "sha256": "94126c6475dc2cee8b26fe3a306ab7b541a319373f7bd61376f4445f1a8b1232", "bytes": 47839 },
+    { "club": "Cruzeiro", "cbfId": "59849", "file": "cruzeiro.jpg", "sha256": "c3eb93a14c04bd8dd72a315378d583ea16446a77cad468e8aee047193068f185", "bytes": 42103 },
+    { "club": "Flamengo", "cbfId": "20016", "file": "flamengo.jpg", "sha256": "21cf20d9e84c6c67150c36f93e921ea9da9022700e43e8154c970ce735ae9051", "bytes": 24254 },
+    { "club": "Fluminense", "cbfId": "20014", "file": "fluminense.jpg", "sha256": "187c27de813b0cd6a21e8f36b94c30c4bf0497faee209e71356f15d0a9cec147", "bytes": 7076 },
+    { "club": "Grêmio", "cbfId": "20013", "file": "gremio.jpg", "sha256": "516523938f42b9882773c3d96137ee87363e53e09854949c6e41dbc40bc4f3c9", "bytes": 8860 },
+    { "club": "Internacional", "cbfId": "20011", "file": "internacional.jpg", "sha256": "ecb008351dffffb28a6db54b8d42ad78c930284a413c7b0348941920a0eeffd7", "bytes": 45131 },
+    { "club": "Mirassol", "cbfId": "20385", "file": "mirassol.jpg", "sha256": "4bdc8d655b0c82a2466ee1f3057087d5089047270b2f22c3ea8fda7719840b2e", "bytes": 9854 },
+    { "club": "Palmeiras", "cbfId": "20002", "file": "palmeiras.jpg", "sha256": "0678c360a483449179ebdc54aa68bfc6a067e7f68043e37fdf5903bd1d01e556", "bytes": 35485 },
+    { "club": "Red Bull Bragantino", "cbfId": "20007", "file": "red-bull-bragantino.jpg", "sha256": "c7efdd688f0914315a93b1766140757ad5e212e982e9851f0001158247523a5e", "bytes": 28546 },
+    { "club": "Remo", "cbfId": "20022", "file": "remo.jpg", "sha256": "554f6d7779f306433d8e47608f6856a5d0926eaa165663a199f61bccf32420c0", "bytes": 29721 },
+    { "club": "Santos FC", "cbfId": "20008", "file": "santos.jpg", "sha256": "3930d8470b9303dda173777fc3b3362f0db8683afbf22657d117ce8a33a8a099", "bytes": 17024 },
+    { "club": "São Paulo", "cbfId": "20005", "file": "sao-paulo.jpg", "sha256": "c01ce2f99e269c62d98ed0067903d7552fcbed010449c20f5e83396dffbb878e", "bytes": 5644 },
+    { "club": "Vasco da Gama Saf", "cbfId": "60646", "file": "vasco-da-gama.jpg", "sha256": "7368e09751370bc1faf5fbba10bb5fc3e3fee0fc9fb52cd86399f494809626dc", "bytes": 29466 },
+    { "club": "Vitória", "cbfId": "20018", "file": "vitoria.jpg", "sha256": "aef339f81e6a4e589dcdf5e3f977c0ebb293b15082dc16ca476759f298872089", "bytes": 6827 }
+  ]
+}

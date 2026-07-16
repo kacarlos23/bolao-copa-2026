@@ -330,6 +330,7 @@ adminRouter.post(
       poolSeasonId: prepared.poolSeason.id,
       evidence,
       startsAtRound: prepared.poolSeason.startsAtRound,
+      scoreableFrom: prepared.poolSeason.scoreableFrom,
     });
   }),
 );

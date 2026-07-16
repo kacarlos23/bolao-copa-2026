@@ -15,8 +15,14 @@ export function isPoolMatchScoreable(
   match: ScoreableMatch,
 ) {
   if (!policy || policy.historicalMatchesScoreable) return true;
+
+  // Once a pool has an explicit temporal cutoff, the date of the fixture is
+  // the source of truth. A postponed match may keep its original round while
+  // being played after the pool opened, so combining both gates would reject
+  // a legitimate prediction forever.
+  if (policy.scoreableFrom) return match.startsAt >= policy.scoreableFrom;
+
   const gateRound = Math.max(policy.startsAtRound ?? 0, policy.scoreableFromRound ?? 0);
   if (gateRound > 0 && (match.roundOrder == null || match.roundOrder < gateRound)) return false;
-  if (policy.scoreableFrom && match.startsAt < policy.scoreableFrom) return false;
   return true;
 }

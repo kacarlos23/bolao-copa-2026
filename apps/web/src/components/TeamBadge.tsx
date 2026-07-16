@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import type { TeamDto } from '@bolao/shared';
+import { localClubCrestSource } from '../clubCrestSources';
 import { flagSources } from '../flagSources';
 import { theme } from '../theme/tokens';
 
@@ -32,10 +33,31 @@ export function TeamBadge({
   const [failed, setFailed] = useState(false);
   const iso2 = team?.metadata?.iso2?.toLowerCase();
   const localFlag = iso2 ? flagSources[iso2] : undefined;
-  const remoteSource = kind === 'crest' ? team?.crestUrl : team?.flagUrl ?? team?.crestUrl;
-  const source = kind !== 'crest' && localFlag ? localFlag : remoteSource ? { uri: remoteSource } : null;
+  const localCrest = localClubCrestSource(team?.name);
+  const remoteFlag = team?.flagUrl ? { uri: team.flagUrl } : undefined;
+  const remoteCrest = team?.crestUrl ? { uri: team.crestUrl } : undefined;
+  let source = null as typeof localFlag | { uri: string } | null;
+  let rendersCrest = false;
 
-  useEffect(() => setFailed(false), [remoteSource, iso2]);
+  if (kind === 'crest') {
+    source = localCrest ?? remoteCrest ?? null;
+    rendersCrest = Boolean(source);
+  } else if (localFlag) {
+    source = localFlag;
+  } else if (kind === 'auto' && localCrest) {
+    source = localCrest;
+    rendersCrest = true;
+  } else if (remoteFlag) {
+    source = remoteFlag;
+  } else if (remoteCrest) {
+    source = remoteCrest;
+    rendersCrest = true;
+  }
+
+  useEffect(
+    () => setFailed(false),
+    [iso2, kind, team?.crestUrl, team?.flagUrl, team?.id, team?.name],
+  );
 
   if (!source || failed) {
     return (
@@ -53,18 +75,48 @@ export function TeamBadge({
     );
   }
 
-  return (
+  const image = (
     <Image
-      accessibilityLabel={team ? `Símbolo de ${team.name}` : 'Time a definir'}
+      accessibilityLabel={
+        rendersCrest ? undefined : team ? `Bandeira de ${team.name}` : 'Time a definir'
+      }
       onError={() => setFailed(true)}
-      resizeMode={kind === 'crest' || Boolean(team?.crestUrl && !localFlag) ? 'contain' : 'cover'}
+      resizeMode={rendersCrest ? 'contain' : 'cover'}
       source={source}
-      style={{ width: size, height: size, borderRadius: kind === 'crest' ? 0 : Math.max(4, size / 5) }}
+      style={
+        rendersCrest
+          ? { width: Math.max(12, size - 6), height: Math.max(12, size - 6) }
+          : { width: size, height: size, borderRadius: Math.max(4, size / 5) }
+      }
     />
   );
+
+  if (rendersCrest) {
+    return (
+      <View
+        accessibilityLabel={team ? `Escudo de ${team.name}` : 'Time a definir'}
+        style={[
+          styles.crestFrame,
+          { width: size, height: size, borderRadius: Math.max(7, size / 2) },
+        ]}
+      >
+        {image}
+      </View>
+    );
+  }
+
+  return image;
 }
 
 const styles = StyleSheet.create({
+  crestFrame: {
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderColor: theme.color.border,
+    borderWidth: 1,
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
   fallback: {
     alignItems: 'center',
     backgroundColor: theme.color.surfaceRaised,

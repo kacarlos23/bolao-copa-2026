@@ -46,6 +46,12 @@ export interface PoolSeasonRules {
     allowSharedPositions: boolean;
     criteria: Array<{ field: string; direction: 'asc' | 'desc'; label: string }>;
   };
+  predictionPolicy: {
+    scoreableFrom: string | null;
+    scoreableFromRound: number | null;
+    startsAtRound: number | null;
+    historicalMatchesScoreable: boolean;
+  };
 }
 
 export interface EngagementDashboard {
@@ -70,6 +76,16 @@ export interface NotificationPreferences {
   quietHoursStart?: string | null;
   quietHoursEnd?: string | null;
   timezone: string;
+}
+
+export interface SeasonMatchesQuery {
+  roundId?: string;
+  status?: MatchDto['status'];
+  from?: string;
+  to?: string;
+  page?: number;
+  pageSize?: number;
+  signal?: AbortSignal;
 }
 
 export interface Team {
@@ -468,19 +484,31 @@ export const api = {
     }),
   seasonUiFeature: (seasonId: string) =>
     request<{ uiEnabled: boolean }>(`/api/seasons/${seasonId}/features`),
-  seasonMatches: (seasonId: string, roundId: string) =>
-    request(
-      `/api/seasons/${seasonId}/matches?page=1&pageSize=100&roundId=${encodeURIComponent(roundId)}`,
-      { schema: matchesResponseSchema },
-    ),
+  seasonMatches: (seasonId: string, query: string | SeasonMatchesQuery) => {
+    const options = typeof query === 'string' ? { roundId: query } : query;
+    const params = new URLSearchParams({
+      page: String(options.page ?? 1),
+      pageSize: String(options.pageSize ?? 100),
+    });
+    if (options.roundId) params.set('roundId', options.roundId);
+    if (options.status) params.set('status', options.status);
+    if (options.from) params.set('from', options.from);
+    if (options.to) params.set('to', options.to);
+    return request(`/api/seasons/${seasonId}/matches?${params.toString()}`, {
+      schema: matchesResponseSchema,
+      signal: options.signal,
+    });
+  },
   seasonStandings: (seasonId: string) =>
     request(
       `/api/seasons/${seasonId}/standings?page=1&pageSize=100`,
       { schema: standingsResponseSchema },
     ),
-  seasonPredictions: (poolSlug: string, seasonId: string) =>
+  seasonPredictions: (poolSlug: string, seasonId: string, matchDayId?: string) =>
     request(
-      `/api/pools/${poolSlug}/seasons/${seasonId}/predictions?page=1&pageSize=100`,
+      `/api/pools/${poolSlug}/seasons/${seasonId}/predictions?page=1&pageSize=100${
+        matchDayId ? `&matchDayId=${encodeURIComponent(matchDayId)}` : ''
+      }`,
       { schema: predictionsResponseSchema },
     ),
   saveSeasonPredictions: (

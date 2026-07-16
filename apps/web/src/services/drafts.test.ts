@@ -56,4 +56,33 @@ describe('drafts por usuário e poolSeason', () => {
     expect(saveStatusLabel(failed.items.match)).toBe('Falhou — tentar novamente');
     expect(mergeDraftItem(undefined, { home: '1', away: '0' }).status).toBe('clean');
   });
+
+  it('não limpa uma edição feita depois que o salvamento começou', () => {
+    const edited = draftReducer(
+      draftReducer(
+        draftReducer(
+          { items: {} },
+          { type: 'edit', itemId: 'match', side: 'home', value: '1' },
+        ),
+        { type: 'edit', itemId: 'match', side: 'away', value: '0' },
+      ),
+      { type: 'saving', itemIds: ['match'] },
+    );
+    const changedWhileSaving = draftReducer(edited, {
+      type: 'edit',
+      itemId: 'match',
+      side: 'home',
+      value: '2',
+    });
+    const staleResponse = draftReducer(changedWhileSaving, {
+      type: 'saved',
+      itemIds: ['match'],
+      submittedValues: { match: { home: '1', away: '0' } },
+    });
+
+    expect(staleResponse.items.match.value).toEqual({ home: '2', away: '0' });
+    expect(staleResponse.items.match.dirty).toEqual({ home: true, away: false });
+    expect(staleResponse.items.match.status).toBe('dirty');
+    expect(saveStatusLabel(staleResponse.items.match)).toBe('Não salvo');
+  });
 });

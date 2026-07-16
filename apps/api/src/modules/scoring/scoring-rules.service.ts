@@ -61,6 +61,10 @@ export async function resolvePoolSeasonRules(poolSeasonId: string, database: Rul
     where: { id: poolSeasonId },
     select: {
       id: true,
+      scoreableFrom: true,
+      scoreableFromRound: true,
+      startsAtRound: true,
+      historicalMatchesScoreable: true,
       scoringRuleSetVersion: { select: { id: true, key: true, name: true, version: true, rules: true } },
       tieBreakerRuleSet: { select: { id: true, key: true, name: true, version: true, criteria: true, allowSharedPositions: true } },
     },
@@ -81,6 +85,12 @@ export async function resolvePoolSeasonRules(poolSeasonId: string, database: Rul
     tieBreakers: tieRow
       ? { id: tieRow.id, key: tieRow.key, name: tieRow.name, version: tieRow.version, criteria: parseTieBreakers(tieRow.criteria), allowSharedPositions: tieRow.allowSharedPositions }
       : { id: INITIAL_TIE_BREAKER_ID, key: 'classic-ranking', name: 'Desempate clássico', version: 1, criteria: [...INITIAL_TIE_BREAKERS], allowSharedPositions: true },
+    predictionPolicy: {
+      scoreableFrom: poolSeason.scoreableFrom?.toISOString() ?? null,
+      scoreableFromRound: poolSeason.scoreableFromRound,
+      startsAtRound: poolSeason.startsAtRound,
+      historicalMatchesScoreable: poolSeason.historicalMatchesScoreable,
+    },
   };
 }
 

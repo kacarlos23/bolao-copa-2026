@@ -7,10 +7,13 @@ A temporada nasce como `DRAFT` e canário administrativo. As flags persistidas
 `EXPO_PUBLIC_BRASILEIRAO_UI=1`; portanto uma publicação do bundle, isoladamente,
 não expõe a competição.
 
-O início operacional é a rodada 20. `PoolSeason.startsAtRound`,
-`scoreableFromRound` e `scoreableFrom` são preenchidos a partir do primeiro
-horário reconciliado dessa rodada. Rodadas anteriores permanecem no campeonato e
-na classificação esportiva, mas não aceitam palpites nem geram score.
+O início operacional dos palpites é `2026-07-16T03:00:00.000Z` (00:00 em
+`America/Sao_Paulo`). `PoolSeason.scoreableFrom` é a autoridade: qualquer jogo
+oficial agendado ou remarcado a partir desse instante pode receber palpites,
+mesmo quando pertence nominalmente a uma rodada anterior. Jogos com início
+anterior ao corte permanecem no campeonato e na classificação esportiva, mas
+não aceitam palpites nem geram score. Os gates por rodada ficam nulos para não
+bloquear partidas adiadas.
 
 ## Autoridades consultadas
 
@@ -38,8 +41,9 @@ npm run snapshot:compare -- snapshots/copa-before-brasileirao.json snapshots/cop
 ```
 
 O loader para antes de qualquer escrita se não encontrar exatamente 20 clubes,
-380 referências na tabela e 10 partidas com horário na rodada de abertura do
-bolão. Em seguida executa `dryRun`, `apply` e uma segunda importação para `TEAMS`,
+380 referências na tabela e 10 partidas com horário na rodada 20, usada como
+gate de completude da fonte — não como corte de palpites. Em seguida executa
+`dryRun`, `apply` e uma segunda importação para `TEAMS`,
 `SCHEDULE`, `RESULTS` e `STANDINGS`. O processo falha se a segunda carga produzir insert ou
 quarentena.
 
@@ -62,7 +66,8 @@ Antes de liberar leitura, conferir:
 - desempate `cbf-rec-2026-art-15-v1`: pontos, vitórias, saldo, gols pró,
   confronto direto apenas entre dois clubes, menos vermelhos, menos amarelos e
   fallback determinístico enquanto um sorteio oficial não existir;
-- nenhuma `Prediction` ou `PredictionScore` anterior à rodada 20;
+- nenhuma `Prediction` ou `PredictionScore` para partida anterior a
+  `2026-07-16T03:00:00.000Z`;
 - snapshot da Copa idêntico antes/depois.
 
 Ambiguidade ou referência ausente fica em `SyncQuarantine`. Resolva pelo endpoint
@@ -74,7 +79,8 @@ nova chave. Nunca edite o mapping diretamente no banco.
 - **Adiado:** mantém Match ID e palpite; bloqueia edição até a CBF publicar a
   remarcação. A nova data recalcula o fechamento individual.
 - **Remarcado:** atualiza `startsAt`, `MatchDay` e fechamento sem recriar a
-  partida ou o palpite.
+  partida ou o palpite. A nova data é comparada com `scoreableFrom`; portanto
+  um jogo de rodada antiga remarcado após o corte fica elegível.
 - **Cancelado:** bloqueia palpite e remove eventual score ao recalcular; o
   registro histórico permanece auditável.
 - **Resultado corrigido:** `FINISHED -> FINISHED` é aceito, recalcula os scores e
@@ -123,7 +129,8 @@ npm test
 npm run build
 ```
 
-Faça smoke web em 390×844 e 1440×1000: login, abrir Brasileirão, trocar rodada,
-salvar um palpite aberto, confirmar mensagem, conferir classificação e alternar
+Faça smoke web em 390×844 e 1440×1000: login, abrir Brasileirão, trocar o dia,
+salvar um palpite aberto (incluindo um adiado de rodada anterior), confirmar a
+mensagem, conferir classificação e alternar
 ranking geral/rodada/mês/turno. Ao terminar, restaure as três flags para `false`
 se a exposição pública não tiver sido aprovada.

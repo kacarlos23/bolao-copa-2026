@@ -27,27 +27,130 @@ import {
 } from '../../services/drafts';
 import { createRealtimeClient, type ConnectionStatus } from '../../services/realtime';
 import { theme } from '../../theme/tokens';
+import {
+  civilDateKey,
+  civilMonthKey,
+  groupPredictionMatchesByDay,
+  predictionMonthWindow,
+  preferredPredictionDayKey,
+  shiftMonthKey,
+} from './predictionDays';
 
 const POOL_SLUG = 'bolao-do-trabalho';
 type RankingScope = 'overall' | 'round' | 'month' | 'turn-1' | 'turn-2';
 export type SeasonWorkspaceSection = 'all' | 'overview' | 'predictions' | 'standings' | 'ranking';
 
-function formatMatchTime(value: string, timezone: string) {
+function formatMatchHour(value: string, timezone: string) {
   return new Intl.DateTimeFormat('pt-BR', {
     timeZone: timezone,
-    weekday: 'short',
-    day: '2-digit',
-    month: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(value));
 }
 
-function isPredictionOpen(match: MatchDto) {
+function civilKeyDate(value: string) {
+  return new Date(`${value}T12:00:00.000Z`);
+}
+
+function capitalize(value: string) {
+  return value ? `${value[0]?.toUpperCase()}${value.slice(1)}` : value;
+}
+
+function formatDayTitle(value: string) {
+  return capitalize(
+    new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'UTC',
+      weekday: 'long',
+      day: '2-digit',
+      month: 'long',
+    }).format(civilKeyDate(value)),
+  );
+}
+
+function formatDayTab(value: string) {
+  return capitalize(
+    new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'UTC',
+      weekday: 'short',
+      day: '2-digit',
+      month: 'short',
+    })
+      .format(civilKeyDate(value))
+      .replace('.', ''),
+  );
+}
+
+function formatMonthTitle(value: string) {
+  return capitalize(
+    new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'UTC',
+      month: 'long',
+      year: 'numeric',
+    }).format(civilKeyDate(`${value}-01`)),
+  );
+}
+
+function predictionAvailability(
+  match: MatchDto,
+  round: RoundDto | undefined,
+  rules: PoolSeasonRules | null,
+) {
+  if (!rules) {
+    return {
+      open: false,
+      label: 'VERIFICANDO',
+      reason: 'Verificando a janela de palpites desta competição.',
+    };
+  }
+  const policy = rules?.predictionPolicy;
+  if (policy && !policy.historicalMatchesScoreable) {
+    if (policy.scoreableFrom) {
+      if (new Date(match.startsAt).getTime() < new Date(policy.scoreableFrom).getTime()) {
+        return {
+          open: false,
+          label: 'FORA DO BOLÃO',
+          reason: 'Esta partida aconteceu antes do início dos palpites deste bolão.',
+        };
+      }
+    } else {
+      const gateRound = Math.max(policy.startsAtRound ?? 0, policy.scoreableFromRound ?? 0);
+      if (gateRound > 0 && (!round || round.order < gateRound)) {
+        return {
+          open: false,
+          label: 'FORA DO BOLÃO',
+          reason: `Este bolão aceita palpites a partir da rodada ${gateRound}.`,
+        };
+      }
+    }
+  }
+  if (match.status === 'POSTPONED') {
+    return {
+      open: false,
+      label: 'ADIADO',
+      reason: 'Partida adiada. O palpite reabre quando a nova data for publicada.',
+    };
+  }
+  if (match.status === 'CANCELLED') {
+    return { open: false, label: 'CANCELADO', reason: 'Partida cancelada.' };
+  }
+  if (match.status !== 'SCHEDULED') {
+    return { open: false, label: match.status, reason: 'Esta partida não aceita novos palpites.' };
+  }
   const closesAt = match.predictionClosesAt
     ? new Date(match.predictionClosesAt).getTime()
     : new Date(match.startsAt).getTime() - 5 * 60_000;
-  return match.status === 'SCHEDULED' && closesAt > Date.now();
+  if (closesAt <= Date.now()) {
+    return { open: false, label: 'FECHADO', reason: 'O prazo para este palpite terminou.' };
+  }
+  return { open: true, label: 'ABERTO', reason: '' };
+}
+
+function isPredictionOpen(
+  match: MatchDto,
+  round?: RoundDto,
+  rules: PoolSeasonRules | null = null,
+) {
+  return predictionAvailability(match, round, rules).open;
 }
 
 function score(match: MatchDto) {
@@ -127,6 +230,9 @@ export function SeasonWorkspace({
   const [rounds, setRounds] = useState<RoundDto[]>([]);
   const [roundId, setRoundId] = useState('');
   const [matches, setMatches] = useState<MatchDto[]>([]);
+  const [predictionMatches, setPredictionMatches] = useState<MatchDto[]>([]);
+  const [predictionMonth, setPredictionMonth] = useState('');
+  const [selectedDayKey, setSelectedDayKey] = useState('');
   const [standings, setStandings] = useState<StandingRowDto[]>([]);
   const [ranking, setRanking] = useState<RankingRowDto[]>([]);
   const [roundRanking, setRoundRanking] = useState<RankingRowDto[]>([]);
@@ -138,15 +244,28 @@ export function SeasonWorkspace({
   const [poolSeasonId, setPoolSeasonId] = useState('');
   const [status, setStatus] = useState<AsyncStatus>('loading');
   const [error, setError] = useState('');
+  const [predictionStatus, setPredictionStatus] = useState<AsyncStatus>('loading');
+  const [predictionError, setPredictionError] = useState('');
+  const [predictionRefreshVersion, setPredictionRefreshVersion] = useState(0);
   const [connection, setConnection] = useState<ConnectionStatus>('reconnecting');
   const selectedRound = rounds.find((round) => round.id === roundId);
   const dataRequest = useRef(new LatestRequest()).current;
+  const predictionDataRequest = useRef(new LatestRequest()).current;
   const draftRef = useRef(draft);
   const visitedSeasonRef = useRef('');
   draftRef.current = draft;
   const stablePoolSeasonKey =
     poolSeasonId || (season ? `pool:${POOL_SLUG}:season:${season.id}` : 'pending');
   const storageKey = draftStorageKey(currentUserId, stablePoolSeasonKey, 'league-predictions');
+  const timezone = season?.timezone ?? 'America/Sao_Paulo';
+  const predictionDays = groupPredictionMatchesByDay(
+    predictionMatches,
+    timezone,
+    predictionMonth || undefined,
+  );
+  const selectedPredictionDay = predictionDays.find((day) => day.key === selectedDayKey);
+  const selectedDayMatches = selectedPredictionDay?.matches ?? [];
+  const todayKey = civilDateKey(new Date(), timezone);
 
   function dispatch(action: Parameters<typeof draftReducer>[1]) {
     setDraft((current) => draftReducer(current, action));
@@ -166,6 +285,14 @@ export function SeasonWorkspace({
       })
       .catch((cause) => setError(errorMessage(cause)));
   }, [isLeague]);
+
+  useEffect(() => {
+    if (!season) return;
+    setRules(null);
+    setPredictionMonth(civilMonthKey(new Date(), season.timezone));
+    setSelectedDayKey('');
+    setPredictionMatches([]);
+  }, [season?.id, season?.timezone]);
 
   useEffect(() => {
     if (!season) return;
@@ -267,7 +394,10 @@ export function SeasonWorkspace({
         'match.updated',
         'provider.sync.completed',
       ],
-      onEvent: () => void load(true),
+      onEvent: () => {
+        void load(true);
+        setPredictionRefreshVersion((version) => version + 1);
+      },
       onStatus: setConnection,
     });
     return () => {
@@ -277,6 +407,104 @@ export function SeasonWorkspace({
       dataRequest.cancel();
     };
   }, [season?.id, roundId, scope, refreshVersion, poolSeasonId]);
+
+  useEffect(() => {
+    if (
+      !season ||
+      !predictionMonth ||
+      (section !== 'predictions' && section !== 'all')
+    )
+      return;
+    let active = true;
+    const load = async (quiet = false) => {
+      if (!quiet) setPredictionStatus(predictionMatches.length ? 'refreshing' : 'loading');
+      try {
+        const window = predictionMonthWindow(predictionMonth);
+        const result = await predictionDataRequest.run((signal) =>
+          Promise.all([
+            api.seasonMatches(season.id, { ...window, signal }),
+            api.seasonRules(POOL_SLUG, season.id),
+          ]),
+        );
+        if (!active || !result) return;
+        const [matchesResult, rulesResult] = result;
+        const days = groupPredictionMatchesByDay(
+          matchesResult.matches,
+          season.timezone,
+          predictionMonth,
+        );
+        setPredictionMatches(matchesResult.matches);
+        setRules(rulesResult);
+        setSelectedDayKey((current) =>
+          days.some((day) => day.key === current)
+            ? current
+            : preferredPredictionDayKey(
+                days,
+                season.timezone,
+                (match) =>
+                  isPredictionOpen(
+                    match,
+                    rounds.find((round) => round.id === match.roundId),
+                    rulesResult,
+                  ),
+              ),
+        );
+        setPredictionError('');
+        setPredictionStatus(days.length ? 'success' : 'empty');
+      } catch (cause) {
+        if (!active) return;
+        setPredictionError(errorMessage(cause));
+        setPredictionStatus('error');
+      }
+    };
+    void load();
+    const interval = setInterval(() => void load(true), 30_000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+      predictionDataRequest.cancel();
+    };
+  }, [
+    season?.id,
+    season?.timezone,
+    predictionMonth,
+    refreshVersion,
+    predictionRefreshVersion,
+    section,
+  ]);
+
+  useEffect(() => {
+    if (!selectedPredictionDay || !season) return;
+    let active = true;
+    const matchDayIds = [...new Set(selectedPredictionDay.matches.map((match) => match.matchDayId))];
+    void Promise.all(
+      matchDayIds.map((matchDayId) =>
+        api.seasonPredictions(POOL_SLUG, season.id, matchDayId),
+      ),
+    )
+      .then((results) => {
+        if (!active) return;
+        const predictions = results.flatMap((result) => result.predictions);
+        const resolvedPoolSeasonId = predictions[0]?.poolSeasonId;
+        if (resolvedPoolSeasonId) setPoolSeasonId(resolvedPoolSeasonId);
+        dispatch({
+          type: 'hydrate',
+          values: Object.fromEntries(
+            predictions.map((prediction) => [
+              prediction.matchId,
+              {
+                home: String(prediction.predictedHomeScore),
+                away: String(prediction.predictedAwayScore),
+              },
+            ]),
+          ),
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [season?.id, selectedDayKey, predictionMatches]);
 
   useEffect(() => {
     const stored = loadDraft(storageKey);
@@ -289,7 +517,7 @@ export function SeasonWorkspace({
   async function saveMatches(matchIds: string[]) {
     if (!season) return;
     const valid = matchIds.flatMap((matchId) => {
-      const match = matches.find((item) => item.id === matchId);
+      const match = predictionMatches.find((item) => item.id === matchId);
       const item = draft.items[matchId];
       if (!match || !item || item.value.home === '' || item.value.away === '') return [];
       return [{ match, item }];
@@ -299,41 +527,54 @@ export function SeasonWorkspace({
       return;
     }
     const ids = valid.map(({ match }) => match.id);
+    const submittedValues = Object.fromEntries(
+      valid.map(({ match, item }) => [match.id, { ...item.value }]),
+    );
     dispatch({ type: 'saving', itemIds: ids });
-    try {
-      const grouped = new Map<string, typeof valid>();
-      for (const entry of valid) {
-        const entries = grouped.get(entry.match.matchDayId) ?? [];
-        entries.push(entry);
-        grouped.set(entry.match.matchDayId, entries);
-      }
-      const saved = (
-        await Promise.all(
-          [...grouped.entries()].map(([matchDayId, entries]) =>
-            api.saveSeasonPredictions(
-              POOL_SLUG,
-              season.id,
-              matchDayId,
-              entries.map(({ match, item }) => ({
-                matchId: match.id,
-                predictedHomeScore: Number(item.value.home),
-                predictedAwayScore: Number(item.value.away),
-              })),
-            ),
-          ),
-        )
-      ).flatMap((result) => result.predictions);
-      if (saved[0]?.poolSeasonId) setPoolSeasonId(saved[0].poolSeasonId);
-      dispatch({ type: 'saved', itemIds: saved.map((item) => item.matchId) });
+    const grouped = new Map<string, typeof valid>();
+    for (const entry of valid) {
+      const entries = grouped.get(entry.match.matchDayId) ?? [];
+      entries.push(entry);
+      grouped.set(entry.match.matchDayId, entries);
+    }
+    const groups = [...grouped.entries()];
+    const results = await Promise.allSettled(
+      groups.map(([matchDayId, entries]) =>
+        api.saveSeasonPredictions(
+          POOL_SLUG,
+          season.id,
+          matchDayId,
+          entries.map(({ match, item }) => ({
+            matchId: match.id,
+            predictedHomeScore: Number(item.value.home),
+            predictedAwayScore: Number(item.value.away),
+          })),
+        ),
+      ),
+    );
+    const saved = results.flatMap((result) =>
+      result.status === 'fulfilled' ? result.value.predictions : [],
+    );
+    const failures = results.flatMap((result, index) => {
+      if (result.status === 'fulfilled') return [];
+      const failedIds = groups[index]?.[1].map(({ match }) => match.id) ?? [];
+      const message = errorMessage(result.reason);
+      dispatch({ type: 'failed', itemIds: failedIds, error: message });
+      return [message];
+    });
+    if (saved[0]?.poolSeasonId) setPoolSeasonId(saved[0].poolSeasonId);
+    if (saved.length) {
+      dispatch({
+        type: 'saved',
+        itemIds: saved.map((item) => item.matchId),
+        submittedValues,
+      });
       showToast(
         `${saved.length} ${saved.length === 1 ? 'palpite salvo' : 'palpites salvos'}.`,
         'success',
       );
-    } catch (cause) {
-      const message = errorMessage(cause);
-      dispatch({ type: 'failed', itemIds: ids, error: message });
-      showToast(message, 'error');
     }
+    if (failures.length) showToast(failures[0] ?? 'Não foi possível salvar.', 'error');
   }
 
   async function togglePreference(field: 'pushEnabled' | 'emailEnabled' | 'quietHoursEnabled') {
@@ -355,14 +596,21 @@ export function SeasonWorkspace({
 
   if (!season && status === 'loading') return <AsyncState status="loading" skeletonLines={6} />;
 
-  const dirtyOpenIds = matches
-    .filter((match) => isPredictionOpen(match) && draft.items[match.id]?.status === 'dirty')
+  const dirtyOpenIds = selectedDayMatches
+    .filter(
+      (match) =>
+        isPredictionOpen(
+          match,
+          rounds.find((round) => round.id === match.roundId),
+          rules,
+        ) && draft.items[match.id]?.status === 'dirty',
+    )
     .map((match) => match.id);
 
   const sectionSubtitle: Record<SeasonWorkspaceSection, string> = {
     all: 'Palpites, classificação e ranking no mesmo contexto de temporada.',
     overview: 'Resumo da temporada, regras e seu progresso no bolão.',
-    predictions: 'Escolha a rodada, preencha os placares e acompanhe cada salvamento.',
+    predictions: 'Escolha o dia, preencha os placares e acompanhe cada salvamento.',
     standings: 'Tabela oficial da liga, separada dos palpites e do ranking do bolão.',
     ranking: 'Sua posição, o rival mais próximo e os critérios de desempate.',
   };
@@ -434,7 +682,7 @@ export function SeasonWorkspace({
         </View>
       ) : null}
 
-      {section === 'predictions' || section === 'ranking' || section === 'all' ? (
+      {section === 'ranking' || section === 'all' ? (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -461,28 +709,127 @@ export function SeasonWorkspace({
       ) : null}
 
       {section === 'predictions' || section === 'all' ? (
-        <AsyncState
-          status={status}
-          error={error}
-          emptyTitle="Rodada sem partidas"
-          emptyMessage="Escolha outra rodada ou aguarde a publicação da tabela."
-          onRetry={() => setRoundId((value) => `${value}`)}
-          skeletonLines={6}
-        >
-          <View style={[styles.columns, compact && styles.columnsCompact]}>
-            <View style={styles.matchesColumn}>
-              <View style={styles.sectionHeading}>
-                <View>
-                  <Text style={styles.sectionEyebrow}>PALPITES</Text>
-                  <Text style={styles.sectionTitle}>{selectedRound?.name ?? 'Rodada'}</Text>
+        <View style={styles.predictionAgenda}>
+          <View style={[styles.calendarToolbar, compact && styles.calendarToolbarCompact]}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Mês anterior"
+              onPress={() => {
+                setSelectedDayKey('');
+                setPredictionMonth((month) =>
+                  shiftMonthKey(month || civilMonthKey(new Date(), timezone), -1),
+                );
+              }}
+              style={styles.monthButton}
+            >
+              <Text style={styles.monthButtonText}>‹</Text>
+            </Pressable>
+            <View style={styles.monthIdentity} accessibilityLiveRegion="polite">
+              <Text style={styles.sectionEyebrow}>AGENDA POR DATA</Text>
+              <Text style={styles.monthTitle}>
+                {predictionMonth ? formatMonthTitle(predictionMonth) : 'Calendário'}
+              </Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Próximo mês"
+              onPress={() => {
+                setSelectedDayKey('');
+                setPredictionMonth((month) =>
+                  shiftMonthKey(month || civilMonthKey(new Date(), timezone), 1),
+                );
+              }}
+              style={styles.monthButton}
+            >
+              <Text style={styles.monthButtonText}>›</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView
+            horizontal
+            accessibilityRole="tablist"
+            accessibilityLabel="Dias com jogos"
+            showsHorizontalScrollIndicator
+            contentContainerStyle={styles.dayRail}
+          >
+            {predictionDays.map((day) => {
+              const selected = day.key === selectedDayKey;
+              const openCount = day.matches.filter((match) =>
+                isPredictionOpen(
+                  match,
+                  rounds.find((round) => round.id === match.roundId),
+                  rules,
+                ),
+              ).length;
+              const dirtyCount = day.matches.filter(
+                (match) => draft.items[match.id]?.status === 'dirty',
+              ).length;
+              const title = day.key === todayKey ? 'Hoje' : formatDayTab(day.key);
+              return (
+                <Pressable
+                  key={day.key}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected }}
+                  accessibilityLabel={`${title}, ${day.matches.length} ${
+                    day.matches.length === 1 ? 'jogo' : 'jogos'
+                  }, ${openCount} ${openCount === 1 ? 'aberto' : 'abertos'}${
+                    dirtyCount
+                      ? `, ${dirtyCount} ${dirtyCount === 1 ? 'não salvo' : 'não salvos'}`
+                      : ''
+                  }`}
+                  onPress={() => setSelectedDayKey(day.key)}
+                  style={[styles.dayTab, selected && styles.dayTabActive]}
+                >
+                  <Text style={[styles.dayTabTitle, selected && styles.dayTabTitleActive]}>
+                    {title}
+                  </Text>
+                  <Text style={[styles.dayTabMeta, selected && styles.dayTabMetaActive]}>
+                    {day.matches.length} {day.matches.length === 1 ? 'jogo' : 'jogos'}
+                    {openCount
+                      ? ` · ${openCount} ${openCount === 1 ? 'aberto' : 'abertos'}`
+                      : ''}
+                  </Text>
+                  {dirtyCount ? (
+                    <Text style={styles.dayTabDirty}>
+                      {dirtyCount} {dirtyCount === 1 ? 'não salvo' : 'não salvos'}
+                    </Text>
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          <AsyncState
+            status={predictionStatus}
+            error={predictionError}
+            emptyTitle="Nenhum jogo neste mês"
+            emptyMessage="Navegue pelos meses para encontrar as próximas partidas publicadas."
+            onRetry={() => setPredictionRefreshVersion((version) => version + 1)}
+            skeletonLines={6}
+          >
+            {predictionStatus === 'loading' ||
+            (predictionStatus === 'error' && !predictionMatches.length) ? null : (
+              <View style={[styles.columns, compact && styles.columnsCompact]}>
+                <View style={styles.matchesColumn}>
+                <View style={[styles.sectionHeading, compact && styles.sectionHeadingCompact]}>
+                  <View accessibilityLiveRegion="polite">
+                    <Text style={styles.sectionEyebrow}>PALPITES DO DIA</Text>
+                    <Text role="heading" aria-level={2} style={styles.sectionTitle}>
+                      {selectedDayKey ? formatDayTitle(selectedDayKey) : 'Selecione uma data'}
+                    </Text>
+                  </View>
+                  <Text style={styles.sectionMeta}>
+                    {selectedDayMatches.length}{' '}
+                    {selectedDayMatches.length === 1 ? 'jogo' : 'jogos'}
+                  </Text>
                 </View>
-                <Text style={styles.sectionMeta}>{matches.length} jogos</Text>
-              </View>
-              <View style={styles.matchList}>
-                {matches.map((match) => {
+                <View style={styles.matchList}>
+                  {selectedDayMatches.map((match) => {
                   const item = draft.items[match.id];
                   const value = item?.value ?? { home: '', away: '' };
-                  const open = isPredictionOpen(match);
+                  const round = rounds.find((candidate) => candidate.id === match.roundId);
+                  const availability = predictionAvailability(match, round, rules);
+                  const open = availability.open;
                   const official = score(match);
                   const errorText = item?.status === 'failed' ? item.error : undefined;
                   return (
@@ -492,11 +839,18 @@ export function SeasonWorkspace({
                       accessibilityLabel={`${match.homeTeam.name} contra ${match.awayTeam.name}`}
                     >
                       <View style={styles.matchMeta}>
-                        <Text style={styles.matchTime}>
-                          {formatMatchTime(match.startsAt, season?.timezone ?? 'America/Sao_Paulo')}
-                        </Text>
+                        <View style={styles.matchContext}>
+                          <Text style={styles.matchTime}>
+                            {formatMatchHour(match.startsAt, timezone)}
+                          </Text>
+                          {round ? <Text style={styles.roundMeta}>{round.name}</Text> : null}
+                        </View>
                         <Text style={[styles.matchStatus, open ? styles.open : styles.closed]}>
-                          {official ? 'FINAL' : open ? 'ABERTO' : match.status}
+                          {match.status === 'FINISHED'
+                            ? 'FINAL'
+                            : match.status === 'LIVE'
+                              ? 'AO VIVO'
+                              : availability.label}
                         </Text>
                       </View>
                       <View style={[styles.matchup, compact && styles.matchupCompact]}>
@@ -545,6 +899,9 @@ export function SeasonWorkspace({
                           <Text style={styles.teamName}>{match.awayTeam.name}</Text>
                         </View>
                       </View>
+                      {!official && !open && availability.reason ? (
+                        <Text style={styles.unavailableReason}>{availability.reason}</Text>
+                      ) : null}
                       {!official ? (
                         <View style={styles.saveRow}>
                           <Text
@@ -564,33 +921,47 @@ export function SeasonWorkspace({
                             ]}
                           >
                             <Text style={styles.saveButtonText}>
-                              {open ? 'Salvar palpite' : 'Palpite fechado'}
+                              {open
+                                ? 'Salvar palpite'
+                                : availability.label === 'FORA DO BOLÃO'
+                                  ? 'Não elegível'
+                                  : 'Palpite fechado'}
                             </Text>
                           </Pressable>
                         </View>
                       ) : null}
                     </View>
                   );
-                })}
-              </View>
-              {dirtyOpenIds.length ? (
-                <View style={styles.bulkBar}>
-                  <Text style={styles.bulkText}>
-                    {dirtyOpenIds.length}{' '}
-                    {dirtyOpenIds.length === 1 ? 'palpite não salvo' : 'palpites não salvos'}
-                  </Text>
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => void saveMatches(dirtyOpenIds)}
-                    style={styles.bulkButton}
-                  >
-                    <Text style={styles.bulkButtonText}>Salvar alterações</Text>
-                  </Pressable>
+                  })}
                 </View>
-              ) : null}
-            </View>
-          </View>
-        </AsyncState>
+                {dirtyOpenIds.length ? (
+                  <View style={styles.bulkBar} accessibilityLiveRegion="polite">
+                    <View>
+                      <Text style={styles.bulkTitle}>Salvar palpites do dia</Text>
+                      <Text style={styles.bulkText}>
+                        {dirtyOpenIds.length}{' '}
+                        {dirtyOpenIds.length === 1
+                          ? 'palpite não salvo'
+                          : 'palpites não salvos'}
+                      </Text>
+                    </View>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Salvar ${dirtyOpenIds.length} ${
+                        dirtyOpenIds.length === 1 ? 'palpite' : 'palpites'
+                      } do dia`}
+                      onPress={() => void saveMatches(dirtyOpenIds)}
+                      style={styles.bulkButton}
+                    >
+                      <Text style={styles.bulkButtonText}>Salvar todos do dia</Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+                </View>
+              </View>
+            )}
+          </AsyncState>
+        </View>
       ) : null}
 
       {section === 'standings' || section === 'all' ? (
@@ -823,6 +1194,51 @@ const styles = StyleSheet.create({
   roundTabActive: { backgroundColor: theme.color.accent, borderColor: theme.color.accent },
   roundText: { color: theme.color.textMuted, fontSize: 12, fontWeight: '800' },
   roundTextActive: { color: theme.color.accentInk },
+  predictionAgenda: { gap: theme.space.lg },
+  calendarToolbar: {
+    alignItems: 'center',
+    borderBottomColor: theme.color.borderMuted,
+    borderBottomWidth: 1,
+    borderTopColor: theme.color.borderMuted,
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: 72,
+    paddingVertical: theme.space.sm,
+  },
+  calendarToolbarCompact: { minHeight: 64 },
+  monthButton: {
+    alignItems: 'center',
+    borderColor: theme.color.border,
+    borderRadius: theme.radius.sm,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: theme.touchTarget,
+    minWidth: theme.touchTarget,
+  },
+  monthButtonText: { color: theme.color.text, fontSize: 28, fontWeight: '500', lineHeight: 30 },
+  monthIdentity: { alignItems: 'center', flex: 1, paddingHorizontal: theme.space.md },
+  monthTitle: { color: theme.color.text, fontSize: 18, fontWeight: '900', marginTop: 3 },
+  dayRail: { gap: 7, paddingBottom: theme.space.xs },
+  dayTab: {
+    borderColor: theme.color.borderMuted,
+    borderRadius: theme.radius.sm,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 68,
+    minWidth: 148,
+    paddingHorizontal: theme.space.md,
+    paddingVertical: theme.space.sm,
+  },
+  dayTabActive: {
+    backgroundColor: 'rgba(52, 209, 123, 0.1)',
+    borderColor: theme.color.accent,
+  },
+  dayTabTitle: { color: theme.color.text, fontSize: 13, fontWeight: '900' },
+  dayTabTitleActive: { color: theme.color.accent },
+  dayTabMeta: { color: theme.color.textMuted, fontSize: 10, fontWeight: '700', marginTop: 3 },
+  dayTabMetaActive: { color: theme.color.text },
+  dayTabDirty: { color: theme.color.gold, fontSize: 9, fontWeight: '900', marginTop: 3 },
   columns: { alignItems: 'flex-start', flexDirection: 'row', gap: theme.space.lg },
   columnsCompact: { flexDirection: 'column' },
   matchesColumn: { flex: 1, minWidth: 0, width: '100%' },
@@ -857,7 +1273,18 @@ const styles = StyleSheet.create({
     paddingVertical: theme.space.lg,
   },
   matchMeta: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
+  matchContext: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
   matchTime: { color: theme.color.textMuted, fontSize: 11, fontWeight: '700' },
+  roundMeta: {
+    backgroundColor: 'rgba(145, 174, 204, 0.1)',
+    borderRadius: theme.radius.pill,
+    color: theme.color.textMuted,
+    fontSize: 9,
+    fontWeight: '800',
+    overflow: 'hidden',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
   matchStatus: {
     borderRadius: theme.radius.pill,
     fontSize: 9,
@@ -880,9 +1307,17 @@ const styles = StyleSheet.create({
   scoreGroup: { alignItems: 'flex-start', flexDirection: 'row', gap: 4 },
   versus: { color: theme.color.textMuted, fontSize: 18, fontWeight: '900', marginTop: 28 },
   officialScore: { color: theme.color.text, fontSize: 22, fontWeight: '900' },
+  unavailableReason: {
+    color: theme.color.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    lineHeight: 17,
+    textAlign: 'center',
+  },
   saveRow: {
     alignItems: 'center',
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: theme.space.md,
     justifyContent: 'flex-end',
   },
@@ -908,12 +1343,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: theme.color.surface,
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: theme.space.md,
     justifyContent: 'space-between',
     marginTop: theme.space.md,
     padding: theme.space.md,
   },
-  bulkText: { color: theme.color.text, fontWeight: '800' },
+  bulkTitle: { color: theme.color.text, fontSize: 13, fontWeight: '900' },
+  bulkText: { color: theme.color.textMuted, fontSize: 11, fontWeight: '700', marginTop: 3 },
   bulkButton: {
     backgroundColor: theme.color.gold,
     borderRadius: theme.radius.sm,

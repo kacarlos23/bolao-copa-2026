@@ -24,14 +24,27 @@ vi.mock('../../prisma.js', () => ({
   },
 }));
 
-function transactionClient(matchSeasonId = 'season-1') {
+function transactionClient(
+  matchSeasonId = 'season-1',
+  options: {
+    roundOrder?: number;
+    startsAt?: Date;
+    predictionClosesAt?: Date;
+    poolSeason?: {
+      scoreableFromRound: number | null;
+      scoreableFrom: Date | null;
+      startsAtRound: number | null;
+      historicalMatchesScoreable: boolean;
+    };
+  } = {},
+) {
   return {
     pool: {
       findUnique: vi.fn(async () => ({
         id: 'pool-1',
         slug: 'pool-a',
         memberships: [{ role: 'MEMBER' }],
-        seasons: [{ id: 'pool-season-1', seasonId: 'season-1' }],
+        seasons: [{ id: 'pool-season-1', seasonId: 'season-1', ...options.poolSeason }],
       })),
     },
     matchDay: {
@@ -46,9 +59,12 @@ function transactionClient(matchSeasonId = 'season-1') {
           ? [
               {
                 id: 'match-1',
-                startsAt: new Date('2030-07-14T19:05:00.000Z'),
-                predictionClosesAt: new Date('2030-07-14T19:00:00.000Z'),
+                startsAt: options.startsAt ?? new Date('2030-07-14T19:05:00.000Z'),
+                predictionClosesAt:
+                  options.predictionClosesAt ?? new Date('2030-07-14T19:00:00.000Z'),
                 seasonId: matchSeasonId,
+                status: 'SCHEDULED',
+                round: { order: options.roundOrder ?? 20 },
               },
             ]
           : [],
@@ -149,5 +165,23 @@ describe('scoped prediction write', () => {
     expect(tx.prediction.upsert).not.toHaveBeenCalled();
     expect(tx.outboxEvent.create).not.toHaveBeenCalled();
     expect(mocks.outboxFindUnique).not.toHaveBeenCalled();
+  });
+
+  it('accepts an old-round fixture rescheduled after the temporal cutoff', async () => {
+    const tx = transactionClient('season-1', {
+      roundOrder: 4,
+      poolSeason: {
+        startsAtRound: 20,
+        scoreableFromRound: 20,
+        scoreableFrom: new Date('2026-07-16T03:00:00.000Z'),
+        historicalMatchesScoreable: false,
+      },
+    });
+    mocks.transaction.mockImplementation(async (callback) => callback(tx));
+
+    await expect(savePredictions(input)).resolves.toMatchObject({
+      predictions: [expect.objectContaining({ matchId: 'match-1' })],
+    });
+    expect(tx.prediction.upsert).toHaveBeenCalledOnce();
   });
 });

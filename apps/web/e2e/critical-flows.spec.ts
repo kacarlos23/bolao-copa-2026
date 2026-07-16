@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Request } from '@playwright/test';
 import { installApiMocks } from './fixtures';
 
 test('login funciona por teclado e expõe nomes acessíveis', async ({ page }) => {
@@ -41,6 +41,115 @@ test('palpite diário preserva feedback por item e salva por lote', async ({ pag
   await expect(page.getByText('Não salvo', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Salvar todos' }).click();
   await expect(page.getByText(/^Salvo às/)).toBeVisible();
+});
+
+test('Brasileirão agrupa rodadas distintas por dia e persiste o salvamento em lote', async ({
+  page,
+}) => {
+  await installApiMocks(page);
+  await page.goto('/competicoes/brasileirao-serie-a-2026/palpites');
+
+  await expect(page.getByRole('tab', { name: /Hoje, 2 jogos, 2 abertos/ })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { level: 2, name: 'Quinta-feira, 16 de julho' }),
+  ).toBeVisible();
+  await expect(page.getByText('Rodada 19', { exact: true })).toBeVisible();
+  await expect(page.getByText('Rodada 4', { exact: true })).toBeVisible();
+  for (const club of ['Santos FC', 'Vasco da Gama']) {
+    const crest = page.getByLabel(`Escudo de ${club}`, { exact: true });
+    await expect(crest).toBeVisible();
+    await expect
+      .poll(() =>
+        crest.locator('img').evaluate(
+          (image) =>
+            image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0,
+        ),
+      )
+      .toBe(true);
+    const frame = await crest.evaluate((element) => {
+      const style = getComputedStyle(element);
+      const bounds = element.getBoundingClientRect();
+      return {
+        backgroundColor: style.backgroundColor,
+        borderRadius: style.borderRadius,
+        height: bounds.height,
+        overflow: style.overflow,
+        width: bounds.width,
+      };
+    });
+    expect(frame).toEqual({
+      backgroundColor: 'rgb(255, 255, 255)',
+      borderRadius: '17px',
+      height: 34,
+      overflow: 'hidden',
+      width: 34,
+    });
+  }
+
+  await page.getByLabel('Placar de Brasil, mandante').fill('2');
+  await page.getByLabel('Placar de Argentina, visitante').fill('1');
+  await page.getByLabel('Placar de Santos FC, mandante').fill('0');
+  await page.getByLabel('Placar de Vasco da Gama, visitante').fill('1');
+  await expect(page.getByText('Não salvo', { exact: true })).toHaveCount(2);
+
+  const isPredictionWrite = (request: Request) =>
+    request.method() === 'PUT' &&
+    new URL(request.url()).pathname ===
+      '/api/pools/bolao-do-trabalho/seasons/season-league/predictions';
+  const requestPromises = ['day-1', 'day-postponed-round'].map((matchDayId) =>
+    page.waitForRequest((request) => {
+      if (!isPredictionWrite(request)) return false;
+      return (request.postDataJSON() as { matchDayId?: string }).matchDayId === matchDayId;
+    }),
+  );
+  await page.getByRole('button', { name: 'Salvar 2 palpites do dia' }).click();
+  const saveRequests = await Promise.all(requestPromises);
+  const payloads = saveRequests.map((request) => request.postDataJSON()) as Array<{
+    matchDayId: string;
+    predictions: Array<{
+      matchId: string;
+      predictedHomeScore: number;
+      predictedAwayScore: number;
+    }>;
+  }>;
+
+  expect(payloads).toHaveLength(2);
+  expect(payloads.map((payload) => payload.matchDayId).sort()).toEqual([
+    'day-1',
+    'day-postponed-round',
+  ]);
+  expect(payloads.flatMap((payload) => payload.predictions)).toEqual(
+    expect.arrayContaining([
+      { matchId: 'match-1', predictedHomeScore: 2, predictedAwayScore: 1 },
+      {
+        matchId: 'match-postponed-round',
+        predictedHomeScore: 0,
+        predictedAwayScore: 1,
+      },
+    ]),
+  );
+  await expect(page.getByText(/^Salvo às/)).toHaveCount(2);
+
+  await page.evaluate(() => window.localStorage.clear());
+  await page.reload();
+  await expect(page.getByLabel('Placar de Brasil, mandante')).toHaveValue('2');
+  await expect(page.getByLabel('Placar de Argentina, visitante')).toHaveValue('1');
+  await expect(page.getByLabel('Placar de Santos FC, mandante')).toHaveValue('0');
+  await expect(page.getByLabel('Placar de Vasco da Gama, visitante')).toHaveValue('1');
+
+  await page.getByRole('link', { name: 'Classificação', exact: true }).click();
+  for (const club of ['Santos FC', 'Vasco da Gama']) {
+    const crest = page.getByLabel(`Escudo de ${club}`, { exact: true });
+    await expect(crest).toBeVisible();
+    await expect
+      .poll(() =>
+        crest.locator('img').evaluate(
+          (image) =>
+            image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0,
+        ),
+      )
+      .toBe(true);
+  }
 });
 
 test('rotas preservam URL, histórico e draft ao sair de palpites', async ({ page }) => {

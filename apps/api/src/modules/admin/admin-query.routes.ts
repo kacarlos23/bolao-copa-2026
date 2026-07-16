@@ -25,6 +25,7 @@ adminQueryRouter.get('/overview', asyncHandler(async (_req, res) => {
       poolSeasons: {
         select: {
           id: true, poolId: true, startsAtRound: true, scoreableFromRound: true,
+          scoreableFrom: true, historicalMatchesScoreable: true,
           scoringRuleSetVersionId: true, tieBreakerRuleSetId: true,
           pool: { select: { id: true, slug: true, name: true } },
         },

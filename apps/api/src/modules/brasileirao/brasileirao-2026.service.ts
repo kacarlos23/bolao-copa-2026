@@ -15,8 +15,18 @@ export const BRASILEIRAO_COMPETITION_SLUG = 'brasileirao-serie-a';
 export const BRASILEIRAO_2026_SEASON_SLUG = 'brasileirao-serie-a-2026';
 export const BRASILEIRAO_2026_POOL_SLUG = 'bolao-do-trabalho';
 export const BRASILEIRAO_2026_STARTS_AT_ROUND = 20;
+export const BRASILEIRAO_2026_SCOREABLE_FROM = new Date('2026-07-16T03:00:00.000Z');
 export const BRASILEIRAO_2026_TIMEZONE = 'America/Sao_Paulo';
 export const BRASILEIRAO_2026_TIE_BREAK_VERSION = 'cbf-rec-2026-art-15-v1';
+
+export function brasileirao2026PredictionPolicy() {
+  return {
+    scoreableFromRound: null,
+    scoreableFrom: new Date(BRASILEIRAO_2026_SCOREABLE_FROM.getTime()),
+    startsAtRound: null,
+    historicalMatchesScoreable: false,
+  } as const;
+}
 
 export interface Brasileirao2026Readiness {
   openingStartsAt: Date;
@@ -202,14 +212,14 @@ export async function prepareBrasileirao2026(input: {
         version: 1,
         rules: { exactScore: 15, outcome: 3, oneTeamGoals: 1, miss: 0 },
         tieBreakers: ['points', 'exactScores', 'resultHits', 'oneGoalHits', 'fewerMisses', 'name'],
-        effectiveAt: input.readiness.openingStartsAt,
+        effectiveAt: BRASILEIRAO_2026_SCOREABLE_FROM,
         metadata: { source: 'packages/shared/src/scoring.ts' },
       },
       update: {
         name: 'Bolão Brasileirão Série A',
         rules: { exactScore: 15, outcome: 3, oneTeamGoals: 1, miss: 0 },
         tieBreakers: ['points', 'exactScores', 'resultHits', 'oneGoalHits', 'fewerMisses', 'name'],
-        effectiveAt: input.readiness.openingStartsAt,
+        effectiveAt: BRASILEIRAO_2026_SCOREABLE_FROM,
       },
     });
     const pool = await tx.pool.upsert({
@@ -221,6 +231,7 @@ export async function prepareBrasileirao2026(input: {
       },
       update: {},
     });
+    const predictionPolicy = brasileirao2026PredictionPolicy();
     const poolSeason = await tx.poolSeason.upsert({
       where: { poolId_seasonId: { poolId: pool.id, seasonId: season.id } },
       create: {
@@ -229,21 +240,15 @@ export async function prepareBrasileirao2026(input: {
         scoringRuleSetId: scoringRuleSet.id,
         scoringRuleSetVersionId: 'scoring-rule-set-version-15-3-1-0-v1',
         tieBreakerRuleSetId: 'tie-breaker-classic-v1',
-        scoreableFromRound: BRASILEIRAO_2026_STARTS_AT_ROUND,
-        scoreableFrom: input.readiness.openingStartsAt,
-        startsAtRound: BRASILEIRAO_2026_STARTS_AT_ROUND,
-        historicalMatchesScoreable: false,
-        metadata: { policyVersion: 'brasileirao-2026-v1', canary: true },
+        ...predictionPolicy,
+        metadata: { policyVersion: 'brasileirao-2026-v2-temporal', canary: true },
       },
       update: {
         scoringRuleSetId: scoringRuleSet.id,
         scoringRuleSetVersionId: 'scoring-rule-set-version-15-3-1-0-v1',
         tieBreakerRuleSetId: 'tie-breaker-classic-v1',
-        scoreableFromRound: BRASILEIRAO_2026_STARTS_AT_ROUND,
-        scoreableFrom: input.readiness.openingStartsAt,
-        startsAtRound: BRASILEIRAO_2026_STARTS_AT_ROUND,
-        historicalMatchesScoreable: false,
-        metadata: { policyVersion: 'brasileirao-2026-v1', canary: true },
+        ...predictionPolicy,
+        metadata: { policyVersion: 'brasileirao-2026-v2-temporal', canary: true },
       },
     });
 

@@ -11,6 +11,8 @@ export const currentUser = {
 
 const brazil = { id: 'team-brazil', name: 'Brasil', code: 'BRA', flagUrl: null, crestUrl: null };
 const argentina = { id: 'team-argentina', name: 'Argentina', code: 'ARG', flagUrl: null, crestUrl: null };
+const santos = { id: 'team-santos', name: 'Santos FC', code: 'SAN', flagUrl: null, crestUrl: null };
+const vasco = { id: 'team-vasco', name: 'Vasco da Gama', code: 'VAS', flagUrl: null, crestUrl: null };
 const stage = { id: 'stage-league', name: 'Série A', type: 'LEAGUE' };
 const pagination = { page: 1, pageSize: 100, total: 1, totalPages: 1 };
 const worldSeason = {
@@ -30,14 +32,38 @@ const leagueSeason2025 = {
 };
 
 const round = {
-  id: 'round-20', seasonId: leagueSeason.id, stageId: stage.id, name: 'Rodada 20', order: 20, status: 'ACTIVE',
-  startsAt: '2026-12-01T00:00:00.000Z', endsAt: '2026-12-08T00:00:00.000Z', stage,
+  id: 'round-19', seasonId: leagueSeason.id, stageId: stage.id, name: 'Rodada 19', order: 19, status: 'ACTIVE',
+  startsAt: '2026-07-16T22:30:00.000Z', endsAt: '2026-07-23T22:30:00.000Z', stage,
+};
+const postponedRound = {
+  id: 'round-4', seasonId: leagueSeason.id, stageId: stage.id, name: 'Rodada 4', order: 4, status: 'ACTIVE',
+  startsAt: '2026-02-25T22:00:00.000Z', endsAt: '2026-07-17T00:30:00.000Z', stage,
 };
 const genericMatch = {
   id: 'match-1', seasonId: leagueSeason.id, stageId: stage.id, roundId: round.id, matchDayId: 'day-1',
-  startsAt: '2026-12-02T22:00:00.000Z', predictionClosesAt: '2026-12-02T21:55:00.000Z', status: 'SCHEDULED',
+  startsAt: '2026-07-16T22:30:00.000Z', predictionClosesAt: '2026-07-16T22:25:00.000Z', status: 'SCHEDULED',
   homeScore: null, awayScore: null, finalHomeScore: null, finalAwayScore: null, homeTeam: brazil, awayTeam: argentina,
 };
+const postponedMatch = {
+  ...genericMatch,
+  id: 'match-postponed-round',
+  matchDayId: 'day-postponed-round',
+  roundId: postponedRound.id,
+  startsAt: '2026-07-17T00:30:00.000Z',
+  predictionClosesAt: '2026-07-17T00:25:00.000Z',
+  homeTeam: santos,
+  awayTeam: vasco,
+};
+const nextDayMatch = {
+  ...genericMatch,
+  id: 'match-next-day',
+  matchDayId: 'day-2',
+  startsAt: '2026-07-17T23:00:00.000Z',
+  predictionClosesAt: '2026-07-17T22:55:00.000Z',
+  homeTeam: argentina,
+  awayTeam: brazil,
+};
+const leagueMatches = [genericMatch, postponedMatch, nextDayMatch];
 const standing = (rank: number, team: typeof brazil, points: number) => ({
   rank, group: 'Série A', team, played: 19, wins: rank === 1 ? 12 : 11, draws: 4, losses: rank === 1 ? 3 : 4,
   goalsFor: 30, goalsAgainst: 14, goalDifference: 16, points, yellowCards: 20, redCards: 1,
@@ -59,9 +85,19 @@ function apiError(status: number) {
 }
 
 export async function installApiMocks(page: Page, options: { authenticated?: boolean; loginStatus?: number; admin?: boolean; closed?: boolean } = {}) {
+  await page.clock.setFixedTime(new Date('2026-07-16T12:00:00.000Z'));
   let authenticated = options.authenticated ?? true;
   const signedInUser = options.admin ? { ...currentUser, role: 'ADMIN' } : currentUser;
   let managedUser = { ...currentUser, id: 'user-managed', username: 'joao', nickname: 'João', status: 'ACTIVE' };
+  let leaguePredictions: Array<{
+    id: string;
+    poolSeasonId: string;
+    userId: string;
+    matchId: string;
+    predictedHomeScore: number;
+    predictedAwayScore: number;
+    updatedAt: string;
+  }> = [];
   const predictionBoard = {
     checkedAt: '2026-07-15T12:00:00.000Z', predictionCloseMinutes: 5, canPredict: !options.closed, groupStageComplete: true,
     groups: [{
@@ -112,14 +148,29 @@ export async function installApiMocks(page: Page, options: { authenticated?: boo
     if (path.includes('/api/competitions/world-cup/seasons')) return json({ competition: { id: 'competition-world', slug: 'world-cup', name: 'Copa do Mundo', capabilities: { groupStage: true, knockoutBracket: true, liveScoring: true } }, seasons: [worldSeason], pagination });
     if (path.includes('/api/competitions/brasileirao-serie-a/seasons')) return json({ competition: { id: 'competition-league', slug: 'brasileirao-serie-a', name: 'Brasileirão Série A', capabilities: { format: 'LEAGUE', standings: true, knockout: false, rankingScopes: ['OVERALL', 'ROUND', 'MONTH', 'TURN'] } }, seasons: [leagueSeason, leagueSeason2025], pagination: { ...pagination, total: 2 } });
     if (path === `/api/seasons/${leagueSeason.id}/features`) return json({ uiEnabled: true });
-    if (path === `/api/seasons/${leagueSeason.id}/rounds`) return json({ rounds: [round], pagination });
-    if (path === `/api/seasons/${leagueSeason.id}/matches`) return json({ matches: [genericMatch], pagination });
-    if (path === `/api/seasons/${leagueSeason.id}/standings`) return json({ standingsByGroup: [{ group: 'Série A', rows: [standing(1, brazil, 40), standing(2, argentina, 37)] }], pagination: { ...pagination, total: 2 } });
-    if (path.includes(`/api/pools/${POOL_SLUG}/seasons/${leagueSeason.id}/predictions`) && method === 'GET') return json({ predictions: [], pagination: { ...pagination, total: 0, totalPages: 0 } });
-    if (path.includes(`/api/pools/${POOL_SLUG}/seasons/${leagueSeason.id}/predictions`) && method === 'PUT') return json({ predictions: [{ id: 'prediction-1', poolSeasonId: 'pool-season-league', userId: currentUser.id, matchId: genericMatch.id, predictedHomeScore: 2, predictedAwayScore: 1, updatedAt: '2026-07-15T12:30:00.000Z' }] });
+    if (path === `/api/seasons/${leagueSeason.id}/rounds`) return json({ rounds: [postponedRound, round], pagination: { ...pagination, total: 2 } });
+    if (path === `/api/seasons/${leagueSeason.id}/matches`) return json({ matches: leagueMatches, pagination: { ...pagination, total: leagueMatches.length } });
+    if (path === `/api/seasons/${leagueSeason.id}/standings`) return json({ standingsByGroup: [{ group: 'Série A', rows: [standing(1, santos, 40), standing(2, vasco, 37)] }], pagination: { ...pagination, total: 2 } });
+    if (path.includes(`/api/pools/${POOL_SLUG}/seasons/${leagueSeason.id}/predictions`) && method === 'GET') return json({ predictions: leaguePredictions, pagination: { ...pagination, total: leaguePredictions.length, totalPages: leaguePredictions.length ? 1 : 0 } });
+    if (path.includes(`/api/pools/${POOL_SLUG}/seasons/${leagueSeason.id}/predictions`) && method === 'PUT') {
+      const body = JSON.parse(request.postData() ?? '{}') as { predictions?: Array<{ matchId: string; predictedHomeScore: number; predictedAwayScore: number }> };
+      const saved = (body.predictions ?? []).map((prediction) => ({
+        id: `prediction-${prediction.matchId}`,
+        poolSeasonId: 'pool-season-league',
+        userId: currentUser.id,
+        ...prediction,
+        updatedAt: '2026-07-16T12:30:00.000Z',
+      }));
+      leaguePredictions = [
+        ...leaguePredictions.filter((item) => !saved.some((entry) => entry.matchId === item.matchId)),
+        ...saved,
+      ];
+      return json({ predictions: saved });
+    }
     if (path === `/api/pools/${POOL_SLUG}/seasons/${leagueSeason.id}/rules`) return json({
       scoring: { id: 'rules-v1', key: 'classic', name: 'PontuaÃ§Ã£o clÃ¡ssica', version: 1, rules: { exactScore: 15, correctOutcome: 3, oneTeamGoals: 1, miss: 0 } },
       tieBreakers: { id: 'tie-v1', key: 'classic', name: 'Desempate clÃ¡ssico', version: 1, allowSharedPositions: false, criteria: [{ field: 'exactScores', direction: 'desc', label: 'Placares exatos' }] },
+      predictionPolicy: { scoreableFrom: '2026-07-16T03:00:00.000Z', scoreableFromRound: null, startsAtRound: null, historicalMatchesScoreable: false },
     });
     if (path === `/api/pools/${POOL_SLUG}/seasons/${leagueSeason.id}/engagement`) return json({
       achievements: [], streaks: [], notifications: [],
@@ -133,6 +184,7 @@ export async function installApiMocks(page: Page, options: { authenticated?: boo
     if (path === `/api/pools/${POOL_SLUG}/seasons/${leagueSeason2025.id}/rules`) return json({
       scoring: { id: 'rules-v1', key: 'classic', name: 'Pontuação clássica', version: 1, rules: { exactScore: 15, correctOutcome: 3, oneTeamGoals: 1, miss: 0 } },
       tieBreakers: { id: 'tie-v1', key: 'classic', name: 'Desempate clássico', version: 1, allowSharedPositions: false, criteria: [{ field: 'exactScores', direction: 'desc', label: 'Placares exatos' }] },
+      predictionPolicy: { scoreableFrom: null, scoreableFromRound: null, startsAtRound: null, historicalMatchesScoreable: false },
     });
     if (path === `/api/pools/${POOL_SLUG}/seasons/${leagueSeason2025.id}/engagement`) return json({
       achievements: [], streaks: [], notifications: [],

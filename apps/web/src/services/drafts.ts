@@ -15,7 +15,12 @@ export type DraftAction =
   | { type: 'hydrate'; values: Record<string, ScoreValue> }
   | { type: 'edit'; itemId: string; side: ScoreSide; value: string }
   | { type: 'saving'; itemIds: string[] }
-  | { type: 'saved'; itemIds: string[]; savedAt?: string }
+  | {
+      type: 'saved';
+      itemIds: string[];
+      savedAt?: string;
+      submittedValues?: Record<string, ScoreValue>;
+    }
   | { type: 'failed'; itemIds: string[]; error: string }
   | { type: 'discard'; itemIds?: string[] };
 
@@ -66,10 +71,18 @@ export function draftReducer(state: DraftState, action: DraftAction): DraftState
     if (!current) continue;
     if (action.type === 'saving') items[itemId] = { ...current, status: 'saving', error: undefined };
     if (action.type === 'saved') {
+      const submitted = action.submittedValues?.[itemId];
+      const dirty = submitted
+        ? {
+            home: current.dirty.home && current.value.home !== submitted.home,
+            away: current.dirty.away && current.value.away !== submitted.away,
+          }
+        : { home: false, away: false };
+      const stillDirty = dirty.home || dirty.away;
       items[itemId] = {
         ...current,
-        dirty: { home: false, away: false },
-        status: 'saved',
+        dirty,
+        status: stillDirty ? 'dirty' : 'saved',
         savedAt: action.savedAt ?? new Date().toISOString(),
         error: undefined,
       };
