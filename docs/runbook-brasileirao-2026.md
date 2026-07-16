@@ -7,6 +7,13 @@ A temporada nasce como `DRAFT` e canário administrativo. As flags persistidas
 `EXPO_PUBLIC_BRASILEIRAO_UI=1`; portanto uma publicação do bundle, isoladamente,
 não expõe a competição.
 
+O comando `npm run build` usa `apps/web/scripts/build-production.mjs` e injeta
+explicitamente as flags públicas aprovadas no bundle de produção. A exposição
+continua condicionada a `uiEnabled=true` no banco; não publique o frontend com
+`expo export` diretamente, pois esse atalho ignora o perfil de release. O build
+também limpa o cache do Metro para impedir a reutilização de flags compiladas
+por uma publicação anterior.
+
 O início operacional dos palpites é `2026-07-16T03:00:00.000Z` (00:00 em
 `America/Sao_Paulo`). `PoolSeason.scoreableFrom` é a autoridade: qualquer jogo
 oficial agendado ou remarcado a partir desse instante pode receber palpites,

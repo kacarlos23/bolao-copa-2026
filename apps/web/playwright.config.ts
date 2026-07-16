@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const useExternalServer = process.env.PLAYWRIGHT_EXTERNAL_SERVER === '1';
+
 export default defineConfig({
   testDir: './e2e',
   outputDir: '../../output/playwright/test-results',
@@ -22,17 +24,21 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
   },
-  webServer: {
-    command: 'npm run serve:e2e',
-    env: {
-      EXPO_PUBLIC_APP_IA_V2: '1',
-      EXPO_PUBLIC_BRASILEIRAO_UI: '1',
-      EXPO_PUBLIC_COMPETITION_UI_V2: '1',
-      EXPO_PUBLIC_LEGACY_ADMIN_MUTATIONS: '1',
-      PORT: '4173',
-    },
-    port: 4173,
-    reuseExistingServer: false,
-    timeout: 180_000,
-  },
+  ...(useExternalServer
+    ? {}
+    : {
+        webServer: {
+          command: 'node scripts/serve-e2e.mjs',
+          env: {
+            EXPO_PUBLIC_APP_IA_V2: '1',
+            EXPO_PUBLIC_BRASILEIRAO_UI: '1',
+            EXPO_PUBLIC_COMPETITION_UI_V2: '1',
+            EXPO_PUBLIC_LEGACY_ADMIN_MUTATIONS: '1',
+            PORT: '4173',
+          },
+          port: 4173,
+          reuseExistingServer: false,
+          timeout: 180_000,
+        },
+      }),
 });

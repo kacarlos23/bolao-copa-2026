@@ -117,6 +117,67 @@ describe('CBF team profile anti-corruption adapter', () => {
     ).toThrow(/played = wins/);
   });
 
+  it('deduplicates the same athlete and prefers the club matching the requested team', () => {
+    const duplicate = {
+      atleta_id: '609746',
+      atleta_nome: 'Atleta de Teste',
+      Atleta_apelido: 'Teste',
+      clube_nome_popular: 'Vasco da Gama Saf',
+      clube_uf: 'RJ',
+      clube_id: '60646',
+    };
+    const profile = parseCbfTeamProfile(
+      profileHtml({
+        atletas: [
+          {
+            ...duplicate,
+            clube_nome_popular: 'Clube anterior',
+            clube_uf: 'SP',
+          },
+          duplicate,
+        ],
+      }),
+      '60646',
+    );
+
+    expect(profile.athletes).toEqual([
+      {
+        externalId: '609746',
+        fullName: 'Atleta de Teste',
+        nickname: 'Teste',
+        currentClub: { externalId: '60646', name: 'Vasco da Gama Saf', state: 'RJ' },
+      },
+    ]);
+  });
+
+  it('fails closed when duplicate athlete identities conflict', () => {
+    expect(() =>
+      parseCbfTeamProfile(
+        profileHtml({
+          atletas: [
+            {
+              atleta_id: '609746',
+              atleta_nome: 'Atleta de Teste',
+              Atleta_apelido: 'Teste',
+              clube_nome_popular: 'Vasco da Gama Saf',
+              clube_uf: 'RJ',
+              clube_id: '60646',
+            },
+            {
+              atleta_id: '609746',
+              atleta_nome: 'Outra Pessoa',
+              Atleta_apelido: 'Outro',
+              clube_nome_popular: 'Vasco da Gama Saf',
+              clube_uf: 'RJ',
+              clube_id: '60646',
+            },
+          ],
+        }),
+        '60646',
+      ),
+    ).toThrow(/conflicting athlete/);
+  });
+
   it('constructs the only remote URL internally and refuses redirects', async () => {
     const fetchImpl = vi.fn(async () => new Response(profileHtml()));
     const result = await collectCbfTeamProfile('60646', {

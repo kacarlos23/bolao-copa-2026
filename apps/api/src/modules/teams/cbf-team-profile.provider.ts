@@ -9,6 +9,7 @@ import {
 } from '@bolao/shared';
 import { fetchTextWithPolicy, type FetchTextPolicy } from '../../http/fetch-policy.js';
 import { parseCbfLocalStartsAt } from '../providers/adapters/cbf-serie-a-2026.provider.js';
+import { normalizeEntityName } from '../providers/competition-data-provider.js';
 import { checksum } from '../providers/provider-utils.js';
 
 export const CBF_SERIE_A_2026_TEAMS_URL =
@@ -178,11 +179,40 @@ export function parseCbfTeamProfile(html: string, expectedExternalTeamId: string
     throw new Error('CBF profile statistics do not satisfy played = wins + draws + losses.');
   }
 
-  const athleteIds = new Set<string>();
-  const athletes = profile.atletas.map((athlete) => {
-    if (athleteIds.has(athlete.atleta_id))
-      throw new Error('CBF profile contains duplicate athletes.');
-    athleteIds.add(athlete.atleta_id);
+  const athletesById = new Map<string, (typeof profile.atletas)[number]>();
+  for (const athlete of profile.atletas) {
+    const existing = athletesById.get(athlete.atleta_id);
+    if (!existing) {
+      athletesById.set(athlete.atleta_id, athlete);
+      continue;
+    }
+    const sameIdentity =
+      normalizeEntityName(existing.atleta_nome) === normalizeEntityName(athlete.atleta_nome) &&
+      normalizeEntityName(existing.Atleta_apelido ?? '') ===
+        normalizeEntityName(athlete.Atleta_apelido ?? '') &&
+      String(existing.clube_id ?? '') === String(athlete.clube_id ?? '');
+    if (!sameIdentity) {
+      throw new Error(`CBF profile contains conflicting athlete ${athlete.atleta_id}.`);
+    }
+    const existingMatchesTeam =
+      normalizeEntityName(existing.clube_nome_popular) === normalizeEntityName(team.time_nome);
+    const candidateMatchesTeam =
+      normalizeEntityName(athlete.clube_nome_popular) === normalizeEntityName(team.time_nome);
+    if (candidateMatchesTeam && !existingMatchesTeam) {
+      athletesById.set(athlete.atleta_id, athlete);
+      continue;
+    }
+    if (
+      existingMatchesTeam !== candidateMatchesTeam ||
+      normalizeEntityName(existing.clube_nome_popular) ===
+        normalizeEntityName(athlete.clube_nome_popular)
+    ) {
+      continue;
+    }
+    throw new Error(`CBF profile contains ambiguous athlete ${athlete.atleta_id}.`);
+  }
+
+  const athletes = [...athletesById.values()].map((athlete) => {
     const nickname = athlete.Atleta_apelido?.trim() || null;
     return teamAthleteDtoSchema.parse({
       externalId: athlete.atleta_id,

@@ -15,7 +15,7 @@ const types = {
   '.woff2': 'font/woff2',
 };
 
-createServer((request, response) => {
+const server = createServer((request, response) => {
   if (request.url?.startsWith('/api/events')) {
     response.writeHead(200, {
       'cache-control': 'no-cache',
@@ -37,5 +37,13 @@ createServer((request, response) => {
   response.writeHead(200, { 'content-type': types[extname(file)] ?? 'application/octet-stream' });
   createReadStream(file).pipe(response);
 }).listen(port, '127.0.0.1', () => {
-  process.stdout.write(`Frontend disponível em http://127.0.0.1:${port}\n`);
+  process.stdout.write(`Frontend disponivel em http://127.0.0.1:${port}\n`);
 });
+
+function shutdown() {
+  server.closeAllConnections?.();
+  server.close(() => process.exit(0));
+}
+
+process.once('SIGINT', shutdown);
+process.once('SIGTERM', shutdown);
