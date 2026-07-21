@@ -5,7 +5,9 @@ import { asyncHandler } from '../../http/async-handler.js';
 import { AppError } from '../../http/errors.js';
 import { prisma } from '../../prisma.js';
 import { dispatchOutboxEvent, enqueueOutboxEvent } from '../events/outbox.js';
+import { recalculateScoresForMatch } from '../../services/ranking.service.js';
 import { manualMatchOverrideSchema } from '../providers/manual-override.service.js';
+import { syncOfficialSeasonCompetitionData } from '../providers/season-result-sync.service.js';
 import {
   adminRequestContext, createAdminPreview, executeSensitiveMutation, justificationSchema,
   reinforcedConfirmationSchema, setAdminScope,
@@ -13,12 +15,140 @@ import {
 
 export const adminProviderRouter = Router();
 
+const competitionDataRefreshSchema = z.object({
+  includeProfiles: z.boolean().default(true),
+  justification: justificationSchema,
+}).strict();
+
+adminProviderRouter.post('/seasons/:seasonId/refresh-competition-data', asyncHandler(async (req, res) => {
+  const body = competitionDataRefreshSchema.parse(req.body);
+  const context = adminRequestContext(req);
+  setAdminScope(req, { seasonId: req.params.seasonId });
+  const result = await syncOfficialSeasonCompetitionData({
+    seasonId: req.params.seasonId,
+    userId: req.session.user!.id,
+    idempotencyKey: context.idempotencyKey,
+    includeProfiles: body.includeProfiles,
+  });
+  await prisma.adminAuditLog.create({
+    data: {
+      actorId: context.actorId,
+      action: 'SYNC_REQUESTED',
+      targetId: req.params.seasonId,
+      requestId: context.requestId,
+      seasonId: req.params.seasonId,
+      poolSeasonId: null,
+      justification: body.justification,
+      idempotencyKey: `audit:${context.idempotencyKey}`,
+      origin: context.origin,
+      before: {},
+      after: JSON.parse(JSON.stringify(result)),
+      details: {
+        affectedCount: result.runs.reduce((total, run) => total + run.counts.inserted + run.counts.updated + run.counts.quarantined, 0) + result.updatedProfiles,
+      },
+    },
+  });
+  res.json(result);
+}));
+
+const liveResultSchema = z.object({
+  status: z.enum(['LIVE', 'FINISHED']),
+  homeScore: z.number().int().min(0).max(99),
+  awayScore: z.number().int().min(0).max(99),
+  justification: justificationSchema,
+}).strict();
+
+adminProviderRouter.put('/seasons/:seasonId/matches/:matchId/live-result', asyncHandler(async (req, res) => {
+  const body = liveResultSchema.parse(req.body);
+  const context = adminRequestContext(req);
+  setAdminScope(req, { seasonId: req.params.seasonId });
+  let eventId: string | undefined;
+  const values = {
+    status: body.status,
+    homeScore: body.homeScore,
+    awayScore: body.awayScore,
+    finalHomeScore: body.status === 'FINISHED' ? body.homeScore : null,
+    finalAwayScore: body.status === 'FINISHED' ? body.awayScore : null,
+  };
+  const response = await executeSensitiveMutation({
+    context,
+    action: 'MATCH_ADJUSTED',
+    operation: 'MATCH_LIVE_RESULT_SET',
+    scope: { targetType: 'Match', targetId: req.params.matchId, seasonId: req.params.seasonId },
+    justification: body.justification,
+    request: values,
+    mutate: async (tx) => {
+      const match = await tx.match.findFirst({
+        where: { id: req.params.matchId, seasonId: req.params.seasonId },
+      });
+      if (!match) throw new AppError(404, 'Partida nao encontrada na temporada.', 'MATCH_NOT_FOUND');
+      const before = {
+        startsAt: match.startsAt.toISOString(),
+        status: match.status,
+        homeScore: match.homeScore,
+        awayScore: match.awayScore,
+        finalHomeScore: match.finalHomeScore,
+        finalAwayScore: match.finalAwayScore,
+      };
+      const saved = await tx.match.update({
+        where: { id: match.id },
+        data: {
+          status: values.status as MatchStatus,
+          homeScore: values.homeScore,
+          awayScore: values.awayScore,
+          finalHomeScore: values.finalHomeScore,
+          finalAwayScore: values.finalAwayScore,
+          rawPayload: {
+            ...objectPayload(match.rawPayload),
+            manualLiveResult: {
+              source: 'ADMIN_PANEL',
+              actorId: req.session.user!.id,
+              appliedAt: new Date().toISOString(),
+            },
+          },
+        },
+      });
+      await tx.matchOverride.upsert({
+        where: { matchId: match.id },
+        create: {
+          matchId: match.id,
+          actorId: req.session.user!.id,
+          justification: body.justification,
+          values,
+          before,
+          active: true,
+        },
+        update: {
+          actorId: req.session.user!.id,
+          justification: body.justification,
+          values,
+          before,
+          active: true,
+          removedAt: null,
+        },
+      });
+      const event = await enqueueOutboxEvent(tx, {
+        type: 'match.updated',
+        seasonId: req.params.seasonId,
+        poolSeasonId: null,
+        payload: { matchIds: [match.id], source: 'ADMIN_PANEL', status: values.status },
+        idempotencyKey: `match.live-result:${context.idempotencyKey}`,
+      });
+      eventId = event.id;
+      return { before, after: saved, result: saved, affectedCount: 1, details: { source: 'ADMIN_PANEL' } };
+    },
+  });
+  if (eventId) await dispatchOutboxEvent(eventId);
+  await recalculateScoresForMatch(req.params.matchId);
+  res.json(response);
+}));
+
 const mappingSchema = z.object({
   internalId: z.string().min(1).max(200), externalId: z.string().min(1).max(200).optional(),
   justification: justificationSchema,
 }).strict();
 
-function objectPayload(value: Prisma.JsonValue) {
+function objectPayload(value: Prisma.JsonValue | null | undefined) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 

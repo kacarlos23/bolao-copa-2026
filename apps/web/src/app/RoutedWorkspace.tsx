@@ -30,7 +30,7 @@ export function RoutedWorkspace({
   onNavigate,
   onRefresh,
   onUserChange,
-  canChangeContext,
+  requestContextChange,
   onLogout,
 }: {
   user: User;
@@ -41,7 +41,7 @@ export function RoutedWorkspace({
   onNavigate: (screen: AppScreen) => void;
   onRefresh: () => void;
   onUserChange: (user: User) => void;
-  canChangeContext: () => boolean;
+  requestContextChange: (action: () => void) => void;
   onLogout: () => void;
 }) {
   const context = useCompetition();
@@ -90,8 +90,8 @@ export function RoutedWorkspace({
         selectedSeasonId={context.season?.id}
         onNavigate={onNavigate}
         onSelectSeason={(seasonId) => {
-          if (seasonId === context.season?.id || !canChangeContext()) return;
-          context.selectSeason(seasonId);
+          if (seasonId === context.season?.id) return;
+          requestContextChange(() => context.selectSeason(seasonId));
         }}
       />
       <ScrollView

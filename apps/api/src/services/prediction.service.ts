@@ -214,7 +214,7 @@ export async function getMatchDay(
               where: {
                 poolSeasonId: context.poolSeasonId,
                 user: {
-                  role: 'USER',
+                  role: { in: ['USER', 'ADMIN'] },
                   status: 'ACTIVE',
                   poolMemberships: { some: { poolId: context.poolId, status: 'ACTIVE' } },
                 },
@@ -262,13 +262,10 @@ export async function upsertPredictions(
   const saved = await serializableTransaction(async (tx) => {
     const user = await tx.user.findUnique({
       where: { id: userId },
-      select: { role: true, status: true },
+      select: { status: true },
     });
     if (!user || user.status !== 'ACTIVE') {
       throw new AppError(403, 'Usuário sem permissão para salvar palpites.', 'USER_NOT_ALLOWED');
-    }
-    if (user.role === 'ADMIN') {
-      throw new AppError(403, 'Administrador não participa dos palpites.', 'ADMIN_NOT_ALLOWED');
     }
 
     const day = await tx.matchDay.findUnique({

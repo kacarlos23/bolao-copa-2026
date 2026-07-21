@@ -14,6 +14,7 @@ import {
   refreshRankingSnapshot,
 } from '../../services/ranking.service.js';
 import { dispatchOutboxEvent, enqueueOutboxEvent } from '../events/outbox.js';
+import { recomputePoolSeasonEngagement } from '../engagement/engagement.service.js';
 import {
   type CompetitionDataProvider,
   type NormalizedMatch,
@@ -1104,6 +1105,7 @@ async function runCore(provider: CompetitionDataProvider, options: ProviderSyncO
           poolId: poolSeason.poolId,
           poolSeasonId: poolSeason.id,
         });
+        await recomputePoolSeasonEngagement(poolSeason.id);
       }
     }
     for (const eventId of eventIds) await dispatchOutboxEvent(eventId);

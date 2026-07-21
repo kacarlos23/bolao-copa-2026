@@ -5,21 +5,15 @@ import { AsyncState } from '../../components/AsyncState';
 import { theme } from '../../theme/tokens';
 
 export function CompetitionSelector({
-  canLeave = () => true,
+  requestChange = (action) => action(),
   onCompetitionChange,
   onSeasonChange,
 }: {
-  canLeave?: () => boolean;
+  requestChange?: (action: () => void) => void;
   onCompetitionChange?: (competition: CompetitionDto) => void;
   onSeasonChange?: (season: SeasonDto) => void;
 }) {
   const context = useCompetition();
-
-  function confirmLeave() {
-    if (canLeave()) return true;
-    if (typeof window === 'undefined') return false;
-    return window.confirm('Há alterações não salvas. Deseja trocar de competição e manter o rascunho neste navegador?');
-  }
 
   return (
     <View style={styles.shell} accessibilityLabel="Competição e temporada">
@@ -47,10 +41,10 @@ export function CompetitionSelector({
                 accessibilityRole="tab"
                 accessibilityState={{ selected }}
                 onPress={() => {
-                  if (confirmLeave()) {
+                  requestChange(() => {
                     onCompetitionChange?.(item);
                     void context.selectCompetition(item.id);
-                  }
+                  });
                 }}
                 style={[styles.tab, selected && styles.tabSelected]}
               >
@@ -67,9 +61,10 @@ export function CompetitionSelector({
                     accessibilityRole="tab"
                     accessibilityState={{ selected }}
                     onPress={() => {
-                      if (!confirmLeave()) return;
-                      context.selectSeason(item.id);
-                      onSeasonChange?.(item);
+                      requestChange(() => {
+                        context.selectSeason(item.id);
+                        onSeasonChange?.(item);
+                      });
                     }}
                     style={[styles.season, selected && styles.seasonSelected]}
                   >

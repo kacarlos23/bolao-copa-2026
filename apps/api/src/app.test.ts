@@ -11,6 +11,19 @@ describe('app', () => {
     expect(response.body.ok).toBe(true);
   });
 
+  it('returns JSON for unknown API routes instead of the web application HTML', async () => {
+    const response = await request(createApp()).get('/api/unknown-route');
+
+    expect(response.status).toBe(404);
+    expect(response.type).toBe('application/json');
+    expect(response.body.error).toMatchObject({
+      status: 404,
+      code: 'API_ROUTE_NOT_FOUND',
+      message: 'Rota de API não encontrada.',
+      requestId: response.headers['x-request-id'],
+    });
+  });
+
   it('allows only the generated hydration script and Cloudflare Insights in CSP', async () => {
     const response = await request(createApp()).get('/health');
     const policy = response.headers['content-security-policy'];
@@ -23,14 +36,12 @@ describe('app', () => {
   });
 
   it('protects the internal realtime relay', async () => {
-    const response = await request(createApp())
-      .post('/api/internal/realtime/sync-completed')
-      .send({
-        ranking: [],
-        updatedMatchIds: [],
-        updatedKnockoutFixtureIds: [],
-        updatedAt: new Date().toISOString(),
-      });
+    const response = await request(createApp()).post('/api/internal/realtime/sync-completed').send({
+      ranking: [],
+      updatedMatchIds: [],
+      updatedKnockoutFixtureIds: [],
+      updatedAt: new Date().toISOString(),
+    });
 
     expect(response.status).toBe(401);
   });

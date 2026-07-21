@@ -30,7 +30,14 @@ import { AsyncState } from './components/AsyncState';
 import { ConnectionIndicator } from './components/ConnectionIndicator';
 import { ScoreInput } from './components/ScoreInput';
 import { TeamBadge } from './components/TeamBadge';
-import { draftStorageKey, loadDraft, persistDraft, type DraftState } from './services/drafts';
+import {
+  discardStoredDraft,
+  draftStorageKey,
+  loadDraft,
+  persistDraft,
+  registerActiveDraftGuard,
+  type DraftState,
+} from './services/drafts';
 import type { ConnectionStatus } from './services/realtime';
 
 const c = {
@@ -284,6 +291,8 @@ export function DailyPredictionsV2({
   const [board, setBoard] = useState<PredictionBoard | null>(null);
   const [closeMinutes, setCloseMinutes] = useState(5);
   const [draft, setDraft] = useState<Record<string, { home: string; away: string }>>({});
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const [saveStateByMatch, setSaveStateByMatch] = useState<Record<string, DraftSaveState>>({});
   const [savedAtByMatch, setSavedAtByMatch] = useState<Record<string, string>>({});
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('reconnecting');
@@ -296,6 +305,7 @@ export function DailyPredictionsV2({
   const dateScrollerRef = useRef<ScrollView>(null);
   const daysRef = useRef<MatchDay[]>([]);
   const dirtyFieldsByMatch = useRef(new Map<string, Set<'home' | 'away'>>());
+  const confirmedDraftRef = useRef<Record<string, { home: string; away: string }>>({});
   const loadDaySequence = useRef(0);
   const draftKey = draftStorageKey(
     currentUserId,
@@ -362,6 +372,7 @@ export function DailyPredictionsV2({
             away: own ? String(own.predictedAwayScore) : '',
           };
         }
+        confirmedDraftRef.current = { ...confirmedDraftRef.current, ...serverDraft };
         setDraft((current) => {
           return mergePredictionDraftFields(current, serverDraft, dirtyFieldsByMatch.current);
         });
@@ -443,6 +454,22 @@ export function DailyPredictionsV2({
     return () => window.removeEventListener('beforeunload', warnOnUnsaved);
   }, []);
 
+  useEffect(
+    () =>
+      registerActiveDraftGuard({
+        key: draftKey,
+        userId: currentUserId,
+        isDirty: () => dirtyFieldsByMatch.current.size > 0,
+        discard: () => {
+          dirtyFieldsByMatch.current.clear();
+          discardStoredDraft(draftKey);
+          setSaveStateByMatch({});
+          setDraft((current) => ({ ...current, ...confirmedDraftRef.current }));
+        },
+      }),
+    [currentUserId, draftKey],
+  );
+
   function updateDraftScore(matchId: string, side: 'home' | 'away', value: string) {
     const normalized = value.replace(/\D/g, '').slice(0, 2);
     const fields = dirtyFieldsByMatch.current.get(matchId) ?? new Set<'home' | 'away'>();
@@ -498,6 +525,12 @@ export function DailyPredictionsV2({
     const knockoutIds = completeOpenKnockoutPredictions.map((item) => item.matchId);
     setMatchSaveState([...regularIds, ...knockoutIds], 'saving');
     const savedIds: string[] = [];
+    const submittedValues = new Map(
+      completeOpenItems.map((item) => [
+        item.matchId,
+        { home: String(item.predictedHomeScore), away: String(item.predictedAwayScore) },
+      ]),
+    );
     const failures: string[] = [];
     skipNextDaysRefreshUntil.current = Date.now() + 4000;
 
@@ -568,9 +601,22 @@ export function DailyPredictionsV2({
       }
     }
 
-    for (const matchId of savedIds) dirtyFieldsByMatch.current.delete(matchId);
+    const cleanSavedIds: string[] = [];
+    for (const matchId of savedIds) {
+      const submitted = submittedValues.get(matchId);
+      const current = draftRef.current[matchId];
+      const dirty = dirtyFieldsByMatch.current.get(matchId);
+      if (!submitted || !current || !dirty) continue;
+      if (dirty.has('home') && current.home === submitted.home) dirty.delete('home');
+      if (dirty.has('away') && current.away === submitted.away) dirty.delete('away');
+      if (dirty.size === 0) {
+        dirtyFieldsByMatch.current.delete(matchId);
+        cleanSavedIds.push(matchId);
+      }
+    }
     if (savedIds.length) {
-      setMatchSaveState(savedIds, 'saved');
+      setMatchSaveState(cleanSavedIds, 'saved');
+      setMatchSaveState(savedIds.filter((matchId) => !cleanSavedIds.includes(matchId)), 'dirty');
       const savedAt = new Date().toISOString();
       setSavedAtByMatch((current) => ({
         ...current,

@@ -2,16 +2,22 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   draftReducer,
   draftStorageKey,
+  discardStoredDraft,
   hasDirtyDraft,
+  hasStoredDirtyDraft,
   loadDraft,
   mergeDraftItem,
   persistDraft,
+  registerActiveDraftGuard,
   saveStatusLabel,
+  warnBeforeUnload,
 } from './drafts';
 
 describe('drafts por usuário e poolSeason', () => {
+  let values: Map<string, string>;
+
   beforeEach(() => {
-    const values = new Map<string, string>();
+    values = new Map<string, string>();
     vi.stubGlobal('window', {
       localStorage: {
         get length() { return values.size; },
@@ -84,5 +90,101 @@ describe('drafts por usuário e poolSeason', () => {
     expect(staleResponse.items.match.dirty).toEqual({ home: true, away: false });
     expect(staleResponse.items.match.status).toBe('dirty');
     expect(saveStatusLabel(staleResponse.items.match)).toBe('Não salvo');
+  });
+
+  it('remove o draft persistido depois de um salvamento confirmado', () => {
+    const key = draftStorageKey('user-1', 'season-1', 'league-predictions');
+    const dirty = draftReducer(
+      { items: {} },
+      { type: 'edit', itemId: 'match', side: 'home', value: '2' },
+    );
+    persistDraft(key, dirty);
+    const saved = draftReducer(dirty, {
+      type: 'saved',
+      itemIds: ['match'],
+      submittedValues: { match: { home: '2', away: '' } },
+    });
+    persistDraft(key, saved);
+
+    expect(values.has(key)).toBe(false);
+    expect(
+      hasStoredDirtyDraft('user-1', { poolSeasonId: 'season-1', scope: 'league-predictions' }),
+    ).toBe(false);
+  });
+
+  it('ignora e remove draft clean armazenado', () => {
+    const key = draftStorageKey('user-1', 'season-1');
+    values.set(
+      key,
+      JSON.stringify({
+        items: {
+          match: {
+            value: { home: '1', away: '0' },
+            dirty: { home: false, away: false },
+            status: 'saved',
+          },
+        },
+      }),
+    );
+
+    expect(hasStoredDirtyDraft('user-1', { poolSeasonId: 'season-1' })).toBe(false);
+    expect(values.has(key)).toBe(false);
+  });
+
+  it('draft de outra temporada não bloqueia o contexto atual', () => {
+    persistDraft(
+      draftStorageKey('user-1', 'season-old'),
+      draftReducer(
+        { items: {} },
+        { type: 'edit', itemId: 'match', side: 'away', value: '3' },
+      ),
+    );
+
+    expect(hasStoredDirtyDraft('user-1', { poolSeasonId: 'season-current' })).toBe(false);
+    expect(hasStoredDirtyDraft('user-1', { poolSeasonId: 'season-old' })).toBe(true);
+  });
+
+  it('descarta somente a chave solicitada', () => {
+    const active = draftStorageKey('user-1', 'season-current');
+    const other = draftStorageKey('user-1', 'season-other');
+    values.set(active, '{"items":{}}');
+    values.set(other, '{"items":{}}');
+
+    discardStoredDraft(active);
+
+    expect(values.has(active)).toBe(false);
+    expect(values.has(other)).toBe(true);
+  });
+
+  it('beforeunload só é interceptado quando o callback informa dirty', () => {
+    const listeners = new Map<string, EventListener>();
+    const addEventListener = vi.fn((name: string, listener: EventListener) => listeners.set(name, listener));
+    const removeEventListener = vi.fn();
+    vi.stubGlobal('window', { addEventListener, removeEventListener });
+    const clean = warnBeforeUnload(() => false);
+    const cleanEvent = { preventDefault: vi.fn(), returnValue: undefined } as unknown as BeforeUnloadEvent;
+    listeners.get('beforeunload')?.(cleanEvent);
+    expect(cleanEvent.preventDefault).not.toHaveBeenCalled();
+    clean();
+
+    warnBeforeUnload(() => true);
+    const dirtyEvent = { preventDefault: vi.fn(), returnValue: undefined } as unknown as BeforeUnloadEvent;
+    listeners.get('beforeunload')?.(dirtyEvent);
+    expect(dirtyEvent.preventDefault).toHaveBeenCalledOnce();
+  });
+
+  it('o guard interno considera somente o editor ativo, separado do beforeunload', () => {
+    const discard = vi.fn();
+    const unregister = registerActiveDraftGuard({
+      key: 'active',
+      userId: 'user-1',
+      isDirty: () => true,
+      discard,
+    });
+
+    expect(hasStoredDirtyDraft('user-1')).toBe(true);
+    expect(hasStoredDirtyDraft('other-user')).toBe(false);
+    unregister();
+    expect(hasStoredDirtyDraft('user-1')).toBe(false);
   });
 });

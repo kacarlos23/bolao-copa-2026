@@ -407,43 +407,48 @@ export class CbfSerieA2026Provider implements CompetitionDataProvider {
 
   private async collectOnce(): Promise<CbfCollection> {
     const collectedAt = new Date().toISOString();
-    const standingsPayload = fetchTextWithPolicy(
-      CBF_SERIE_A_2026_TABLE_URL,
-      {
-        headers: {
-          accept: 'text/html',
-          'user-agent': 'BolaoCopa2026-CBF-Reconciler/1.0',
-        },
-      },
-      { ...this.fetchPolicy, maxBytes: Math.max(this.fetchPolicy.maxBytes, 2 * 1024 * 1024) },
-    );
-    const documents = await Promise.all(
-      this.documentPins.map(async (document) => {
-        const bytes = await fetchBytesWithPolicy(
-          document.url,
-          {
-            headers: {
-              accept: 'application/pdf',
-              'user-agent': 'BolaoCopa2026-CBF-Reconciler/1.0',
-            },
+    const [standingsPayload, documents] = await Promise.all([
+      fetchTextWithPolicy(
+        CBF_SERIE_A_2026_TABLE_URL,
+        {
+          headers: {
+            accept: 'text/html',
+            'user-agent': 'BolaoCopa2026-CBF-Reconciler/1.0',
           },
-          { ...this.fetchPolicy, maxBytes: Math.max(this.fetchPolicy.maxBytes, 5 * 1024 * 1024) },
-        );
-        const actualChecksum = bytesSha256(bytes);
-        if (actualChecksum !== document.sha256 || bytes.byteLength !== document.bytes) {
-          throw new Error(
-            `CBF ${document.kind} document changed: expected ${document.sha256}/${document.bytes}, got ${actualChecksum}/${bytes.byteLength}.`,
+        },
+        { ...this.fetchPolicy, maxBytes: Math.max(this.fetchPolicy.maxBytes, 2 * 1024 * 1024) },
+      ),
+      Promise.all(
+        this.documentPins.map(async (document) => {
+          const bytes = await fetchBytesWithPolicy(
+            document.url,
+            {
+              headers: {
+                accept: 'application/pdf',
+                'user-agent': 'BolaoCopa2026-CBF-Reconciler/1.0',
+              },
+            },
+            {
+              ...this.fetchPolicy,
+              maxBytes: Math.max(this.fetchPolicy.maxBytes, 5 * 1024 * 1024),
+            },
           );
-        }
-        return {
-          kind: document.kind,
-          url: document.url,
-          checksum: actualChecksum,
-          bytes: bytes.byteLength,
-          collectedAt,
-        };
-      }),
-    );
+          const actualChecksum = bytesSha256(bytes);
+          if (actualChecksum !== document.sha256 || bytes.byteLength !== document.bytes) {
+            throw new Error(
+              `CBF ${document.kind} document changed: expected ${document.sha256}/${document.bytes}, got ${actualChecksum}/${bytes.byteLength}.`,
+            );
+          }
+          return {
+            kind: document.kind,
+            url: document.url,
+            checksum: actualChecksum,
+            bytes: bytes.byteLength,
+            collectedAt,
+          };
+        }),
+      ),
+    ]);
     const payloads = new Array<string>(38);
     let nextRound = 1;
     const worker = async () => {
@@ -481,7 +486,7 @@ export class CbfSerieA2026Provider implements CompetitionDataProvider {
       teams: normalizedTeamArraySchema.parse([...teams.values()]),
       schedule: normalizedMatchArraySchema.parse([...schedule.values()]),
       results: normalizedResultArraySchema.parse([...results.values()]),
-      standings: parseCbfSerieA2026Standings(await standingsPayload),
+      standings: parseCbfSerieA2026Standings(standingsPayload),
     };
     return {
       ...collection,

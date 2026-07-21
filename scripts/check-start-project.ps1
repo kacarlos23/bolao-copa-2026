@@ -95,7 +95,9 @@ function Ensure-Postgres() {
   if ($LASTEXITCODE -ne 0) {
     Write-Step "PostgreSQL do projeto parado. Iniciando na porta configurada do cluster"
     $postgresLog = Join-Path $LogsDir "postgres-project.log"
-    & $pgCtl -D $resolvedDataDir -l $postgresLog start | Out-Host
+    # Nao canalize a saida do pg_ctl: o postgres filho pode herdar o pipe e
+    # impedir que uma inicializacao automatica com log redirecionado termine.
+    & $pgCtl -D $resolvedDataDir -l $postgresLog start
     if ($LASTEXITCODE -ne 0) {
       throw "Falha ao iniciar PostgreSQL do projeto. Veja $postgresLog"
     }
@@ -189,7 +191,7 @@ function Ensure-App8080() {
   } else {
     $existing = Get-PortProcess -ListenPort $Port
     if ($existing) {
-      Write-Host "Porta $Port ocupada por PID $($existing.Id) ($($existing.ProcessName)), mas health falhou: $($health.Error)"
+      throw "Porta $Port ocupada por PID $($existing.Id) ($($existing.ProcessName)), mas o healthcheck falhou. Inicializacao cancelada para evitar processo duplicado. Erro: $($health.Error)"
     } else {
       Write-Step "Nada escutando na porta $Port. Iniciando API com web dist"
     }
@@ -277,20 +279,41 @@ function Show-Summary() {
   Write-Host "- Logs GE: $GeLog"
 }
 
-$envValues = Read-DotEnv (Join-Path $ApiDir ".env")
-if ($envValues.ContainsKey("DATABASE_URL")) {
-  try {
-    $dbUri = [Uri]$envValues["DATABASE_URL"]
-    Write-Host "DB configurado: $($dbUri.Host):$($dbUri.Port)$($dbUri.AbsolutePath) usuario $($dbUri.UserInfo.Split(':')[0])"
-  } catch {
-    Write-Host "DB configurado, mas nao foi possivel resumir a URL."
-  }
-}
+$startupMutex = [System.Threading.Mutex]::new($false, "Local\BolaoCopa2026Startup")
+$ownsMutex = $false
 
-Ensure-Postgres
-Test-Database
-Run-FullValidation
-Ensure-Builds
-Ensure-App8080
-Ensure-GeLoop
-Show-Summary
+try {
+  try {
+    $ownsMutex = $startupMutex.WaitOne(0)
+  } catch [System.Threading.AbandonedMutexException] {
+    $ownsMutex = $true
+  }
+
+  if (-not $ownsMutex) {
+    Write-Host "Outra inicializacao do Bolao ja esta em andamento. Nenhuma nova instancia sera criada."
+    exit 0
+  }
+
+  $envValues = Read-DotEnv (Join-Path $ApiDir ".env")
+  if ($envValues.ContainsKey("DATABASE_URL")) {
+    try {
+      $dbUri = [Uri]$envValues["DATABASE_URL"]
+      Write-Host "DB configurado: $($dbUri.Host):$($dbUri.Port)$($dbUri.AbsolutePath) usuario $($dbUri.UserInfo.Split(':')[0])"
+    } catch {
+      Write-Host "DB configurado, mas nao foi possivel resumir a URL."
+    }
+  }
+
+  Ensure-Postgres
+  Test-Database
+  Run-FullValidation
+  Ensure-Builds
+  Ensure-App8080
+  Ensure-GeLoop
+  Show-Summary
+} finally {
+  if ($ownsMutex) {
+    $startupMutex.ReleaseMutex()
+  }
+  $startupMutex.Dispose()
+}

@@ -11,6 +11,26 @@ export interface DraftItem {
 }
 export interface DraftState { items: Record<string, DraftItem> }
 
+export interface ActiveDraftGuard {
+  key: string;
+  userId: string;
+  isDirty: () => boolean;
+  discard: () => void;
+}
+
+const activeDraftGuards = new Map<symbol, ActiveDraftGuard>();
+
+export function registerActiveDraftGuard(guard: ActiveDraftGuard) {
+  const token = Symbol(guard.key);
+  activeDraftGuards.set(token, guard);
+  return () => activeDraftGuards.delete(token);
+}
+
+export function getActiveDirtyDraftGuard(userId?: string) {
+  const guards = [...activeDraftGuards.values()].reverse();
+  return guards.find((guard) => (!userId || guard.userId === userId) && guard.isDirty()) ?? null;
+}
+
 export type DraftAction =
   | { type: 'hydrate'; values: Record<string, ScoreValue> }
   | { type: 'edit'; itemId: string; side: ScoreSide; value: string }
@@ -112,7 +132,13 @@ export function loadDraft(key: string): DraftState {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(key) ?? '') as DraftState;
     if (!parsed || typeof parsed !== 'object' || !parsed.items) return { items: {} };
-    return parsed;
+    return {
+      items: Object.fromEntries(
+        Object.entries(parsed.items).filter(
+          ([, item]) => Boolean(item?.dirty?.home || item?.dirty?.away),
+        ),
+      ),
+    };
   } catch {
     return { items: {} };
   }
@@ -120,8 +146,17 @@ export function loadDraft(key: string): DraftState {
 
 export function persistDraft(key: string, state: DraftState) {
   if (typeof window === 'undefined') return;
-  if (Object.keys(state.items).length === 0) window.localStorage.removeItem(key);
-  else window.localStorage.setItem(key, JSON.stringify(state));
+  const dirtyState = {
+    items: Object.fromEntries(
+      Object.entries(state.items).filter(([, item]) => item.dirty.home || item.dirty.away),
+    ),
+  };
+  if (Object.keys(dirtyState.items).length === 0) window.localStorage.removeItem(key);
+  else window.localStorage.setItem(key, JSON.stringify(dirtyState));
+}
+
+export function discardStoredDraft(key: string) {
+  if (typeof window !== 'undefined') window.localStorage.removeItem(key);
 }
 
 export function saveStatusLabel(item?: DraftItem) {
@@ -147,21 +182,15 @@ export function warnBeforeUnload(shouldWarn: () => boolean) {
   return () => window.removeEventListener('beforeunload', listener);
 }
 
-export function hasStoredDirtyDraft(userId: string) {
+export function hasStoredDirtyDraft(
+  userId: string,
+  context?: { poolSeasonId: string; scope?: string },
+) {
   if (typeof window === 'undefined') return false;
-  const userMarker = `:${encodeURIComponent(userId)}:`;
-  for (let index = 0; index < window.localStorage.length; index += 1) {
-    const key = window.localStorage.key(index);
-    if (!key?.startsWith('bolao:draft:v2:') || !key.includes(userMarker)) continue;
-    if (hasDirtyDraft(loadDraft(key))) return true;
-    if (key.includes(':knockout%3A')) {
-      try {
-        const raw = JSON.parse(window.localStorage.getItem(key) ?? '{}') as Record<string, unknown>;
-        if (Object.keys(raw).length > 0) return true;
-      } catch {
-        // Corrupted drafts are ignored by the same policy used during hydration.
-      }
-    }
-  }
+  if (!context) return Boolean(getActiveDirtyDraftGuard(userId));
+  const expectedKey = draftStorageKey(userId, context.poolSeasonId, context.scope);
+  const stored = loadDraft(expectedKey);
+  if (hasDirtyDraft(stored)) return true;
+  window.localStorage.removeItem(expectedKey);
   return false;
 }

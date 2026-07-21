@@ -13,10 +13,10 @@ vi.mock('../prisma.js', () => ({
   },
 }));
 
-function transactionClient(closesAt: Date) {
+function transactionClient(closesAt: Date, role: 'USER' | 'ADMIN' = 'USER') {
   return {
     user: {
-      findUnique: vi.fn(async () => ({ role: 'USER', status: 'ACTIVE' })),
+      findUnique: vi.fn(async () => ({ role, status: 'ACTIVE' })),
     },
     matchDay: {
       findUnique: vi.fn(async () => ({
@@ -63,6 +63,16 @@ describe('atomic prediction closing', () => {
       expect.any(Function),
       expect.objectContaining({ isolationLevel: 'Serializable' }),
     );
+  });
+
+  it('allows active admins to write predictions before the boundary', async () => {
+    const closesAt = new Date('2026-07-14T19:00:00.000Z');
+    vi.setSystemTime(new Date(closesAt.getTime() - 1));
+    const tx = transactionClient(closesAt, 'ADMIN');
+    mocks.transaction.mockImplementation(async (callback) => callback(tx));
+
+    await expect(upsertPredictions('day-1', 'admin-1', input)).resolves.toHaveLength(1);
+    expect(tx.prediction.upsert).toHaveBeenCalledOnce();
   });
 
   it('fails closed at now >= closesAt after time advances at the transaction boundary', async () => {

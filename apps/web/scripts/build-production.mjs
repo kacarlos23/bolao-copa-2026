@@ -10,10 +10,14 @@ const releaseFlags = {
   EXPO_PUBLIC_COMPETITION_UI_V2: '1',
 };
 
-const result = spawnSync(process.execPath, [expoCli, 'export', '--platform', 'web', '--clear'], {
-  env: { ...process.env, ...releaseFlags },
-  stdio: 'inherit',
-});
+const result = spawnSync(
+  process.execPath,
+  [expoCli, 'export', '--platform', 'web', '--clear', '--max-workers', '1'],
+  {
+    env: { ...process.env, ...releaseFlags },
+    stdio: 'inherit',
+  },
+);
 
 if (result.error) throw result.error;
 process.exitCode = result.status ?? 1;

@@ -1,36 +1,70 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { z } from 'zod';
-import { ApiError, LatestRequest, errorMessage, request } from './api-client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-afterEach(() => vi.unstubAllGlobals());
+describe('api client session csrf lifecycle', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
 
-describe('cliente HTTP', () => {
-  it('valida a resposta na entrada e rejeita contrato incompatível', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ value: 'x' }), { status: 200 })));
-    await expect(request('/contract', { schema: z.object({ value: z.number() }) })).rejects.toMatchObject({
-      code: 'INVALID_RESPONSE',
-      status: 502,
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('requests a fresh csrf token after login rotates the session', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ csrfToken: 'a'.repeat(40) }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ user: { id: 'admin' } }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ csrfToken: 'b'.repeat(40) }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { request } = await import('./api-client');
+    await request('/api/auth/login', { method: 'POST', body: '{}' });
+    await request('/api/auth/logout', { method: 'POST' });
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/auth/csrf');
+    expect(fetchMock.mock.calls[2]?.[0]).toBe('/api/auth/csrf');
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
+      'x-csrf-token': 'a'.repeat(40),
+    });
+    expect(fetchMock.mock.calls[3]?.[1]?.headers).toMatchObject({
+      'x-csrf-token': 'b'.repeat(40),
     });
   });
 
-  it.each([
-    [401, 'Sua sessão expirou'],
-    [403, 'Você não tem permissão'],
-    [409, 'Palpite fechado'],
-    [500, 'Falha interna'],
-  ])('traduz erro %s sem perder status/código', (status, expected) => {
-    const error = new ApiError(status === 409 ? 'Palpite fechado' : 'Falha interna', status, `HTTP_${status}`);
-    expect(errorMessage(error)).toContain(expected);
-  });
+  it('reports an invalid API response without exposing the JSON parser error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response('<!DOCTYPE html><html></html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        }),
+      ),
+    );
 
-  it('cancela a chamada anterior e ignora resposta obsoleta', async () => {
-    const latest = new LatestRequest();
-    let resolveFirst!: (value: string) => void;
-    const first = latest.run(() => new Promise<string>((resolve) => { resolveFirst = resolve; }));
-    const second = latest.run(async () => 'nova');
-    resolveFirst('antiga');
+    const { request } = await import('./api-client');
 
-    await expect(second).resolves.toBe('nova');
-    await expect(first).resolves.toBeUndefined();
+    await expect(request('/api/unknown-route')).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 502,
+      code: 'INVALID_RESPONSE',
+    });
   });
 });

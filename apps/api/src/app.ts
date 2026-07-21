@@ -24,13 +24,13 @@ import { requestContext } from './middleware/request-context.js';
 import { competitionRouter } from './modules/competitions/competition.routes.js';
 import { seasonRouter } from './modules/seasons/season.routes.js';
 import { poolRouter } from './modules/pools/pool.routes.js';
+import { AppError } from './http/errors.js';
 
 const pinoHttp = pinoHttpModule as unknown as (options: {
   logger: typeof logger;
 }) => express.RequestHandler;
 
-const EXPO_ROUTER_HYDRATION_SCRIPT_HASH =
-  "'sha256-67fhrP0+BkBqmgGGXTtgiVO/9EQs3QruYNU/7fnRkI8='";
+const EXPO_ROUTER_HYDRATION_SCRIPT_HASH = "'sha256-67fhrP0+BkBqmgGGXTtgiVO/9EQs3QruYNU/7fnRkI8='";
 
 export function createApp(options: { sessionStore?: Store } = {}) {
   const app = express();
@@ -95,6 +95,9 @@ export function createApp(options: { sessionStore?: Store } = {}) {
   app.use('/api/internal', internalRouter);
   app.use('/api/admin', adminRouter);
   app.use('/api', sseRouter);
+  app.use('/api', (_req, _res, next) => {
+    next(new AppError(404, 'Rota de API não encontrada.', 'API_ROUTE_NOT_FOUND'));
+  });
   app.use('/uploads/avatars', express.static(avatarUploadDir));
 
   if (config.SERVE_WEB_DIST) {

@@ -27,7 +27,7 @@ import { flagSources } from './flagSources';
 import { DailyPredictionsV2 } from './competitionV2';
 import { SoftReveal, usePrefersReducedMotion } from './motion';
 import { ScoreInput } from './components/ScoreInput';
-import { draftStorageKey } from './services/drafts';
+import { discardStoredDraft, draftStorageKey, registerActiveDraftGuard } from './services/drafts';
 import { resolvedAdvancingTeam } from './knockoutDraft';
 
 const competitionUiV2 = process.env.EXPO_PUBLIC_COMPETITION_UI_V2 === '1';
@@ -1340,6 +1340,7 @@ function KnockoutBoard({
   );
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const partialConfirmation = useRef(false);
+  const draftRevision = useRef(0);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [shareReady, setShareReady] = useState(Boolean(board.knockout.savedBracket?.picks.length));
@@ -1399,6 +1400,34 @@ function KnockoutBoard({
     return () => window.removeEventListener('beforeunload', warn);
   }, [saveState]);
 
+  useEffect(
+    () =>
+      registerActiveDraftGuard({
+        key: draftKey,
+        userId: currentUserId,
+        isDirty: () => saveState === 'dirty' || saveState === 'failed',
+        discard: () => {
+          discardStoredDraft(draftKey);
+          const saved = board.knockout.savedBracket?.picks ?? [];
+          setDraft(
+            Object.fromEntries(
+              saved.map((pick) => [
+                pick.matchNumber,
+                {
+                  home: String(pick.predictedHomeScore),
+                  away: String(pick.predictedAwayScore),
+                  advancingTeamId: pick.advancingTeamId,
+                },
+              ]),
+            ),
+          );
+          setSaveState('clean');
+          setError('');
+        },
+      }),
+    [board.knockout.savedBracket?.picks, currentUserId, draftKey, saveState],
+  );
+
   useEffect(() => {
     const savedCount = board.knockout.savedBracket?.picks.length ?? 0;
     if (savedCount) {
@@ -1408,6 +1437,7 @@ function KnockoutBoard({
   }, [board.knockout.savedBracket?.picks.length]);
 
   function changeScore(matchNumber: number, side: 'home' | 'away', text: string) {
+    draftRevision.current += 1;
     setSaveState('dirty');
     partialConfirmation.current = false;
     setDraft((current) => {
@@ -1440,6 +1470,7 @@ function KnockoutBoard({
   }
 
   function chooseAdvancingTeam(matchNumber: number, teamId: string) {
+    draftRevision.current += 1;
     setSaveState('dirty');
     partialConfirmation.current = false;
     setDraft((current) => {
@@ -1509,6 +1540,7 @@ function KnockoutBoard({
     }
 
     setSaving(true);
+    const submittedRevision = draftRevision.current;
     setSaveState('saving');
     setError('');
     try {
@@ -1521,12 +1553,13 @@ function KnockoutBoard({
         })),
         groupScores,
       );
-      if (typeof window !== 'undefined') window.localStorage.removeItem(draftKey);
       onSaved(next);
       setSavedPickCount(next.knockout.savedBracket?.picks.length ?? filledPicks.length);
       setShareReady(true);
-      setSuccess(true);
-      setSaveState('saved');
+      const changedWhileSaving = draftRevision.current !== submittedRevision;
+      if (!changedWhileSaving && typeof window !== 'undefined') window.localStorage.removeItem(draftKey);
+      setSuccess(!changedWhileSaving);
+      setSaveState(changedWhileSaving ? 'dirty' : 'saved');
       setSavedAt(new Date().toISOString());
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Não foi possível salvar a chave.');

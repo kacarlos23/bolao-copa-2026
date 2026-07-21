@@ -138,9 +138,9 @@ function actualKnockoutWinnerId(fixture: {
 async function assertCanSaveKnockout(userId: string) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { role: true, status: true },
+    select: { status: true },
   });
-  if (!user || user.status !== 'ACTIVE' || user.role !== 'USER') {
+  if (!user || user.status !== 'ACTIVE') {
     throw new AppError(403, 'Usuario sem permissao para salvar a chave.', 'USER_NOT_ALLOWED');
   }
 }
@@ -339,14 +339,14 @@ async function replaceSavedGroupSimulationScores(
     const [user, generation] = await Promise.all([
       tx.user.findUnique({
         where: { id: userId },
-        select: { role: true, status: true },
+        select: { status: true },
       }),
       tx.knockoutGeneration.findUnique({
         where: { id: generationId },
         select: { id: true, status: true, closesAt: true },
       }),
     ]);
-    if (!user || user.status !== 'ACTIVE' || user.role !== 'USER') {
+    if (!user || user.status !== 'ACTIVE') {
       throw new AppError(403, 'Usuário sem permissão para salvar a chave.', 'USER_NOT_ALLOWED');
     }
     if (!generation) {
@@ -482,13 +482,13 @@ export async function getPredictionBoard(userId: string, scoreOverrides?: GroupS
         homeTeam: true,
         awayTeam: true,
         predictions: {
-          where: { user: { role: 'USER', status: 'ACTIVE' } },
+          where: { user: { role: { in: ['USER', 'ADMIN'] }, status: 'ACTIVE' } },
           include: { user: { select: { id: true, nickname: true, avatarUrl: true } } },
           orderBy: { user: { nickname: 'asc' } },
         },
       },
     }),
-    prisma.user.findUnique({ where: { id: userId }, select: { role: true, status: true } }),
+    prisma.user.findUnique({ where: { id: userId }, select: { status: true } }),
   ]);
   const groupScoreOverrides = mergeGroupScoreOverrides(savedSimulationScores, scoreOverrides);
   const projection = await loadProjectionGroups(userId, groupScoreOverrides);
@@ -556,7 +556,7 @@ export async function getPredictionBoard(userId: string, scoreOverrides?: GroupS
   return {
     checkedAt: now.toISOString(),
     predictionCloseMinutes,
-    canPredict: viewer?.role === 'USER' && viewer.status === 'ACTIVE',
+    canPredict: viewer?.status === 'ACTIVE',
     groupStageComplete,
     groups,
     knockout: {
@@ -611,9 +611,9 @@ export async function saveGroupSimulationScores(
 export async function saveKnockoutBracket(userId: string, input: UpsertKnockoutBracketInput) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { role: true, status: true },
+    select: { status: true },
   });
-  if (!user || user.status !== 'ACTIVE' || user.role !== 'USER') {
+  if (!user || user.status !== 'ACTIVE') {
     throw new AppError(403, 'Usuário sem permissão para salvar a chave.', 'USER_NOT_ALLOWED');
   }
 
@@ -869,7 +869,7 @@ export async function listPublicKnockoutBrackets() {
   }
 
   const brackets = await prisma.knockoutBracket.findMany({
-    where: { generationId: generation.id, user: { role: 'USER', status: 'ACTIVE' } },
+    where: { generationId: generation.id, user: { role: { in: ['USER', 'ADMIN'] }, status: 'ACTIVE' } },
     orderBy: { user: { nickname: 'asc' } },
     include: {
       user: { select: { id: true, nickname: true, avatarUrl: true } },

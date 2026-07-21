@@ -38,7 +38,9 @@ import { CompetitionHub } from './src/features/competitions/CompetitionHub';
 import { HomeScreen } from './src/features/home/HomeScreen';
 import { ToastProvider } from './src/components/Toast';
 import { RouteState } from './src/components/RouteState';
-import { hasStoredDirtyDraft } from './src/services/drafts';
+import { UnsavedChangesModal } from './src/components/UnsavedChangesModal';
+import { getActiveDirtyDraftGuard } from './src/services/drafts';
+import { runActiveRefresh } from './src/services/active-refresh';
 import { AppShell } from './src/app/AppShell';
 import { RoutedWorkspace } from './src/app/RoutedWorkspace';
 import {
@@ -3811,6 +3813,7 @@ export default function App() {
   const [leagueTeamId, setLeagueTeamId] = useState<string | null>(initialLeagueTeamId);
   const [selectedTeamCode, setSelectedTeamCode] = useState<string | null>('KOR');
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const [pendingNavigation, setPendingNavigation] = useState<null | (() => void)>(null);
   const [booting, setBooting] = useState(true);
   const [nowTime, setNowTime] = useState(Date.now());
   const [knockoutCalloutDismissed, setKnockoutCalloutDismissed] = useState(false);
@@ -3832,20 +3835,22 @@ export default function App() {
   leagueTeamIdRef.current = leagueTeamId;
   userRef.current = user;
 
-  const triggerRefresh = useCallback(() => {
+  const triggerRefresh = useCallback(async () => {
+    if (await runActiveRefresh()) return;
     setRefreshVersion((current) => current + 1);
   }, []);
 
   function canLeaveCurrentScreen() {
-    return !user?.id || !hasStoredDirtyDraft(user.id);
+    return !getActiveDirtyDraftGuard(user?.id);
   }
 
-  function confirmContextChange() {
-    if (canLeaveCurrentScreen()) return true;
-    if (typeof window === 'undefined') return false;
-    return window.confirm(
-      'Há alterações não salvas. Deseja sair e manter o rascunho neste navegador?',
-    );
+  function requestContextChange(action: () => void) {
+    if (canLeaveCurrentScreen()) {
+      action();
+      return true;
+    }
+    setPendingNavigation(() => action);
+    return false;
   }
 
   function focusMainContent() {
@@ -3857,34 +3862,34 @@ export default function App() {
 
   function navigate(nextScreen: Screen) {
     if (nextScreen === screen) return true;
-    if (!confirmContextChange()) return false;
-    if (appIaV2 && Platform.OS === 'web' && typeof window !== 'undefined') {
-      const nextPath = pathForScreen(nextScreen);
-      window.history.pushState({ screen: nextScreen }, '', nextPath);
-      routePathRef.current = nextPath;
-    }
-    if (!nextScreen.startsWith('brasileirao-team-')) setLeagueTeamId(null);
-    setScreen(nextScreen);
-    appScrollY.current = 0;
-    appScrollRef.current?.scrollTo({ y: 0, animated: false });
-    focusMainContent();
-    return true;
+    return requestContextChange(() => {
+      if (appIaV2 && Platform.OS === 'web' && typeof window !== 'undefined') {
+        const nextPath = pathForScreen(nextScreen);
+        window.history.pushState({ screen: nextScreen }, '', nextPath);
+        routePathRef.current = nextPath;
+      }
+      if (!nextScreen.startsWith('brasileirao-team-')) setLeagueTeamId(null);
+      setScreen(nextScreen);
+      appScrollY.current = 0;
+      appScrollRef.current?.scrollTo({ y: 0, animated: false });
+      focusMainContent();
+    });
   }
 
   function navigateLeagueTeam(teamId: string, section: LeagueTeamSection = 'athletes') {
     const nextScreen = screenForLeagueTeamSection(section);
-    if (!confirmContextChange()) return false;
-    const nextPath = pathForLeagueTeam(teamId, section);
-    if (appIaV2 && Platform.OS === 'web' && typeof window !== 'undefined') {
-      window.history.pushState({ screen: nextScreen, teamId, section }, '', nextPath);
-      routePathRef.current = nextPath;
-    }
-    setLeagueTeamId(teamId);
-    setScreen(nextScreen);
-    appScrollY.current = 0;
-    appScrollRef.current?.scrollTo({ y: 0, animated: false });
-    focusMainContent();
-    return true;
+    return requestContextChange(() => {
+      const nextPath = pathForLeagueTeam(teamId, section);
+      if (appIaV2 && Platform.OS === 'web' && typeof window !== 'undefined') {
+        window.history.pushState({ screen: nextScreen, teamId, section }, '', nextPath);
+        routePathRef.current = nextPath;
+      }
+      setLeagueTeamId(teamId);
+      setScreen(nextScreen);
+      appScrollY.current = 0;
+      appScrollRef.current?.scrollTo({ y: 0, animated: false });
+      focusMainContent();
+    });
   }
 
   useEffect(() => {
@@ -3919,25 +3924,22 @@ export default function App() {
       const nextScreen = screenFromPath(window.location.pathname);
       const nextTeamId = teamIdFromPath(window.location.pathname);
       if (nextScreen === screenRef.current && nextTeamId === leagueTeamIdRef.current) return;
-      const currentUser = userRef.current;
-      if (
-        currentUser?.id &&
-        hasStoredDirtyDraft(currentUser.id) &&
-        !window.confirm(
-          'Há alterações não salvas. Deseja sair e manter o rascunho neste navegador?',
-        )
-      ) {
+      const targetPath = window.location.pathname;
+      const applyPopNavigation = () => {
+        window.history.pushState({ screen: nextScreen }, '', targetPath);
+        routePathRef.current = targetPath;
+        setLeagueTeamId(nextTeamId);
+        setScreen(nextScreen);
+        appScrollY.current = 0;
+        appScrollRef.current?.scrollTo({ y: 0, animated: false });
+        focusMainContent();
+      };
+      if (getActiveDirtyDraftGuard(userRef.current?.id)) {
         window.history.pushState({ screen: screenRef.current }, '', routePathRef.current);
+        setPendingNavigation(() => applyPopNavigation);
         return;
       }
-      routePathRef.current = window.location.pathname;
-      setLeagueTeamId(nextTeamId);
-      setScreen(nextScreen);
-      appScrollY.current = 0;
-      appScrollRef.current?.scrollTo({ y: 0, animated: false });
-      window.requestAnimationFrame(() => {
-        document.getElementById('conteudo-principal')?.focus();
-      });
+      applyPopNavigation();
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -4191,10 +4193,13 @@ export default function App() {
     user?.role,
   ]);
 
-  async function logout() {
-    if (!confirmContextChange()) return;
+  async function performLogout() {
     await api.logout().catch(() => undefined);
     setUser(null);
+  }
+
+  function logout() {
+    requestContextChange(() => void performLogout());
   }
 
   if (booting) {
@@ -4226,7 +4231,7 @@ export default function App() {
               onNavigate={navigate}
               onRefresh={triggerRefresh}
               onUserChange={setUser}
-              canChangeContext={confirmContextChange}
+              requestContextChange={requestContextChange}
               onLogout={logout}
             />
           ) : (
@@ -4242,7 +4247,7 @@ export default function App() {
               />
               {competitionUiV2 ? (
                 <CompetitionSelector
-                  canLeave={canLeaveCurrentScreen}
+                  requestChange={requestContextChange}
                   onCompetitionChange={(competition) => {
                     const capabilities = normalizeCapabilities(competition.capabilities, null);
                     if (capabilities.has('LEAGUE') && brasileiraoNavEnabled)
@@ -4292,6 +4297,21 @@ export default function App() {
           />
         </CompetitionProvider>
       </AppShell>
+      <UnsavedChangesModal
+        visible={Boolean(pendingNavigation)}
+        onContinue={() => setPendingNavigation(null)}
+        onKeepDraft={() => {
+          const action = pendingNavigation;
+          setPendingNavigation(null);
+          action?.();
+        }}
+        onDiscard={() => {
+          const action = pendingNavigation;
+          getActiveDirtyDraftGuard(user?.id)?.discard();
+          setPendingNavigation(null);
+          action?.();
+        }}
+      />
     </ToastProvider>
   );
 }

@@ -338,6 +338,24 @@ export const predictionDtoSchema = z
   })
   .strict();
 
+export const publicMatchPredictionDtoSchema = z
+  .object({
+    id: entityIdSchema,
+    userId: entityIdSchema,
+    matchId: entityIdSchema,
+    predictedHomeScore: z.number().int().min(0).max(99),
+    predictedAwayScore: z.number().int().min(0).max(99),
+    scoreType: z.enum(['EXACT_SCORE', 'RESULT', 'ONE_TEAM_GOALS', 'MISS']).nullable(),
+    user: z
+      .object({
+        id: entityIdSchema,
+        nickname: z.string().min(1),
+        avatarUrl: z.string().nullable(),
+      })
+      .strict(),
+  })
+  .strict();
+
 export const rankingRowDtoSchema = z
   .object({
     rank: z.number().int().positive(),
@@ -356,6 +374,17 @@ export const rankingRowDtoSchema = z
       .array(z.object({ score: z.number().int(), match: z.unknown().optional() }).strict())
       .max(5),
     hasLiveData: z.boolean(),
+    movement: z
+      .object({
+        delta: z.number().int(),
+        fromRank: z.number().int().positive(),
+        toRank: z.number().int().positive(),
+        isProvisional: z.boolean(),
+        changedAt: z.string().datetime(),
+      })
+      .strict()
+      .nullable()
+      .optional(),
   })
   .strict();
 
@@ -460,6 +489,14 @@ export const predictionsResponseSchema = z
   .object({ predictions: z.array(predictionDtoSchema), pagination: paginationSchema })
   .strict();
 
+export const publicMatchPredictionsResponseSchema = z
+  .object({
+    matchId: entityIdSchema,
+    predictionsCloseAt: z.string().datetime(),
+    predictions: z.array(publicMatchPredictionDtoSchema),
+  })
+  .strict();
+
 export const savedPredictionsResponseSchema = z
   .object({ predictions: z.array(predictionDtoSchema) })
   .strict();
@@ -490,6 +527,8 @@ export type TeamStatisticsDto = z.infer<typeof teamStatisticsDtoSchema>;
 export type TeamProfileDto = z.infer<typeof teamProfileDtoSchema>;
 export type StandingRowDto = z.infer<typeof standingRowDtoSchema>;
 export type PredictionDto = z.infer<typeof predictionDtoSchema>;
+export type PublicMatchPredictionDto = z.infer<typeof publicMatchPredictionDtoSchema>;
+export type PublicMatchPredictionsResponse = z.infer<typeof publicMatchPredictionsResponseSchema>;
 export type RankingRowDto = z.infer<typeof rankingRowDtoSchema>;
 export type RankingAwardDto = z.infer<typeof rankingAwardDtoSchema>;
 export type ApiIssue = z.infer<typeof apiIssueSchema>;

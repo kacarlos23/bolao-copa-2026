@@ -1,6 +1,8 @@
 import { Prisma } from '@prisma/client';
 import {
+  calculatePredictionScore,
   predictionDtoSchema,
+  publicMatchPredictionsResponseSchema,
   type PaginationQuery,
   type UpsertSeasonPredictionsInput,
 } from '@bolao/shared';
@@ -14,8 +16,13 @@ import {
   MAX_PREDICTION_CLOSE_MINUTES,
   MIN_PREDICTION_CLOSE_MINUTES,
   PREDICTION_CLOSE_MINUTES_KEY,
+  getPredictionCloseMinutes,
 } from '../../services/prediction-settings.service.js';
-import { listPredictionRecords } from './prediction.repository.js';
+import {
+  findMatchForPublicPredictions,
+  listPredictionRecords,
+  listPublicMatchPredictionRecords,
+} from './prediction.repository.js';
 import { competitionFeatureFlagsSchema } from '../competitions/competition-feature.service.js';
 import { isPoolMatchScoreable } from './scoreability.js';
 import { recomputePoolSeasonEngagement } from '../engagement/engagement.service.js';
@@ -54,6 +61,54 @@ export async function listPredictions(
     predictions: predictions.map(toPredictionDto),
     pagination: paginationMeta(query, total),
   };
+}
+
+export async function listPublicMatchPredictions(
+  context: PoolSeasonContext,
+  matchId: string,
+  now = new Date(),
+) {
+  const [match, predictionCloseMinutes] = await Promise.all([
+    findMatchForPublicPredictions(context.seasonId, matchId),
+    getPredictionCloseMinutes(),
+  ]);
+  if (!match) {
+    throw new AppError(404, 'Partida nÃ£o encontrada nesta temporada.', 'MATCH_NOT_FOUND');
+  }
+
+  const predictionsCloseAt =
+    match.predictionClosesAt ??
+    new Date(match.startsAt.getTime() - predictionCloseMinutes * 60_000);
+  if (now < predictionsCloseAt) {
+    throw new AppError(
+      403,
+      'Os palpites dos participantes ficam visÃ­veis somente apÃ³s o encerramento do prazo.',
+      'PREDICTIONS_NOT_PUBLIC',
+    );
+  }
+
+  const actualHomeScore =
+    match.status === 'FINISHED' ? (match.finalHomeScore ?? match.homeScore) : match.homeScore;
+  const actualAwayScore =
+    match.status === 'FINISHED' ? (match.finalAwayScore ?? match.awayScore) : match.awayScore;
+  const records = await listPublicMatchPredictionRecords(context, match.id);
+
+  return publicMatchPredictionsResponseSchema.parse({
+    matchId: match.id,
+    predictionsCloseAt: predictionsCloseAt.toISOString(),
+    predictions: records.map((prediction) => ({
+      ...prediction,
+      scoreType:
+        actualHomeScore == null || actualAwayScore == null
+          ? null
+          : calculatePredictionScore({
+              predictedHomeScore: prediction.predictedHomeScore,
+              predictedAwayScore: prediction.predictedAwayScore,
+              actualHomeScore,
+              actualAwayScore,
+            }).scoreType,
+    })),
+  });
 }
 
 function closeMinutes(value: Prisma.JsonValue | null | undefined) {

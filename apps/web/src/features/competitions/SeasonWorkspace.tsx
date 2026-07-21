@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import type { MatchDto, RankingRowDto, RoundDto, SeasonDto, StandingRowDto } from '@bolao/shared';
+import type {
+  MatchDto,
+  PublicMatchPredictionDto,
+  RankingRowDto,
+  RoundDto,
+  SeasonDto,
+  StandingRowDto,
+} from '@bolao/shared';
 import { useCompetition } from '../../app/CompetitionContext';
 import { AsyncState, type AsyncStatus } from '../../components/AsyncState';
 import { ConnectionIndicator } from '../../components/ConnectionIndicator';
-import { RankingTable } from '../../components/RankingTable';
 import { ScoreInput } from '../../components/ScoreInput';
 import { TeamBadge } from '../../components/TeamBadge';
 import { RouteLink } from '../../navigation/RouteLink';
@@ -16,19 +22,25 @@ import {
   LatestRequest,
   type EngagementDashboard,
   type PoolSeasonRules,
+  type RankingAward,
 } from '../../api';
 import {
   draftReducer,
   draftStorageKey,
+  discardStoredDraft,
   hasDirtyDraft,
   loadDraft,
   persistDraft,
+  registerActiveDraftGuard,
   saveStatusLabel,
   warnBeforeUnload,
   type DraftState,
 } from '../../services/drafts';
 import { createRealtimeClient, type ConnectionStatus } from '../../services/realtime';
+import { registerActiveRefresh } from '../../services/active-refresh';
 import { theme } from '../../theme/tokens';
+import { PremiumRanking } from '../rankings/PremiumRanking';
+import { PublicPredictionsModal } from './PublicPredictionsModal';
 import {
   civilDateKey,
   civilMonthKey,
@@ -147,12 +159,15 @@ function predictionAvailability(
   return { open: true, label: 'ABERTO', reason: '' };
 }
 
-function isPredictionOpen(
-  match: MatchDto,
-  round?: RoundDto,
-  rules: PoolSeasonRules | null = null,
-) {
+function isPredictionOpen(match: MatchDto, round?: RoundDto, rules: PoolSeasonRules | null = null) {
   return predictionAvailability(match, round, rules).open;
+}
+
+function predictionsDeadlinePassed(match: MatchDto) {
+  const closesAt = match.predictionClosesAt
+    ? new Date(match.predictionClosesAt).getTime()
+    : new Date(match.startsAt).getTime() - 5 * 60_000;
+  return closesAt <= Date.now();
 }
 
 function score(match: MatchDto) {
@@ -207,14 +222,14 @@ function standingsTable(
                 onActivate={() => onOpenTeam(row.team.id)}
                 style={[styles.standingTeam, styles.standingIdentity]}
               >
-                <TeamBadge team={row.team} kind="crest" size={24} />
+                <TeamBadge team={row.team} kind="crest" size={34} />
                 <Text style={styles.standingName} numberOfLines={1}>
                   {row.team.name}
                 </Text>
               </RouteLink>
             ) : (
               <View style={[styles.standingTeam, styles.standingIdentity]}>
-                <TeamBadge team={row.team} kind="crest" size={24} />
+                <TeamBadge team={row.team} kind="crest" size={34} />
                 <Text style={styles.standingName} numberOfLines={1}>
                   {row.team.name}
                 </Text>
@@ -258,9 +273,9 @@ export function SeasonWorkspace({
   const [standings, setStandings] = useState<StandingRowDto[]>([]);
   const [ranking, setRanking] = useState<RankingRowDto[]>([]);
   const [roundRanking, setRoundRanking] = useState<RankingRowDto[]>([]);
-  const [previousRanks, setPreviousRanks] = useState<Map<string, number>>(new Map());
   const [rules, setRules] = useState<PoolSeasonRules | null>(null);
   const [engagement, setEngagement] = useState<EngagementDashboard | null>(null);
+  const [awards, setAwards] = useState<RankingAward[]>([]);
   const [scope, setScope] = useState<RankingScope>('overall');
   const [draft, setDraft] = useState<DraftState>({ items: {} });
   const [poolSeasonId, setPoolSeasonId] = useState('');
@@ -270,14 +285,23 @@ export function SeasonWorkspace({
   const [predictionError, setPredictionError] = useState('');
   const [predictionRefreshVersion, setPredictionRefreshVersion] = useState(0);
   const [connection, setConnection] = useState<ConnectionStatus>('reconnecting');
+  const [syncing, setSyncing] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [workspaceRefreshVersion, setWorkspaceRefreshVersion] = useState(0);
+  const [publicMatch, setPublicMatch] = useState<MatchDto | null>(null);
+  const [publicPredictions, setPublicPredictions] = useState<PublicMatchPredictionDto[]>([]);
+  const [publicPredictionsLoading, setPublicPredictionsLoading] = useState(false);
+  const [publicPredictionsError, setPublicPredictionsError] = useState('');
   const selectedRound = rounds.find((round) => round.id === roundId);
   const dataRequest = useRef(new LatestRequest()).current;
   const predictionDataRequest = useRef(new LatestRequest()).current;
   const draftRef = useRef(draft);
+  const hydratedStorageKeyRef = useRef('');
+  const confirmedValuesRef = useRef<Record<string, { home: string; away: string }>>({});
   const visitedSeasonRef = useRef('');
+  const publicPredictionsRequestRef = useRef(0);
   draftRef.current = draft;
-  const stablePoolSeasonKey =
-    poolSeasonId || (season ? `pool:${POOL_SLUG}:season:${season.id}` : 'pending');
+  const stablePoolSeasonKey = season ? `pool:${POOL_SLUG}:season:${season.id}` : 'pending';
   const storageKey = draftStorageKey(currentUserId, stablePoolSeasonKey, 'league-predictions');
   const timezone = season?.timezone ?? 'America/Sao_Paulo';
   const predictionDays = groupPredictionMatchesByDay(
@@ -350,6 +374,7 @@ export function SeasonWorkspace({
           roundResult,
           rulesResult,
           engagementResult,
+          awardsResult,
         ] = await Promise.all([
           api.seasonMatches(season.id, roundId),
           api.seasonStandings(season.id),
@@ -362,6 +387,7 @@ export function SeasonWorkspace({
           ),
           api.seasonRules(POOL_SLUG, season.id),
           api.seasonEngagement(POOL_SLUG, season.id),
+          api.seasonAwards(POOL_SLUG, season.id).catch(() => ({ awards: [] })),
         ]);
         return {
           matchesResult,
@@ -371,6 +397,7 @@ export function SeasonWorkspace({
           roundResult,
           rulesResult,
           engagementResult,
+          awardsResult,
         };
       });
       if (!active || !result) return;
@@ -383,6 +410,7 @@ export function SeasonWorkspace({
           },
         ]),
       );
+      confirmedValuesRef.current = { ...confirmedValuesRef.current, ...values };
       const resolvedPoolSeasonId = result.predictionsResult.predictions[0]?.poolSeasonId;
       if (resolvedPoolSeasonId) setPoolSeasonId(resolvedPoolSeasonId);
       setMatches(result.matchesResult.matches);
@@ -391,6 +419,7 @@ export function SeasonWorkspace({
       setRoundRanking(result.roundResult.ranking);
       setRules(result.rulesResult);
       setEngagement(result.engagementResult);
+      setAwards(result.awardsResult.awards);
       dispatch({ type: 'hydrate', values });
       setError('');
       setStatus(result.matchesResult.matches.length ? 'success' : 'empty');
@@ -399,7 +428,7 @@ export function SeasonWorkspace({
         visitedSeasonRef.current = season.id;
         try {
           const visit = await api.recordRankingVisit(POOL_SLUG, season.id);
-          if (visit.summary) setPreviousRanks(new Map([[currentUserId, visit.summary.fromRank]]));
+          void visit.summary;
         } catch {
           visitedSeasonRef.current = '';
         }
@@ -428,15 +457,40 @@ export function SeasonWorkspace({
       realtime.close();
       dataRequest.cancel();
     };
-  }, [season?.id, roundId, scope, refreshVersion, poolSeasonId]);
+  }, [season?.id, roundId, scope, refreshVersion, workspaceRefreshVersion, poolSeasonId]);
 
   useEffect(() => {
-    if (
-      !season ||
-      !predictionMonth ||
-      (section !== 'predictions' && section !== 'all')
-    )
-      return;
+    if (!season) return;
+    api
+      .seasonSyncStatus(POOL_SLUG, season.id)
+      .then((result) => setLastSyncedAt(result.lastSyncedAt))
+      .catch(() => undefined);
+  }, [season?.id]);
+
+  async function refreshOfficialResults() {
+    if (!season || syncing) return;
+    setSyncing(true);
+    try {
+      const result = await api.syncSeasonResults(POOL_SLUG, season.id);
+      setLastSyncedAt(result.lastSyncedAt);
+      setWorkspaceRefreshVersion((version) => version + 1);
+      showToast(
+        result.changedMatches
+          ? `${result.changedMatches} ${result.changedMatches === 1 ? 'jogo atualizado' : 'jogos atualizados'}.`
+          : 'Nenhuma alteração encontrada.',
+        'success',
+      );
+    } catch (cause) {
+      showToast(`Não foi possível sincronizar a fonte oficial. ${errorMessage(cause)}`, 'error');
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  useEffect(() => registerActiveRefresh(refreshOfficialResults), [season?.id, syncing]);
+
+  useEffect(() => {
+    if (!season || !predictionMonth || (section !== 'predictions' && section !== 'all')) return;
     let active = true;
     const load = async (quiet = false) => {
       if (!quiet) setPredictionStatus(predictionMatches.length ? 'refreshing' : 'loading');
@@ -460,15 +514,12 @@ export function SeasonWorkspace({
         setSelectedDayKey((current) =>
           days.some((day) => day.key === current)
             ? current
-            : preferredPredictionDayKey(
-                days,
-                season.timezone,
-                (match) =>
-                  isPredictionOpen(
-                    match,
-                    rounds.find((round) => round.id === match.roundId),
-                    rulesResult,
-                  ),
+            : preferredPredictionDayKey(days, season.timezone, (match) =>
+                isPredictionOpen(
+                  match,
+                  rounds.find((round) => round.id === match.roundId),
+                  rulesResult,
+                ),
               ),
         );
         setPredictionError('');
@@ -498,28 +549,30 @@ export function SeasonWorkspace({
   useEffect(() => {
     if (!selectedPredictionDay || !season) return;
     let active = true;
-    const matchDayIds = [...new Set(selectedPredictionDay.matches.map((match) => match.matchDayId))];
+    const matchDayIds = [
+      ...new Set(selectedPredictionDay.matches.map((match) => match.matchDayId)),
+    ];
     void Promise.all(
-      matchDayIds.map((matchDayId) =>
-        api.seasonPredictions(POOL_SLUG, season.id, matchDayId),
-      ),
+      matchDayIds.map((matchDayId) => api.seasonPredictions(POOL_SLUG, season.id, matchDayId)),
     )
       .then((results) => {
         if (!active) return;
         const predictions = results.flatMap((result) => result.predictions);
         const resolvedPoolSeasonId = predictions[0]?.poolSeasonId;
         if (resolvedPoolSeasonId) setPoolSeasonId(resolvedPoolSeasonId);
+        const values = Object.fromEntries(
+          predictions.map((prediction) => [
+            prediction.matchId,
+            {
+              home: String(prediction.predictedHomeScore),
+              away: String(prediction.predictedAwayScore),
+            },
+          ]),
+        );
+        confirmedValuesRef.current = { ...confirmedValuesRef.current, ...values };
         dispatch({
           type: 'hydrate',
-          values: Object.fromEntries(
-            predictions.map((prediction) => [
-              prediction.matchId,
-              {
-                home: String(prediction.predictedHomeScore),
-                away: String(prediction.predictedAwayScore),
-              },
-            ]),
-          ),
+          values,
         });
       })
       .catch(() => undefined);
@@ -529,12 +582,36 @@ export function SeasonWorkspace({
   }, [season?.id, selectedDayKey, predictionMatches]);
 
   useEffect(() => {
+    hydratedStorageKeyRef.current = '';
+    confirmedValuesRef.current = {};
     const stored = loadDraft(storageKey);
-    if (hasDirtyDraft(stored)) setDraft(stored);
+    setDraft(hasDirtyDraft(stored) ? stored : { items: {} });
   }, [storageKey]);
 
-  useEffect(() => persistDraft(storageKey, draft), [draft, storageKey]);
+  useEffect(() => {
+    if (hydratedStorageKeyRef.current !== storageKey) {
+      hydratedStorageKeyRef.current = storageKey;
+      return;
+    }
+    persistDraft(storageKey, draft);
+  }, [draft, storageKey]);
   useEffect(() => warnBeforeUnload(() => hasDirtyDraft(draftRef.current)), []);
+  useEffect(
+    () =>
+      registerActiveDraftGuard({
+        key: storageKey,
+        userId: currentUserId,
+        isDirty: () =>
+          hydratedStorageKeyRef.current === storageKey && hasDirtyDraft(draftRef.current),
+        discard: () => {
+          discardStoredDraft(storageKey);
+          setDraft(
+            draftReducer({ items: {} }, { type: 'hydrate', values: confirmedValuesRef.current }),
+          );
+        },
+      }),
+    [currentUserId, storageKey],
+  );
 
   async function saveMatches(matchIds: string[]) {
     if (!season) return;
@@ -586,6 +663,14 @@ export function SeasonWorkspace({
     });
     if (saved[0]?.poolSeasonId) setPoolSeasonId(saved[0].poolSeasonId);
     if (saved.length) {
+      confirmedValuesRef.current = {
+        ...confirmedValuesRef.current,
+        ...Object.fromEntries(
+          saved.flatMap((item) =>
+            submittedValues[item.matchId] ? [[item.matchId, submittedValues[item.matchId]]] : [],
+          ),
+        ),
+      };
       dispatch({
         type: 'saved',
         itemIds: saved.map((item) => item.matchId),
@@ -614,6 +699,34 @@ export function SeasonWorkspace({
     };
     const result = await api.updateNotificationPreferences(POOL_SLUG, season.id, next);
     setEngagement({ ...engagement, preferences: result.preferences });
+  }
+
+  async function openPublicPredictions(match: MatchDto) {
+    if (!season || !predictionsDeadlinePassed(match)) return;
+    const requestId = publicPredictionsRequestRef.current + 1;
+    publicPredictionsRequestRef.current = requestId;
+    setPublicMatch(match);
+    setPublicPredictions([]);
+    setPublicPredictionsError('');
+    setPublicPredictionsLoading(true);
+    try {
+      const result = await api.seasonPublicMatchPredictions(POOL_SLUG, season.id, match.id);
+      if (publicPredictionsRequestRef.current !== requestId) return;
+      setPublicPredictions(result.predictions);
+    } catch (cause) {
+      if (publicPredictionsRequestRef.current !== requestId) return;
+      setPublicPredictionsError(errorMessage(cause));
+    } finally {
+      if (publicPredictionsRequestRef.current === requestId) setPublicPredictionsLoading(false);
+    }
+  }
+
+  function closePublicPredictions() {
+    publicPredictionsRequestRef.current += 1;
+    setPublicMatch(null);
+    setPublicPredictions([]);
+    setPublicPredictionsError('');
+    setPublicPredictionsLoading(false);
   }
 
   if (!season && status === 'loading') return <AsyncState status="loading" skeletonLines={6} />;
@@ -807,9 +920,7 @@ export function SeasonWorkspace({
                   </Text>
                   <Text style={[styles.dayTabMeta, selected && styles.dayTabMetaActive]}>
                     {day.matches.length} {day.matches.length === 1 ? 'jogo' : 'jogos'}
-                    {openCount
-                      ? ` · ${openCount} ${openCount === 1 ? 'aberto' : 'abertos'}`
-                      : ''}
+                    {openCount ? ` · ${openCount} ${openCount === 1 ? 'aberto' : 'abertos'}` : ''}
                   </Text>
                   {dirtyCount ? (
                     <Text style={styles.dayTabDirty}>
@@ -833,152 +944,179 @@ export function SeasonWorkspace({
             (predictionStatus === 'error' && !predictionMatches.length) ? null : (
               <View style={[styles.columns, compact && styles.columnsCompact]}>
                 <View style={styles.matchesColumn}>
-                <View style={[styles.sectionHeading, compact && styles.sectionHeadingCompact]}>
-                  <View accessibilityLiveRegion="polite">
-                    <Text style={styles.sectionEyebrow}>PALPITES DO DIA</Text>
-                    <Text role="heading" aria-level={2} style={styles.sectionTitle}>
-                      {selectedDayKey ? formatDayTitle(selectedDayKey) : 'Selecione uma data'}
-                    </Text>
-                  </View>
-                  <Text style={styles.sectionMeta}>
-                    {selectedDayMatches.length}{' '}
-                    {selectedDayMatches.length === 1 ? 'jogo' : 'jogos'}
-                  </Text>
-                </View>
-                <View style={styles.matchList}>
-                  {selectedDayMatches.map((match) => {
-                  const item = draft.items[match.id];
-                  const value = item?.value ?? { home: '', away: '' };
-                  const round = rounds.find((candidate) => candidate.id === match.roundId);
-                  const availability = predictionAvailability(match, round, rules);
-                  const open = availability.open;
-                  const official = score(match);
-                  const errorText = item?.status === 'failed' ? item.error : undefined;
-                  return (
-                    <View
-                      key={match.id}
-                      style={styles.matchRow}
-                      accessibilityLabel={`${match.homeTeam.name} contra ${match.awayTeam.name}`}
-                    >
-                      <View style={styles.matchMeta}>
-                        <View style={styles.matchContext}>
-                          <Text style={styles.matchTime}>
-                            {formatMatchHour(match.startsAt, timezone)}
-                          </Text>
-                          {round ? <Text style={styles.roundMeta}>{round.name}</Text> : null}
-                        </View>
-                        <Text style={[styles.matchStatus, open ? styles.open : styles.closed]}>
-                          {match.status === 'FINISHED'
-                            ? 'FINAL'
-                            : match.status === 'LIVE'
-                              ? 'AO VIVO'
-                              : availability.label}
-                        </Text>
-                      </View>
-                      <View style={[styles.matchup, compact && styles.matchupCompact]}>
-                        <View style={styles.teamIdentity}>
-                          <TeamBadge team={match.homeTeam} kind="crest" size={34} />
-                          <Text style={styles.teamName}>{match.homeTeam.name}</Text>
-                        </View>
-                        {official ? (
-                          <Text style={styles.officialScore}>{official}</Text>
-                        ) : (
-                          <View style={styles.scoreGroup}>
-                            <ScoreInput
-                              teamName={match.homeTeam.name}
-                              side="home"
-                              value={value.home}
-                              editable={open}
-                              error={errorText}
-                              onChange={(home) =>
-                                dispatch({
-                                  type: 'edit',
-                                  itemId: match.id,
-                                  side: 'home',
-                                  value: home,
-                                })
-                              }
-                            />
-                            <Text style={styles.versus}>×</Text>
-                            <ScoreInput
-                              teamName={match.awayTeam.name}
-                              side="away"
-                              value={value.away}
-                              editable={open}
-                              onChange={(away) =>
-                                dispatch({
-                                  type: 'edit',
-                                  itemId: match.id,
-                                  side: 'away',
-                                  value: away,
-                                })
-                              }
-                            />
-                          </View>
-                        )}
-                        <View style={styles.teamIdentity}>
-                          <TeamBadge team={match.awayTeam} kind="crest" size={34} />
-                          <Text style={styles.teamName}>{match.awayTeam.name}</Text>
-                        </View>
-                      </View>
-                      {!official && !open && availability.reason ? (
-                        <Text style={styles.unavailableReason}>{availability.reason}</Text>
-                      ) : null}
-                      {!official ? (
-                        <View style={styles.saveRow}>
-                          <Text
-                            accessibilityLiveRegion="polite"
-                            style={[styles.saveState, item?.status === 'failed' && styles.failed]}
-                          >
-                            {saveStatusLabel(item)}
-                          </Text>
-                          <Pressable
-                            accessibilityRole="button"
-                            accessibilityLabel={`Salvar palpite de ${match.homeTeam.name} contra ${match.awayTeam.name}`}
-                            disabled={!open || item?.status === 'saving'}
-                            onPress={() => void saveMatches([match.id])}
-                            style={[
-                              styles.saveButton,
-                              (!open || item?.status === 'saving') && styles.disabled,
-                            ]}
-                          >
-                            <Text style={styles.saveButtonText}>
-                              {open
-                                ? 'Salvar palpite'
-                                : availability.label === 'FORA DO BOLÃO'
-                                  ? 'Não elegível'
-                                  : 'Palpite fechado'}
-                            </Text>
-                          </Pressable>
-                        </View>
-                      ) : null}
-                    </View>
-                  );
-                  })}
-                </View>
-                {dirtyOpenIds.length ? (
-                  <View style={styles.bulkBar} accessibilityLiveRegion="polite">
-                    <View>
-                      <Text style={styles.bulkTitle}>Salvar palpites do dia</Text>
-                      <Text style={styles.bulkText}>
-                        {dirtyOpenIds.length}{' '}
-                        {dirtyOpenIds.length === 1
-                          ? 'palpite não salvo'
-                          : 'palpites não salvos'}
+                  <View style={[styles.sectionHeading, compact && styles.sectionHeadingCompact]}>
+                    <View accessibilityLiveRegion="polite">
+                      <Text style={styles.sectionEyebrow}>PALPITES DO DIA</Text>
+                      <Text role="heading" aria-level={2} style={styles.sectionTitle}>
+                        {selectedDayKey ? formatDayTitle(selectedDayKey) : 'Selecione uma data'}
                       </Text>
                     </View>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={`Salvar ${dirtyOpenIds.length} ${
-                        dirtyOpenIds.length === 1 ? 'palpite' : 'palpites'
-                      } do dia`}
-                      onPress={() => void saveMatches(dirtyOpenIds)}
-                      style={styles.bulkButton}
-                    >
-                      <Text style={styles.bulkButtonText}>Salvar todos do dia</Text>
-                    </Pressable>
+                    <Text style={styles.sectionMeta}>
+                      {selectedDayMatches.length}{' '}
+                      {selectedDayMatches.length === 1 ? 'jogo' : 'jogos'}
+                    </Text>
                   </View>
-                ) : null}
+                  <View style={styles.matchList}>
+                    {selectedDayMatches.map((match) => {
+                      const item = draft.items[match.id];
+                      const value = item?.value ?? { home: '', away: '' };
+                      const round = rounds.find((candidate) => candidate.id === match.roundId);
+                      const availability = predictionAvailability(match, round, rules);
+                      const open = availability.open;
+                      const official = score(match);
+                      const publicAvailable = predictionsDeadlinePassed(match);
+                      const errorText = item?.status === 'failed' ? item.error : undefined;
+                      return (
+                        <View
+                          key={match.id}
+                          style={styles.matchRow}
+                          accessibilityLabel={`${match.homeTeam.name} contra ${match.awayTeam.name}`}
+                        >
+                          <View style={styles.matchMeta}>
+                            <View style={styles.matchContext}>
+                              <Text style={styles.matchTime}>
+                                {formatMatchHour(match.startsAt, timezone)}
+                              </Text>
+                              {round ? <Text style={styles.roundMeta}>{round.name}</Text> : null}
+                            </View>
+                            <Text style={[styles.matchStatus, open ? styles.open : styles.closed]}>
+                              {match.status === 'FINISHED'
+                                ? 'FINAL'
+                                : match.status === 'LIVE'
+                                  ? 'AO VIVO'
+                                  : availability.label}
+                            </Text>
+                          </View>
+                          <View style={[styles.matchup, compact && styles.matchupCompact]}>
+                            <View style={styles.teamIdentity}>
+                              <TeamBadge team={match.homeTeam} kind="crest" size={34} />
+                              <Text style={styles.teamName}>{match.homeTeam.name}</Text>
+                            </View>
+                            {official ? (
+                              <Text style={styles.officialScore}>{official}</Text>
+                            ) : (
+                              <View style={styles.scoreGroup}>
+                                <ScoreInput
+                                  teamName={match.homeTeam.name}
+                                  side="home"
+                                  value={value.home}
+                                  editable={open}
+                                  error={errorText}
+                                  onChange={(home) =>
+                                    dispatch({
+                                      type: 'edit',
+                                      itemId: match.id,
+                                      side: 'home',
+                                      value: home,
+                                    })
+                                  }
+                                />
+                                <Text style={styles.versus}>×</Text>
+                                <ScoreInput
+                                  teamName={match.awayTeam.name}
+                                  side="away"
+                                  value={value.away}
+                                  editable={open}
+                                  onChange={(away) =>
+                                    dispatch({
+                                      type: 'edit',
+                                      itemId: match.id,
+                                      side: 'away',
+                                      value: away,
+                                    })
+                                  }
+                                />
+                              </View>
+                            )}
+                            <View style={styles.teamIdentity}>
+                              <TeamBadge team={match.awayTeam} kind="crest" size={34} />
+                              <Text style={styles.teamName}>{match.awayTeam.name}</Text>
+                            </View>
+                          </View>
+                          {!official && !open && availability.reason ? (
+                            <Text style={styles.unavailableReason}>{availability.reason}</Text>
+                          ) : null}
+                          {!official ? (
+                            <View style={styles.saveRow}>
+                              <Text
+                                accessibilityLiveRegion="polite"
+                                style={[
+                                  styles.saveState,
+                                  item?.status === 'failed' && styles.failed,
+                                ]}
+                              >
+                                {saveStatusLabel(item)}
+                              </Text>
+                              <Pressable
+                                accessibilityRole="button"
+                                accessibilityLabel={`Salvar palpite de ${match.homeTeam.name} contra ${match.awayTeam.name}`}
+                                disabled={!open || item?.status === 'saving'}
+                                onPress={() => void saveMatches([match.id])}
+                                style={[
+                                  styles.saveButton,
+                                  (!open || item?.status === 'saving') && styles.disabled,
+                                ]}
+                              >
+                                <Text style={styles.saveButtonText}>
+                                  {open
+                                    ? 'Salvar palpite'
+                                    : availability.label === 'FORA DO BOLÃO'
+                                      ? 'Não elegível'
+                                      : 'Palpite fechado'}
+                                </Text>
+                              </Pressable>
+                              {publicAvailable ? (
+                                <Pressable
+                                  accessibilityRole="button"
+                                  accessibilityLabel={`Ver palpites de ${match.homeTeam.name} contra ${match.awayTeam.name}`}
+                                  onPress={() => void openPublicPredictions(match)}
+                                  style={styles.publicPredictionsButton}
+                                >
+                                  <Text style={styles.publicPredictionsButtonText}>
+                                    Ver palpites
+                                  </Text>
+                                </Pressable>
+                              ) : null}
+                            </View>
+                          ) : publicAvailable ? (
+                            <View style={styles.publicPredictionsRow}>
+                              <Pressable
+                                accessibilityRole="button"
+                                accessibilityLabel={`Ver palpites de ${match.homeTeam.name} contra ${match.awayTeam.name}`}
+                                onPress={() => void openPublicPredictions(match)}
+                                style={styles.publicPredictionsButton}
+                              >
+                                <Text style={styles.publicPredictionsButtonText}>
+                                  Ver palpites dos participantes
+                                </Text>
+                              </Pressable>
+                            </View>
+                          ) : null}
+                        </View>
+                      );
+                    })}
+                  </View>
+                  {dirtyOpenIds.length ? (
+                    <View style={styles.bulkBar} accessibilityLiveRegion="polite">
+                      <View>
+                        <Text style={styles.bulkTitle}>Salvar palpites do dia</Text>
+                        <Text style={styles.bulkText}>
+                          {dirtyOpenIds.length}{' '}
+                          {dirtyOpenIds.length === 1 ? 'palpite não salvo' : 'palpites não salvos'}
+                        </Text>
+                      </View>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Salvar ${dirtyOpenIds.length} ${
+                          dirtyOpenIds.length === 1 ? 'palpite' : 'palpites'
+                        } do dia`}
+                        onPress={() => void saveMatches(dirtyOpenIds)}
+                        style={styles.bulkButton}
+                      >
+                        <Text style={styles.bulkButtonText}>Salvar todos do dia</Text>
+                      </Pressable>
+                    </View>
+                  ) : null}
                 </View>
               </View>
             )}
@@ -1015,45 +1153,21 @@ export function SeasonWorkspace({
 
       {section === 'ranking' || section === 'all' ? (
         <View style={styles.rankingSection}>
-          <View style={[styles.sectionHeading, compact && styles.sectionHeadingCompact]}>
-            <View>
-              <Text style={styles.sectionEyebrow}>RANKING DO BOLÃO</Text>
-              <Text style={styles.sectionTitle}>Disputa e desempates</Text>
-            </View>
-            <ScrollView
-              horizontal
-              contentContainerStyle={styles.scopeRail}
-              accessibilityLabel="Escopo do ranking"
-            >
-              {(
-                [
-                  ['overall', 'Geral'],
-                  ['round', 'Rodada'],
-                  ['month', 'Mês'],
-                  ['turn-1', 'Turno 1'],
-                  ['turn-2', 'Turno 2'],
-                ] as Array<[RankingScope, string]>
-              ).map(([key, label]) => (
-                <Pressable
-                  key={key}
-                  {...({ 'aria-pressed': scope === key } as never)}
-                  accessibilityRole="button"
-                  onPress={() => setScope(key)}
-                  style={[styles.scopeTab, scope === key && styles.scopeTabActive]}
-                >
-                  <Text style={[styles.scopeText, scope === key && styles.scopeTextActive]}>
-                    {label}
-                  </Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          </View>
           {ranking.length ? (
-            <RankingTable
+            <PremiumRanking
+              seasonName={season?.name ?? 'Brasileirão Série A 2026'}
               ranking={ranking}
               roundRanking={roundRanking}
               currentUserId={currentUserId}
-              previousRanks={previousRanks}
+              scope={scope}
+              onScopeChange={setScope}
+              connection={connection}
+              syncing={syncing}
+              lastSyncedAt={lastSyncedAt}
+              onRefresh={() => void refreshOfficialResults()}
+              awards={awards}
+              engagement={engagement}
+              tieBreakers={rules?.tieBreakers.criteria.map((item) => item.label) ?? []}
             />
           ) : (
             <AsyncState
@@ -1162,6 +1276,14 @@ export function SeasonWorkspace({
           </View>
         </View>
       ) : null}
+      <PublicPredictionsModal
+        match={publicMatch}
+        predictions={publicPredictions}
+        currentUserId={currentUserId}
+        loading={publicPredictionsLoading}
+        error={publicPredictionsError}
+        onClose={closePublicPredictions}
+      />
     </View>
   );
 }
@@ -1360,6 +1482,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.space.lg,
   },
   saveButtonText: { color: theme.color.accentInk, fontSize: 12, fontWeight: '900' },
+  publicPredictionsRow: { alignItems: 'flex-end' },
+  publicPredictionsButton: {
+    alignItems: 'center',
+    borderColor: theme.color.gold,
+    borderRadius: theme.radius.sm,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: theme.touchTarget,
+    paddingHorizontal: theme.space.lg,
+  },
+  publicPredictionsButtonText: { color: theme.color.gold, fontSize: 12, fontWeight: '900' },
   disabled: { opacity: 0.48 },
   bulkBar: {
     alignItems: 'center',

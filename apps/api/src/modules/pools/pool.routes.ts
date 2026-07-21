@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import {
   poolSeasonParamsSchema,
@@ -8,7 +9,11 @@ import {
 } from '@bolao/shared';
 import { asyncHandler } from '../../http/async-handler.js';
 import { requireAuth } from '../../middleware/auth.js';
-import { listPredictions, savePredictions } from '../predictions/prediction.use-cases.js';
+import {
+  listPredictions,
+  listPublicMatchPredictions,
+  savePredictions,
+} from '../predictions/prediction.use-cases.js';
 import { getPoolRanking, getPoolRankingAwards } from '../rankings/ranking.use-cases.js';
 import { resolvePoolSeasonContext } from './pool-context.js';
 import { assertCompetitionFeature } from '../competitions/competition-feature.service.js';
@@ -19,26 +24,64 @@ import {
   rankingVisitSummary,
   updateNotificationPreferences,
 } from '../engagement/engagement.service.js';
+import {
+  getSeasonResultSyncStatus,
+  syncOfficialSeasonResults,
+} from '../providers/season-result-sync.service.js';
 
 export const poolRouter = Router();
 poolRouter.use(requireAuth);
 
-const notificationPreferenceSchema = z.object({
-  inAppEnabled: z.boolean(),
-  pushEnabled: z.boolean(),
-  emailEnabled: z.boolean(),
-  quietHoursEnabled: z.boolean(),
-  quietHoursStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional(),
-  quietHoursEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional(),
-  timezone: z.string().min(1).max(100),
-}).strict().superRefine((value, context) => {
-  if (value.quietHoursEnabled && (!value.quietHoursStart || !value.quietHoursEnd)) {
-    context.addIssue({ code: z.ZodIssueCode.custom, message: 'Início e fim são obrigatórios para quiet hours.' });
-  }
+const publicSyncLimiter = rateLimit({
+  windowMs: 10 * 60_000,
+  limit: 6,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: (req) => req.session.user!.id,
+  message: {
+    error: {
+      status: 429,
+      code: 'PROVIDER_SYNC_RATE_LIMIT',
+      message: 'Limite de sincronizações atingido. Tente novamente em alguns minutos.',
+      issues: [],
+      requestId: 'rate-limit',
+    },
+  },
 });
 
+const notificationPreferenceSchema = z
+  .object({
+    inAppEnabled: z.boolean(),
+    pushEnabled: z.boolean(),
+    emailEnabled: z.boolean(),
+    quietHoursEnabled: z.boolean(),
+    quietHoursStart: z
+      .string()
+      .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
+      .nullable()
+      .optional(),
+    quietHoursEnd: z
+      .string()
+      .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
+      .nullable()
+      .optional(),
+    timezone: z.string().min(1).max(100),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.quietHoursEnabled && (!value.quietHoursStart || !value.quietHoursEnd)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Início e fim são obrigatórios para quiet hours.',
+      });
+    }
+  });
+
 async function engagementContext(req: Request, res: Response) {
-  const params = poolSeasonParamsSchema.parse(req.params);
+  const params = poolSeasonParamsSchema.parse({
+    poolSlug: req.params.poolSlug,
+    seasonId: req.params.seasonId,
+  });
   exposeRequestedContext(res.locals, params);
   const context = await resolvePoolSeasonContext({ ...params, userId: req.session.user!.id });
   await assertCompetitionFeature(context.seasonId, 'read', req.session.user!.role);
@@ -66,7 +109,13 @@ poolRouter.patch(
   '/:poolSlug/seasons/:seasonId/notifications/preferences',
   asyncHandler(async (req, res) => {
     const context = await engagementContext(req, res);
-    res.json({ preferences: await updateNotificationPreferences(context.poolSeasonId, req.session.user!.id, notificationPreferenceSchema.parse(req.body)) });
+    res.json({
+      preferences: await updateNotificationPreferences(
+        context.poolSeasonId,
+        req.session.user!.id,
+        notificationPreferenceSchema.parse(req.body),
+      ),
+    });
   }),
 );
 
@@ -77,6 +126,30 @@ poolRouter.post(
     const notificationId = z.string().cuid().parse(req.params.notificationId);
     await markInboxRead(context.poolSeasonId, req.session.user!.id, notificationId);
     res.status(204).end();
+  }),
+);
+
+poolRouter.get(
+  '/:poolSlug/seasons/:seasonId/sync-status',
+  asyncHandler(async (req, res) => {
+    const context = await engagementContext(req, res);
+    res.json(await getSeasonResultSyncStatus(context.seasonId));
+  }),
+);
+
+poolRouter.post(
+  '/:poolSlug/seasons/:seasonId/sync-results',
+  publicSyncLimiter,
+  asyncHandler(async (req, res) => {
+    const context = await engagementContext(req, res);
+    const idempotencyKey = z.string().trim().min(8).max(200).parse(req.get('idempotency-key'));
+    res.json(
+      await syncOfficialSeasonResults({
+        seasonId: context.seasonId,
+        userId: req.session.user!.id,
+        idempotencyKey,
+      }),
+    );
   }),
 );
 
@@ -126,6 +199,15 @@ poolRouter.get(
     await assertCompetitionFeature(context.seasonId, 'read', req.session.user!.role);
     exposeResolvedContext(res.locals, context);
     res.json(await listPredictions(context, req.session.user!.id, query));
+  }),
+);
+
+poolRouter.get(
+  '/:poolSlug/seasons/:seasonId/matches/:matchId/predictions',
+  asyncHandler(async (req, res) => {
+    const context = await engagementContext(req, res);
+    const matchId = z.string().trim().min(1).max(120).parse(req.params.matchId);
+    res.json(await listPublicMatchPredictions(context, matchId));
   }),
 );
 

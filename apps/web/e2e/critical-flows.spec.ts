@@ -159,16 +159,16 @@ test('rotas preservam URL, histórico e draft ao sair de palpites', async ({ pag
   await page.getByLabel('Placar de Brasil, mandante').fill('2');
   await expect(page.getByText('Não salvo', { exact: true })).toBeVisible();
 
-  page.once('dialog', (dialog) => dialog.dismiss());
   await page.getByRole('link', { name: 'Competições' }).click();
+  await expect(page.getByRole('heading', { name: 'Alterações não salvas' })).toBeVisible();
+  await page.getByRole('button', { name: 'Continuar editando' }).click();
   await expect(page).toHaveURL('/competicoes/copa-do-mundo-2026/palpites');
   await expect(page.getByLabel('Placar de Brasil, mandante')).toHaveValue('2');
 
-  page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('link', { name: 'Competições' }).click();
+  await page.getByRole('button', { name: 'Sair e manter rascunho' }).click();
   await expect(page).toHaveURL('/competicoes');
 
-  page.once('dialog', (dialog) => dialog.accept());
   await page.goBack();
   await expect(page).toHaveURL('/competicoes/copa-do-mundo-2026/palpites');
   await expect(page.getByLabel('Placar de Brasil, mandante')).toHaveValue('2');
@@ -181,20 +181,20 @@ test('troca de temporada respeita o guard e restaura o draft da temporada', asyn
   await page.getByLabel('Placar de Brasil, mandante').fill('2');
   await expect(page.getByText('Não salvo', { exact: true })).toBeVisible();
 
-  page.once('dialog', (dialog) => dialog.dismiss());
   await page.getByRole('button', { name: 'Brasileirão Série A 2025' }).click();
+  await expect(page.getByRole('heading', { name: 'Alterações não salvas' })).toBeVisible();
+  await page.getByRole('button', { name: 'Continuar editando' }).click();
   await expect(
     page.getByRole('heading', { level: 1, name: 'Brasileirão Série A 2026' }),
   ).toBeVisible();
   await expect(page.getByLabel('Placar de Brasil, mandante')).toHaveValue('2');
 
-  page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Brasileirão Série A 2025' }).click();
+  await page.getByRole('button', { name: 'Sair e manter rascunho' }).click();
   await expect(
     page.getByRole('heading', { level: 1, name: 'Brasileirão Série A 2025' }),
   ).toBeVisible();
 
-  page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Brasileirão Série A 2026' }).click();
   await expect(page.getByLabel('Placar de Brasil, mandante')).toHaveValue('2');
 });

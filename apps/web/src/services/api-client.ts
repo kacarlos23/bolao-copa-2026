@@ -31,11 +31,19 @@ async function fetchCsrfToken(signal?: AbortSignal) {
     csrfPromise = fetch(`${API_URL}/api/auth/csrf`, { credentials: 'include', signal })
       .then(async (response) => {
         if (!response.ok) {
-          throw new ApiError('Não foi possível iniciar uma requisição segura.', response.status, 'CSRF_UNAVAILABLE');
+          throw new ApiError(
+            'Não foi possível iniciar uma requisição segura.',
+            response.status,
+            'CSRF_UNAVAILABLE',
+          );
         }
         const body = (await response.json()) as { csrfToken?: unknown };
         if (typeof body.csrfToken !== 'string' || body.csrfToken.length < 32) {
-          throw new ApiError('O servidor não forneceu um token de segurança válido.', 500, 'CSRF_INVALID');
+          throw new ApiError(
+            'O servidor não forneceu um token de segurança válido.',
+            500,
+            'CSRF_INVALID',
+          );
         }
         csrfToken = body.csrfToken;
         return csrfToken;
@@ -57,7 +65,8 @@ function mergedController(externalSignal: AbortSignal | null | undefined, timeou
   if (externalSignal?.aborted) abort();
   else externalSignal?.addEventListener('abort', abort, { once: true });
   const timeout = setTimeout(
-    () => controller.abort(new DOMException('A requisição excedeu o tempo limite.', 'TimeoutError')),
+    () =>
+      controller.abort(new DOMException('A requisição excedeu o tempo limite.', 'TimeoutError')),
     timeoutMs,
   );
   return {
@@ -76,9 +85,9 @@ async function parseApiError(response: Response) {
     const { status, code, message, requestId, issues } = parsed.data.error;
     return new ApiError(message, status, code, requestId, issues);
   }
-  const legacy = raw as
-    | { error?: { message?: string; issues?: { fieldErrors?: Record<string, string[]> } } }
-    | null;
+  const legacy = raw as {
+    error?: { message?: string; issues?: { fieldErrors?: Record<string, string[]> } };
+  } | null;
   const firstFieldError = legacy?.error?.issues?.fieldErrors
     ? Object.values(legacy.error.issues.fieldErrors).flat().find(Boolean)
     : undefined;
@@ -98,6 +107,9 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   const { schema, timeoutMs = 15_000, idempotencyKey, ...fetchOptions } = options;
   const method = (fetchOptions.method ?? 'GET').toUpperCase();
   const isSafe = ['GET', 'HEAD', 'OPTIONS'].includes(method);
+  const rotatesSession = ['/api/auth/login', '/api/auth/register', '/api/auth/logout'].includes(
+    path,
+  );
   const isFormData = typeof FormData !== 'undefined' && fetchOptions.body instanceof FormData;
   const operation = mergedController(fetchOptions.signal, timeoutMs);
   try {
@@ -117,8 +129,18 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       if (response.status === 401 || response.status === 403) csrfToken = null;
       throw await parseApiError(response);
     }
+    if (rotatesSession) csrfToken = null;
     if (response.status === 204) return undefined as T;
-    const raw: unknown = await response.json();
+    let raw: unknown;
+    try {
+      raw = await response.json();
+    } catch {
+      throw new ApiError(
+        'O servidor respondeu em um formato incompatível. Atualize a página e tente novamente.',
+        502,
+        'INVALID_RESPONSE',
+      );
+    }
     if (!schema) return raw as T;
     const parsed = schema.safeParse(raw);
     if (!parsed.success) {

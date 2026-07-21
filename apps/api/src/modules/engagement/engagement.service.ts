@@ -15,7 +15,7 @@ export async function recomputePoolSeasonEngagement(poolSeasonId: string) {
     });
     if (!poolSeason) return [];
     const [users, definitions, regularScores, knockoutScores, movements, rounds, predictions, brackets] = await Promise.all([
-      tx.user.findMany({ where: { status: 'ACTIVE', role: 'USER', poolMemberships: { some: { poolId: poolSeason.poolId, status: 'ACTIVE' } } }, select: { id: true } }),
+      tx.user.findMany({ where: { status: 'ACTIVE', role: { in: ['USER', 'ADMIN'] }, poolMemberships: { some: { poolId: poolSeason.poolId, status: 'ACTIVE' } } }, select: { id: true } }),
       tx.achievementDefinition.findMany({ where: { OR: [{ seasonId: poolSeason.seasonId }, { seasonId: null }] }, orderBy: [{ key: 'asc' }, { version: 'desc' }] }),
       tx.predictionScore.findMany({
         where: { poolSeasonId },

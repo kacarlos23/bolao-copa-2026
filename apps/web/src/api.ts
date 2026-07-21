@@ -3,6 +3,7 @@ import {
   competitionsResponseSchema,
   matchesResponseSchema,
   predictionsResponseSchema,
+  publicMatchPredictionsResponseSchema,
   rankingResponseSchema,
   roundsResponseSchema,
   savedPredictionsResponseSchema,
@@ -11,6 +12,7 @@ import {
   teamProfileResponseSchema,
   type CompetitionDto,
   type MatchDto,
+  type PublicMatchPredictionsResponse,
   type RoundDto,
   type SeasonDto,
   type StandingRowDto,
@@ -67,8 +69,44 @@ export interface EngagementDashboard {
     definition: { key: string; version: number; name: string; description: string; rarity: string };
   }>;
   streaks: Array<{ type: string; currentCount: number; bestCount: number }>;
-  notifications: Array<{ id: string; type: string; title: string; body: string; isProvisional: boolean; readAt?: string | null; createdAt: string }>;
+  notifications: Array<{
+    id: string;
+    type: string;
+    title: string;
+    body: string;
+    isProvisional: boolean;
+    readAt?: string | null;
+    createdAt: string;
+  }>;
   preferences: NotificationPreferences;
+}
+
+export interface SeasonSyncStatus {
+  status: 'SUCCESS' | 'PARTIAL' | 'DRY_RUN' | 'FAILED' | 'NEVER';
+  lastSyncedAt: string | null;
+  changedMatches: number;
+}
+
+export interface SeasonSyncResponse {
+  status: 'UPDATED' | 'UNCHANGED';
+  changedMatches: number;
+  updatedProfiles?: number;
+  lastSyncedAt: string;
+  runs: Array<{
+    runId: string;
+    type: 'TEAMS' | 'SCHEDULE' | 'RESULTS' | 'STANDINGS';
+    status: 'SUCCESS' | 'PARTIAL' | 'DRY_RUN';
+    counts: {
+      fetched: number;
+      inserted: number;
+      updated: number;
+      unchanged: number;
+      quarantined: number;
+    };
+    reused: boolean;
+    startedAt: string;
+    finishedAt: string;
+  }>;
 }
 
 export interface NotificationPreferences {
@@ -174,6 +212,13 @@ export interface RankingRow {
     };
   }>;
   hasLiveData: boolean;
+  movement?: {
+    delta: number;
+    fromRank: number;
+    toRank: number;
+    isProvisional: boolean;
+    changedAt: string;
+  } | null;
 }
 
 export interface RankingAward {
@@ -475,10 +520,13 @@ export const api = {
       schema: competitionsResponseSchema,
     }),
   competitionSeasons: (competitionSlug: string, signal?: AbortSignal) =>
-    request(`/api/competitions/${encodeURIComponent(competitionSlug)}/seasons?page=1&pageSize=100`, {
-      signal,
-      schema: competitionSeasonsResponseSchema,
-    }),
+    request(
+      `/api/competitions/${encodeURIComponent(competitionSlug)}/seasons?page=1&pageSize=100`,
+      {
+        signal,
+        schema: competitionSeasonsResponseSchema,
+      },
+    ),
   brasileiraoSeasons: () =>
     request('/api/competitions/brasileirao-serie-a/seasons?page=1&pageSize=10', {
       schema: competitionSeasonsResponseSchema,
@@ -505,10 +553,9 @@ export const api = {
     });
   },
   seasonStandings: (seasonId: string) =>
-    request(
-      `/api/seasons/${seasonId}/standings?page=1&pageSize=100`,
-      { schema: standingsResponseSchema },
-    ),
+    request(`/api/seasons/${seasonId}/standings?page=1&pageSize=100`, {
+      schema: standingsResponseSchema,
+    }),
   seasonTeams: (seasonId: string, signal?: AbortSignal) =>
     request(`/api/seasons/${seasonId}/teams?page=1&pageSize=100`, {
       schema: seasonTeamsResponseSchema,
@@ -526,6 +573,11 @@ export const api = {
       }`,
       { schema: predictionsResponseSchema },
     ),
+  seasonPublicMatchPredictions: (poolSlug: string, seasonId: string, matchId: string) =>
+    request<PublicMatchPredictionsResponse>(
+      `/api/pools/${encodeURIComponent(poolSlug)}/seasons/${encodeURIComponent(seasonId)}/matches/${encodeURIComponent(matchId)}/predictions`,
+      { schema: publicMatchPredictionsResponseSchema },
+    ),
   saveSeasonPredictions: (
     poolSlug: string,
     seasonId: string,
@@ -536,39 +588,88 @@ export const api = {
       predictedAwayScore: number;
     }>,
   ) =>
-    request(
-      `/api/pools/${poolSlug}/seasons/${seasonId}/predictions`,
-      {
-        method: 'PUT',
-        body: JSON.stringify({ matchDayId, predictions }),
-        schema: savedPredictionsResponseSchema,
-        idempotencyKey: `${seasonId}:${matchDayId}:${predictions
-          .map((item) => `${item.matchId}-${item.predictedHomeScore}-${item.predictedAwayScore}`)
-          .join('|')}`,
-      },
-    ),
-  seasonRanking: (
-    poolSlug: string,
-    seasonId: string,
-    query: string = 'scope=overall',
-  ) =>
-    request(
-      `/api/pools/${poolSlug}/seasons/${seasonId}/ranking?page=1&pageSize=100&${query}`,
-      { schema: rankingResponseSchema },
-    ),
+    request(`/api/pools/${poolSlug}/seasons/${seasonId}/predictions`, {
+      method: 'PUT',
+      body: JSON.stringify({ matchDayId, predictions }),
+      schema: savedPredictionsResponseSchema,
+      idempotencyKey: `${seasonId}:${matchDayId}:${predictions
+        .map((item) => `${item.matchId}-${item.predictedHomeScore}-${item.predictedAwayScore}`)
+        .join('|')}`,
+    }),
+  seasonRanking: (poolSlug: string, seasonId: string, query: string = 'scope=overall') =>
+    request(`/api/pools/${poolSlug}/seasons/${seasonId}/ranking?page=1&pageSize=100&${query}`, {
+      schema: rankingResponseSchema,
+    }),
   seasonRules: (poolSlug: string, seasonId: string) =>
     request<PoolSeasonRules>(`/api/pools/${poolSlug}/seasons/${seasonId}/rules`),
   seasonEngagement: (poolSlug: string, seasonId: string) =>
     request<EngagementDashboard>(`/api/pools/${poolSlug}/seasons/${seasonId}/engagement`),
+  seasonAwards: (poolSlug: string, seasonId: string) =>
+    request<{ awards: RankingAward[] }>(`/api/pools/${poolSlug}/seasons/${seasonId}/awards`),
+  seasonSyncStatus: (poolSlug: string, seasonId: string) =>
+    request<SeasonSyncStatus>(`/api/pools/${poolSlug}/seasons/${seasonId}/sync-status`),
+  syncSeasonResults: (poolSlug: string, seasonId: string) =>
+    request<SeasonSyncResponse>(`/api/pools/${poolSlug}/seasons/${seasonId}/sync-results`, {
+      method: 'POST',
+      body: '{}',
+      timeoutMs: 75_000,
+      idempotencyKey:
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `${seasonId}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    }),
+  adminRefreshCompetitionData: (seasonId: string, justification: string, includeProfiles = true) =>
+    request<SeasonSyncResponse>(`/api/admin/seasons/${seasonId}/refresh-competition-data`, {
+      method: 'POST',
+      body: JSON.stringify({ justification, includeProfiles }),
+      timeoutMs: 150_000,
+      idempotencyKey:
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `admin-refresh-${seasonId}-${Date.now()}`,
+    }),
+  adminSetLiveMatchResult: (
+    seasonId: string,
+    matchId: string,
+    input: {
+      status: 'LIVE' | 'FINISHED';
+      homeScore: number;
+      awayScore: number;
+      justification: string;
+    },
+  ) =>
+    request(`/api/admin/seasons/${seasonId}/matches/${matchId}/live-result`, {
+      method: 'PUT',
+      body: JSON.stringify(input),
+      idempotencyKey:
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `admin-live-result-${matchId}-${Date.now()}`,
+    }),
   recordRankingVisit: (poolSlug: string, seasonId: string) =>
-    request<{ summary: { fromRank: number; toRank: number; delta: number; provisional: boolean; since: string } | null }>(
-      `/api/pools/${poolSlug}/seasons/${seasonId}/ranking/visit`,
+    request<{
+      summary: {
+        fromRank: number;
+        toRank: number;
+        delta: number;
+        provisional: boolean;
+        since: string;
+      } | null;
+    }>(`/api/pools/${poolSlug}/seasons/${seasonId}/ranking/visit`, { method: 'POST', body: '{}' }),
+  markNotificationRead: (poolSlug: string, seasonId: string, notificationId: string) =>
+    request<void>(
+      `/api/pools/${poolSlug}/seasons/${seasonId}/notifications/${notificationId}/read`,
       { method: 'POST', body: '{}' },
     ),
-  markNotificationRead: (poolSlug: string, seasonId: string, notificationId: string) =>
-    request<void>(`/api/pools/${poolSlug}/seasons/${seasonId}/notifications/${notificationId}/read`, { method: 'POST', body: '{}' }),
-  updateNotificationPreferences: (poolSlug: string, seasonId: string, preferences: NotificationPreferences) =>
-    request<{ preferences: NotificationPreferences }>(`/api/pools/${poolSlug}/seasons/${seasonId}/notifications/preferences`, { method: 'PATCH', body: JSON.stringify(preferences) }),
+  updateNotificationPreferences: (
+    poolSlug: string,
+    seasonId: string,
+    preferences: NotificationPreferences,
+  ) =>
+    request<{ preferences: NotificationPreferences }>(
+      `/api/pools/${poolSlug}/seasons/${seasonId}/notifications/preferences`,
+      { method: 'PATCH', body: JSON.stringify(preferences) },
+    ),
   refreshRanking: (period: RankingPeriod = 'all') =>
     request<RankingRefreshResponse>(`/api/ranking/refresh?period=${period}`, {
       method: 'POST',

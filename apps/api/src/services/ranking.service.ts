@@ -527,7 +527,7 @@ export async function getRanking(
   const includeKnockout = (selection.scope ?? 'overall') === 'overall';
   const users = await prisma.user.findMany({
     where: {
-      role: 'USER',
+      role: { in: ['USER', 'ADMIN'] },
       status: 'ACTIVE',
       poolMemberships: { some: { poolId: context.poolId, status: 'ACTIVE' } },
     },
@@ -623,7 +623,40 @@ export async function getRanking(
   });
 
   const result = buildRankingRows(users, period);
-  return result;
+  if (selection.scope !== 'overall' || result.length === 0) {
+    return result.map((row) => ({ ...row, movement: null }));
+  }
+  const movements = await prisma.rankingMovement.findMany({
+    where: { poolSeasonId: context.poolSeasonId, userId: { in: result.map((row) => row.userId) } },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    select: {
+      userId: true,
+      delta: true,
+      fromRank: true,
+      toRank: true,
+      isProvisional: true,
+      createdAt: true,
+    },
+  });
+  const latestMovement = new Map<string, (typeof movements)[number]>();
+  for (const movement of movements) {
+    if (!latestMovement.has(movement.userId)) latestMovement.set(movement.userId, movement);
+  }
+  return result.map((row) => {
+    const movement = latestMovement.get(row.userId);
+    return {
+      ...row,
+      movement: movement
+        ? {
+            delta: movement.delta,
+            fromRank: movement.fromRank,
+            toRank: movement.toRank,
+            isProvisional: movement.isProvisional,
+            changedAt: movement.createdAt.toISOString(),
+          }
+        : null,
+    };
+  });
 }
 
 export async function getRankingAwards(context: RankingContext = DEFAULT_RANKING_CONTEXT) {
@@ -631,7 +664,7 @@ export async function getRankingAwards(context: RankingContext = DEFAULT_RANKING
     getRanking('all', context),
     prisma.user.findMany({
       where: {
-        role: 'USER',
+        role: { in: ['USER', 'ADMIN'] },
         status: 'ACTIVE',
         poolMemberships: { some: { poolId: context.poolId, status: 'ACTIVE' } },
       },
@@ -867,7 +900,10 @@ export async function refreshRankingSnapshot(context: RankingContext = DEFAULT_R
       tx.knockoutPredictionScore.findMany({ where: { poolSeasonId: context.poolSeasonId }, orderBy: { pickId: 'asc' }, select: { pickId: true, calculationKey: true } }),
     ]);
     const sourceRevision = stableHash({ matchRevisions, knockoutRevisions });
-    const snapshotKey = stableHash({ sourceRevision, ranking: ranking.map(({ lastFiveMatches: _matches, ...row }) => row) });
+    const snapshotKey = stableHash({
+      sourceRevision,
+      ranking: ranking.map(({ lastFiveMatches: _matches, movement: _movement, ...row }) => row),
+    });
     await tx.rankingSnapshot.createMany({
       data: ranking.map((row) => ({
         userId: row.userId,
