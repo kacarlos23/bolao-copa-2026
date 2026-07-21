@@ -80,6 +80,7 @@ Consulte também:
 - [Plano de evolução](docs/plano-de-evolucao-bolao.md)
 - [Plano de expansão](<docs/PLANO DE EXPANSÃO>)
 - [Arquivo canônico de execução — comece pela pré-execução](docs/PROMPTS_CODEX_EXPANSAO_BRASILEIRAO_2026.md#pre-execucao)
+- [Plano e prompts — Copa do Brasil, Libertadores e Sul-Americana 2026](docs/PROMPTS_CODEX_EXPANSAO_COPAS_2026.md)
 - [Operação](docs/operacao.md)
 - [Evidência do Prompt 0](docs/evidencia-prompt-0-hardening.md)
 - [ADRs e evidência do Prompt 1](docs/evidencia-prompt-1-adrs.md)
