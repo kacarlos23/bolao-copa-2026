@@ -37,6 +37,20 @@ Lacunas que este plano deve fechar:
 7. ranking e navegação ainda oferecem filtros como turno mesmo em formatos que precisam de fase/grupo/mata-mata;
 8. não existem módulos, seeds, providers ou slugs das três novas competições.
 
+### 2.1 Baseline operacional homologada na máquina de testes
+
+Em 21/07/2026, o backup de produção `bolao-world-cup-2026-20260721-214046795Z` foi validado e restaurado primeiro em banco isolado e depois promovido ao banco local de testes. O dump e os cinco avatares conferem com seus manifests SHA-256. O banco anterior da máquina de testes foi preservado por dump validado e também como `bolao_copa_2026_pre_prod_restore_20260721`.
+
+A massa restaurada deixou de ser bloqueio P0:
+
+- Copa do Mundo: 48 seleções, 72 jogos finalizados, 1.041 palpites de partidas, 681 simulações, 320 escolhas de mata-mata, 1.311 scores e 24.523 snapshots de ranking;
+- Brasileirão: 20 clubes, 235 jogos, 62 palpites, 23 scores e 209 snapshots de ranking;
+- 14 migrations concluídas, nenhuma FK não validada e nenhum índice inválido;
+- snapshot determinístico da Copa idêntico antes e depois da promoção;
+- lint, 229 testes, build e validação Prisma aprovados.
+
+O Prompt 0 está tecnicamente concluído nesta baseline. As oito lacunas acima continuam reais e foram convertidas em critérios verificáveis nos Prompts 1, 2, 3, 7, 8 e 9; documentá-las não as torna implementadas. O primeiro prompt de implementação ainda necessário é o Prompt 1. Consulte [a evidência do Prompt 0](evidencia-prompt-0-copas-2026.md).
+
 ## 3. Recorte esportivo oficial de 2026
 
 As fontes abaixo servem como contexto e evidência inicial. Cada prompt de carga deve consultar novamente a fonte oficial antes de persistir clubes, partidas, horários, estádios, fases ou critérios.
@@ -174,9 +188,9 @@ As abas devem ser construídas por capabilities. Liga mostra classificação/tur
 ```text
 Pré-execução — auditoria somente leitura
   ↓
-Prompt 0 — baseline, gates e documentação da execução
+Prompt 0 — baseline, gates e documentação da execução [CONCLUÍDO EM TESTE]
   ↓
-Prompt 1 — runtime verdadeiramente genérico
+Prompt 1 — runtime verdadeiramente genérico [PRÓXIMO]
   ↓
 Prompt 2 — Tie e resultado eliminatório
   ↓
@@ -220,6 +234,8 @@ Não agrupe prompts. Revise o diff e as evidências de um prompt antes de enviar
 15. Não alterar a regra `15/3/1/0` nem adicionar bônus de classificado sem nova versão de regra e autorização expressa.
 16. Não usar `npm audit fix --force`.
 17. Cada resposta do agente deve informar arquivos alterados, migrations, comandos/gates, resultados, riscos residuais, hash do commit e próximo prompt.
+18. Os gates de preservação devem usar massa não vazia derivada de backup validado. Snapshot com zero jogos, palpites, scores ou rankings não comprova preservação quando a baseline homologada possui dados nesses conjuntos.
+19. Antes e depois de cada migration ou backfill, comparar a Copa por snapshot escopado e comparar os hashes de negócio globais de `Match`, `Prediction`, `PredictionScore` e `RankingSnapshot`, que cobrem Copa e Brasileirão. Divergência não explicada bloqueia o prompt.
 
 ---
 
@@ -260,11 +276,11 @@ Commit esperado: `docs: registrar baseline da expansão das copas`
 ```text
 Implemente exclusivamente o Prompt 0 de docs/PROMPTS_CODEX_EXPANSAO_COPAS_2026.md, trabalhando diretamente na main e obedecendo às regras herdadas do documento.
 
-Atualize a documentação de baseline para o HEAD atual. Registre arquitetura real, contagens relevantes, rotas, providers, migrations, testes, scripts e lacunas das três copas. Gere ou atualize artefatos determinísticos de preservação da Copa e do Brasileirão, incluindo hashes de palpites, scores e rankings quando o ambiente local permitir.
+Atualize a documentação de baseline para o HEAD atual. Registre arquitetura real, contagens relevantes, rotas, providers, migrations, testes, scripts e lacunas das três copas. A baseline deve vir de backup validado e conter massa histórica real não vazia da Copa e do Brasileirão. Gere artefatos determinísticos temporários de preservação com `snapshot:copa -- --backfill`, incluindo hashes de `Match`, `Prediction`, `PredictionScore` e `RankingSnapshot`; registre somente hashes e contagens na evidência, nunca dumps, snapshots com dados pessoais ou credenciais no Git.
 
 Execute npm ci se necessário e rode, no mínimo, lint, testes, build, validação Prisma e preservation gates já existentes. Não corrija funcionalidades fora do escopo; se um gate falhar, investigue, documente e pare sem commit.
 
-Produza um checklist de pré-migration e confirme que o backup/restore ensaiável cobre banco, avatares, manifests e checksums. Nenhuma migration nova deve ser criada neste prompt.
+Produza `docs/evidencia-prompt-0-copas-2026.md` com o checklist de pré-migration e confirme que o backup/restore ensaiável cobre banco, avatares, manifests e checksums. O ensaio deve restaurar primeiro em banco isolado, conferir a versão de `pg_dump`/`pg_restore`, migrations, integridade e snapshot antes de promover o banco de testes. Nenhuma migration nova deve ser criada neste prompt.
 
 Ao concluir com todos os gates aplicáveis aprovados, revise o diff, faça commit direto na main com a mensagem `docs: registrar baseline da expansão das copas` e envie para origin/main. Informe o hash e o próximo prompt.
 ```
@@ -288,8 +304,11 @@ Elimine os bloqueios que impedem uma terceira competição:
 5. substitua o assert específico do Brasileirão e a instanciação direta do provider CBF por um registry/factory explícito configurado por temporada;
 6. transforme o scheduler em execução por temporadas ativas e providers configurados, sem slug condicional;
 7. preserve as rotas, deep links, seleção local, Copa e Brasileirão existentes.
+8. remova o filtro `TURN` e qualquer destino de liga quando as capabilities da temporada não os oferecerem; formatos de grupos, mata-mata e híbridos não podem cair em standings ou endpoints do Brasileirão por fallback.
 
-Não crie ainda as três competições e não implemente Tie. Adicione testes de rota genérica, capability, troca de competição, provider registry, scheduler e ausência de mistura de temporada. Inclua teste que seleciona uma competição híbrida fictícia e prova que nenhum dado do Brasileirão é carregado.
+Não crie ainda as três competições, não implemente `Tie` e não crie migration. Neste prompt, a associação provider–temporada pode ser lida de metadata existente validada, por uma interface única; a persistência auditável `SeasonProviderConfig` pertence ao Prompt 3. Adicione testes de rota genérica, capability, troca de competição, provider registry, scheduler e ausência de mistura de temporada. Inclua teste que seleciona uma competição híbrida fictícia, navega por todas as abas habilitadas e prova que nenhuma requisição é enviada a rota, serviço ou provider do Brasileirão.
+
+O gate também deve falhar se houver seleção de comportamento por `competitionSlug`/`season.slug` fora da allowlist documentada de aliases legados e seeds. A allowlist precisa ser curta, revisável e não pode participar de seleção de provider, scheduler, standings, tela ou fallback.
 
 Execute lint, testes, build, contratos e E2E aplicáveis. Gate aprovado: faça commit `refactor: generalizar navegacao e sincronizacao por temporada` na main e push para origin/main. Caso contrário, não commite.
 ```
@@ -309,7 +328,7 @@ Leia ADR-006 e implemente o domínio genérico Tie para séries de uma ou duas p
 
 Modele Tie, status e método de decisão, relações com season/stage/round/equipes/vencedor e ligação de Match com tieId/legNumber. Modele de forma não ambígua placar regulamentar, prorrogação, pênaltis, agregado e classificado. Acrescente TIE ao mapping do provider e contratos/DTOs Zod correspondentes.
 
-Não remova nem regrave KnockoutFixture, KnockoutPick ou scores da Copa. Implemente convivência, adapters/aliases e shadow read somente onde necessário. Adicione serviço determinístico para recomputar agregado e classificado, cobrindo um jogo, dois jogos, pênaltis, W.O., correção posterior e série incompleta. O provider não pode promover automaticamente equipe sem dados suficientes.
+Não remova, regrave nem redirecione silenciosamente `KnockoutFixture`, `KnockoutPick` ou scores da Copa. Implemente convivência, adapters/aliases e shadow read somente onde necessário. Toda leitura em shadow deve emitir métrica de paridade e manter o legado como fonte efetiva até gate explícito; divergência bloqueia o prompt. Adicione serviço determinístico para recomputar agregado e classificado, cobrindo um jogo, dois jogos, pênaltis, W.O., correção posterior e série incompleta. O provider não pode promover automaticamente equipe sem dados suficientes.
 
 Se implementar TiePrediction, mantenha eventual bônus de classificado desativado; a regra 15/3/1/0 continua aplicada somente a Match. Garanta unicidades e isolamento por season/pool.
 
@@ -329,7 +348,9 @@ Implemente exclusivamente o Prompt 3 de docs/PROMPTS_CODEX_EXPANSAO_COPAS_2026.m
 
 Estenda CompetitionDataProvider e o pipeline de sync para os dados necessários às três copas: grupo, país, stage, round, tie, leg, estádio, placar regulamentar, prorrogação, pênaltis, método de decisão, classificado e standings por grupo. Preserve compatibilidade com GE, CSV, manual e CBF Série A.
 
-Crie uma configuração persistida e auditável SeasonProviderConfig (ou solução equivalente aprovada no ADR), usada por API, scheduler e ações administrativas. External IDs devem ser namespaced por provider/competição/temporada ou protegidos por chave composta equivalente.
+Crie uma configuração persistida e auditável `SeasonProviderConfig` (ou solução equivalente aprovada no ADR), usada pela API, scheduler e ações administrativas como única fonte de seleção. Migre de modo aditivo a metadata temporária do Prompt 1. External IDs devem ser namespaced por provider/competição/temporada ou protegidos por chave composta equivalente.
+
+Generalize também os contratos de perfil de time: estado, federação e conceitos exclusivos de CBF/Série A tornam-se campos opcionais ou metadata de provider. O DTO comum deve representar clube de qualquer país sem inventar equivalentes brasileiros, preservando compatibilidade do Brasileirão.
 
 Implemente infraestrutura compartilhada para:
 - provider CONMEBOL usado por Libertadores e Sul-Americana;
@@ -463,7 +484,7 @@ Remova literais visuais do Brasileirão de componentes genéricos. Diferencie as
 
 Mantenha drafts por userId+poolSeasonId+scope, aviso de não salvos correto, descarte explícito, previsões públicas somente após fechamento, SSE por temporada e atualização manual do contexto ativo.
 
-Valide 320/768/1280/1440 px, teclado, leitor de tela, contraste, reduced motion e navegadores suportados. Adicione component tests e E2E para cada formato: grupos+híbrido, mata-mata puro, ida/volta e final única.
+Valide 320/768/1280/1440 px, teclado, leitor de tela, contraste, reduced motion e navegadores suportados. Adicione component tests e E2E para cada formato: grupos+híbrido, mata-mata puro, ida/volta e final única. Os testes devem afirmar negativamente que `TURN`, standings de liga e rotas do Brasileirão não aparecem nem são consultados quando as capabilities não os oferecem.
 
 Execute gates. Gate aprovado: commit `feat: publicar experiencia generica das copas` na main e push. Ainda não habilite tudo para usuários sem o canário do Prompt 10.
 ```
@@ -481,7 +502,7 @@ Implemente exclusivamente o Prompt 8 de docs/PROMPTS_CODEX_EXPANSAO_COPAS_2026.m
 
 Expanda ranking e gamificação de forma configurável e isolada por PoolSeason. Preserve a regra de pontos 15/3/1/0 por partida e não ative bônus de classificado sem autorização.
 
-Implemente filtros overall, stage e round, snapshots/movimentos compatíveis com grupos e mata-mata, além de conquistas idempotentes como:
+Implemente filtros overall, stage e round, snapshots/movimentos compatíveis com grupos e mata-mata. `TURN` somente pode existir quando declarado em `rankingScopes`/capabilities da temporada; não use liga ou Brasileirão como default. Adicione conquistas idempotentes como:
 - Mestre da Fase de Grupos;
 - Rei dos Playoffs;
 - Especialista em Mata-Mata;
@@ -520,6 +541,8 @@ Generalize administração e operação das três novas competições:
 - preview do impacto de recomputação de scores/ranking;
 - feature flags read/write/ui/sync por temporada.
 
+Defina e teste uma matriz única de transição entre `CompetitionSeason.status` e flags `read/write/ui/sync`. O estado restaurado do Brasileirão (`DRAFT` com `read/write/ui=true`) deve ser tratado explicitamente e preservado até decisão operacional auditada; não o normalize por migration ou startup. Configuração ausente, combinação inválida ou transição parcial deve falhar fechada, gerar alerta e permitir rollback por flags.
+
 O scheduler deve aumentar frequência apenas em janela próxima a partidas LIVE/SCHEDULED e reduzir fora dela, respeitando lock, timeout e shutdown. Falha de uma temporada não deve bloquear as outras. O botão Atualizar usa o provider do contexto selecionado e cooldown server-side.
 
 Toda mutação exige RBAC, sessão válida, CSRF, justificativa, auditoria before/after, requestId, seasonId e poolSeasonId. Ações de alto impacto exigem preview e confirmação reforçada.
@@ -542,7 +565,7 @@ Monte e execute a matriz final:
 1. unitários de score 15/3/1/0, cutoff, standings por grupo, Tie, agregado, pênaltis, final única e gamificação;
 2. contratos das APIs e SSE com seasonId/poolSeasonId;
 3. integração PostgreSQL de migrations, constraints, imports, idempotência, outbox, correção e ranking;
-4. testes de preservação/hash da Copa e Brasileirão;
+4. testes de preservação/hash da Copa e Brasileirão contra a baseline não vazia registrada em `docs/evidencia-prompt-0-copas-2026.md`;
 5. componentes e E2E das quatro competições atuais;
 6. timezone e remarcação;
 7. provider offline, fallback CSV/manual e recovery;
@@ -550,7 +573,7 @@ Monte e execute a matriz final:
 9. migration rehearsal em cópia do banco de teste;
 10. rollback de aplicação por flags sem rollback destrutivo de schema.
 
-Carregue as três temporadas na máquina de teste com UI/write desativadas. Faça canário administrativo, reconcilie contagens com fontes oficiais e só então habilite read. Abra write apenas para um pool/usuário canário, faça palpites, atualize resultados de fixtures controladas, valide pontos/ranking/SSE e reverta as flags.
+Antes do canário, repita o restore drill com dump e avatares, valide manifests/checksums e prove que as contagens históricas não regrediram a zero. Carregue as três temporadas na máquina de teste com UI/write desativadas. Faça canário administrativo, reconcilie contagens com fontes oficiais e só então habilite read. Abra write apenas para um pool/usuário canário, faça palpites, atualize resultados de fixtures controladas, valide pontos/ranking/SSE e reverta as flags.
 
 Produza docs/evidencia-expansao-copas-2026.md com comandos, resultados, contagens, checksums, screenshots ou referências de artefatos, P0/P1, riscos e decisão GO/NO-GO para continuar testes. Não declarar produção pronta se algum gate obrigatório estiver ausente.
 

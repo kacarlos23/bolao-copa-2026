@@ -1,6 +1,6 @@
-# Bolão Copa 2026
+# Bolão Sirel 2026
 
-Monorepo TypeScript do bolão entre amigos da Copa do Mundo 2026, em evolução controlada para múltiplas competições, começando pelo Brasileirão Série A 2026.
+Monorepo TypeScript do Bolão Sirel, com Copa do Mundo 2026 e Brasileirão Série A 2026 em operação e expansão controlada para Copa do Brasil, Libertadores e Sul-Americana 2026.
 
 ## Estado atual
 
@@ -10,18 +10,18 @@ Monorepo TypeScript do bolão entre amigos da Copa do Mundo 2026, em evolução 
 - `scripts`: operação do PostgreSQL local, healthcheck, backup e restore.
 - `docs`: arquitetura, operação e plano faseado.
 
-Baseline verificada em 14/07/2026 após os Prompts 0–2:
+Baseline verificada em 21/07/2026 na máquina de testes, após restaurar e validar o backup do mesmo dia vindo de produção:
 
 ```text
-npm test       69 testes aprovados
+Copa do Mundo  48 seleções, 72 jogos finalizados, 2.042 palpites/simulações e 1.311 scores
+Brasileirão    20 clubes, 235 jogos, 62 palpites, 23 scores e 209 snapshots de ranking
+Prisma         14 migrations aplicadas; schema válido e atualizado
+npm test       229 testes aprovados
 npm run lint   aprovado
 npm run build  aprovado
 ```
 
-A suíte possui os primeiros testes de reconciliação de drafts do frontend, e a
-integração PostgreSQL da Etapa 2 foi ensaiada sobre backup restaurado. Antes de
-habilitar múltiplas competições, siga
-[o plano de evolução](docs/plano-de-evolucao-bolao.md).
+O banco anterior da máquina de testes e um dump validado foram preservados para rollback. Nenhum banco ou serviço de produção foi alterado. A evidência completa, os checksums e a decisão de continuidade estão em [Evidência do Prompt 0 — Copas 2026](docs/evidencia-prompt-0-copas-2026.md). O próximo passo autorizado pelo gate técnico é o Prompt 1 do plano das copas; os prompts continuam sequenciais e não devem ser agrupados.
 
 ## Desenvolvimento
 
@@ -81,6 +81,7 @@ Consulte também:
 - [Plano de expansão](<docs/PLANO DE EXPANSÃO>)
 - [Arquivo canônico de execução — comece pela pré-execução](docs/PROMPTS_CODEX_EXPANSAO_BRASILEIRAO_2026.md#pre-execucao)
 - [Plano e prompts — Copa do Brasil, Libertadores e Sul-Americana 2026](docs/PROMPTS_CODEX_EXPANSAO_COPAS_2026.md)
+- [Evidência do Prompt 0 — Copas 2026](docs/evidencia-prompt-0-copas-2026.md)
 - [Operação](docs/operacao.md)
 - [Evidência do Prompt 0](docs/evidencia-prompt-0-hardening.md)
 - [ADRs e evidência do Prompt 1](docs/evidencia-prompt-1-adrs.md)
