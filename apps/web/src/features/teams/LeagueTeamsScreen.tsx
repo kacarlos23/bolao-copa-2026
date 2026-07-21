@@ -16,7 +16,7 @@ import { api, errorMessage, LatestRequest } from '../../api';
 import { AsyncState, type AsyncStatus } from '../../components/AsyncState';
 import { TeamBadge } from '../../components/TeamBadge';
 import { RouteLink } from '../../navigation/RouteLink';
-import { pathForLeagueTeam, pathForScreen } from '../../navigation/routes';
+import { pathForCompetition, pathForLeagueTeam, pathForScreen } from '../../navigation/routes';
 import { theme } from '../../theme/tokens';
 
 function normalizeName(value: string) {
@@ -47,12 +47,12 @@ function SourceStatus({ profile }: { profile: TeamProfileDto }) {
         color={stale ? theme.color.warning : theme.color.accent}
       />
       <Text style={styles.sourceText}>
-        Dados cadastrados pela CBF · coleta de {formatCollectedAt(profile.source.collectedAt)}
+        Dados de {profile.source.label} · coleta de {formatCollectedAt(profile.source.collectedAt)}
       </Text>
       <Pressable
         {...({ href: profile.source.url, target: '_blank', rel: 'noreferrer' } as never)}
         accessibilityRole="link"
-        accessibilityLabel={`Abrir perfil oficial de ${profile.team.name} na CBF em nova aba`}
+        accessibilityLabel={`Abrir fonte oficial de ${profile.team.name} em nova aba`}
         style={styles.sourceLink}
       >
         <Text style={styles.sourceLinkText}>Ver fonte oficial</Text>
@@ -78,6 +78,7 @@ export function TeamDirectoryScreen({
   const [reload, setReload] = useState(0);
   const request = useRef(new LatestRequest()).current;
   const season = context.season;
+  const competitionSlug = context.competition?.slug;
   const columns = width >= 1180 ? 4 : width >= 720 ? 3 : width >= 520 ? 2 : 1;
 
   useEffect(() => {
@@ -112,9 +113,9 @@ export function TeamDirectoryScreen({
     <View style={styles.page}>
       <View style={styles.directoryHeader}>
         <View style={styles.headingGroup}>
-          <Text style={styles.eyebrow}>CLUBES · SÉRIE A</Text>
+          <Text style={styles.eyebrow}>TIMES · TEMPORADA</Text>
           <Text accessibilityRole="header" style={styles.pageTitle}>
-            Times do Brasileirão
+            Times de {season?.name ?? context.competition?.name ?? 'competição'}
           </Text>
           <Text style={styles.pageSubtitle}>
             Perfis compactos com atletas inscritos, partidas e números oficiais da competição.
@@ -163,7 +164,11 @@ export function TeamDirectoryScreen({
             {filtered.map((entry) => (
               <RouteLink
                 key={entry.team.id}
-                href={pathForLeagueTeam(entry.team.id)}
+                href={
+                  competitionSlug
+                    ? pathForLeagueTeam(competitionSlug, entry.team.id)
+                    : pathForScreen('competitions')
+                }
                 accessibilityLabel={`Abrir perfil de ${entry.team.name}`}
                 onActivate={() => onOpenTeam(entry.team.id)}
                 style={[
@@ -177,7 +182,7 @@ export function TeamDirectoryScreen({
                     {entry.team.name}
                   </Text>
                   <Text style={styles.teamMeta}>
-                    {[entry.state, entry.team.code].filter(Boolean).join(' · ') || 'Série A 2026'}
+                    {[entry.state, entry.team.code].filter(Boolean).join(' · ') || season?.name}
                   </Text>
                   <Text style={entry.profileAvailable ? styles.available : styles.pending}>
                     {entry.profileAvailable ? 'Perfil oficial disponível' : 'Importação pendente'}
@@ -219,7 +224,7 @@ function AthletesSection({ profile }: { profile: TeamProfileDto }) {
     <View style={styles.sectionBody}>
       <View style={styles.sectionHeadingRow}>
         <View style={styles.headingGroup}>
-          <Text style={styles.sectionTitle}>Atletas cadastrados pela CBF</Text>
+          <Text style={styles.sectionTitle}>Atletas cadastrados por {profile.source.label}</Text>
           <Text style={styles.sectionDescription}>
             A relação é histórica da competição; o clube atual informado pode ser diferente.
           </Text>
@@ -351,7 +356,13 @@ function MatchesSection({ profile }: { profile: TeamProfileDto }) {
   );
 }
 
-function StatisticsSection({ profile }: { profile: TeamProfileDto }) {
+function StatisticsSection({
+  profile,
+  seasonName,
+}: {
+  profile: TeamProfileDto;
+  seasonName: string;
+}) {
   const stats = profile.statistics;
   const goalDifference = stats.goalsFor - stats.goalsAgainst;
   const efficiency = stats.played
@@ -373,7 +384,7 @@ function StatisticsSection({ profile }: { profile: TeamProfileDto }) {
   return (
     <View style={styles.sectionBody}>
       <View style={styles.headingGroup}>
-        <Text style={styles.sectionTitle}>Números na Série A 2026</Text>
+        <Text style={styles.sectionTitle}>Números em {seasonName}</Text>
         <Text style={styles.sectionDescription}>
           Resumo acumulado do clube no recorte oficial da competição.
         </Text>
@@ -410,6 +421,7 @@ export function TeamProfileScreen({
   const [reload, setReload] = useState(0);
   const request = useRef(new LatestRequest()).current;
   const season = context.season;
+  const competitionSlug = context.competition?.slug;
 
   useEffect(() => {
     if (!season || !teamId) return;
@@ -432,7 +444,11 @@ export function TeamProfileScreen({
   return (
     <View style={styles.page}>
       <RouteLink
-        href={pathForScreen('brasileirao-teams')}
+        href={
+          competitionSlug
+            ? pathForCompetition(competitionSlug, 'teams')
+            : pathForScreen('competitions')
+        }
         accessibilityLabel="Voltar para todos os times"
         onActivate={onBack}
         style={styles.backLink}
@@ -455,7 +471,7 @@ export function TeamProfileScreen({
                 <Text accessibilityRole="header" style={styles.profileName}>
                   {profile.team.name}
                 </Text>
-                <Text style={styles.profileCompetition}>Brasileirão Série A 2026</Text>
+                <Text style={styles.profileCompetition}>{season?.name ?? 'Temporada'}</Text>
               </View>
               <View style={styles.profileQuickStats}>
                 <View style={styles.quickStat}>
@@ -488,7 +504,11 @@ export function TeamProfileScreen({
                     <RouteLink
                       key={item.section}
                       {...({ 'aria-current': active ? 'page' : undefined } as never)}
-                      href={pathForLeagueTeam(teamId, item.section)}
+                      href={
+                        competitionSlug
+                          ? pathForLeagueTeam(competitionSlug, teamId, item.section)
+                          : pathForScreen('competitions')
+                      }
                       accessibilityLabel={item.label}
                       accessibilityState={{ selected: active }}
                       onActivate={() => onOpenSection(item.section)}
@@ -516,7 +536,9 @@ export function TeamProfileScreen({
             </View>
             {section === 'athletes' ? <AthletesSection profile={profile} /> : null}
             {section === 'matches' ? <MatchesSection profile={profile} /> : null}
-            {section === 'statistics' ? <StatisticsSection profile={profile} /> : null}
+            {section === 'statistics' ? (
+              <StatisticsSection profile={profile} seasonName={season?.name ?? 'esta temporada'} />
+            ) : null}
           </>
         ) : null}
       </AsyncState>

@@ -3,11 +3,8 @@ import {
   type SeasonWorkspaceSection,
 } from './features/competitions/SeasonWorkspace';
 
-/**
- * Compatibility facade kept while the Brasileirão canary and the generic
- * competition workspace run side by side.
- */
-export function Brasileirao2026Screen({
+/** Lightweight lazy-loading facade for the generic season workspace. */
+export function SeasonCompetitionScreen({
   currentUserId,
   refreshVersion,
   section = 'all',

@@ -52,6 +52,7 @@ function Avatar({ user, size = 38 }: { user: User; size?: number }) {
 export function AppHeader({
   user,
   screen,
+  competitionSlug,
   competitionName,
   primaryScreenFor,
   onNavigatePrimary,
@@ -62,6 +63,7 @@ export function AppHeader({
 }: {
   user: User;
   screen: AppScreen;
+  competitionSlug?: string | null;
   competitionName?: string | null;
   primaryScreenFor?: (destination: PrimaryDestination) => AppScreen;
   onNavigatePrimary: (destination: PrimaryDestination) => void;
@@ -262,7 +264,7 @@ export function AppHeader({
             <RouteLink
               key={item.key}
               {...({ 'aria-current': selected ? 'page' : undefined } as never)}
-              href={pathForScreen(resolvePrimaryScreen(item.key))}
+              href={pathForScreen(resolvePrimaryScreen(item.key), { competitionSlug })}
               accessibilityLabel={item.label}
               accessibilityState={{ selected }}
               onActivate={() => onNavigatePrimary(item.key)}

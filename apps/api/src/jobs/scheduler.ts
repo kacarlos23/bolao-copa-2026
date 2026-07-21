@@ -2,12 +2,12 @@ import { logger } from '../logger.js';
 import { config } from '../config.js';
 import { dispatchPendingOutboxEvents } from '../modules/events/outbox.js';
 import { runNextAdminJob } from '../modules/admin/admin-job.service.js';
-import { runAutomaticBrasileiraoSync } from '../modules/providers/season-result-sync.service.js';
+import { runAutomaticSeasonSyncs } from '../modules/providers/season-result-sync.service.js';
 
 let timer: NodeJS.Timeout | undefined;
-let brasileiraoTimer: NodeJS.Timeout | undefined;
+let seasonSyncTimer: NodeJS.Timeout | undefined;
 let activeRun = false;
-let activeBrasileiraoSync = false;
+let activeSeasonSync = false;
 
 async function pollOutbox() {
   if (activeRun) return;
@@ -22,25 +22,33 @@ async function pollOutbox() {
   }
 }
 
-async function pollBrasileirao() {
-  if (activeBrasileiraoSync) return;
-  activeBrasileiraoSync = true;
+export async function pollConfiguredSeasonProviders() {
+  if (activeSeasonSync) return;
+  activeSeasonSync = true;
   try {
-    const summary = await runAutomaticBrasileiraoSync();
-    if (summary) {
+    const results = await runAutomaticSeasonSyncs();
+    for (const result of results) {
+      if (!result.ok) {
+        logger.error(
+          { err: result.error, seasonId: result.seasonId },
+          'automatic season provider sync failed',
+        );
+        continue;
+      }
       logger.info(
         {
-          changedMatches: summary.changedMatches,
-          updatedProfiles: summary.updatedProfiles,
-          runs: summary.runs.map((run) => ({ type: run.type, status: run.status })),
+          seasonId: result.seasonId,
+          changedMatches: result.summary.changedMatches,
+          updatedProfiles: result.summary.updatedProfiles,
+          runs: result.summary.runs.map((run) => ({ type: run.type, status: run.status })),
         },
-        'automatic Brasileirao sync finished',
+        'automatic season provider sync finished',
       );
     }
   } catch (error) {
-    logger.error({ err: error }, 'automatic Brasileirao sync failed');
+    logger.error({ err: error }, 'automatic season provider scheduler failed');
   } finally {
-    activeBrasileiraoSync = false;
+    activeSeasonSync = false;
   }
 }
 
@@ -49,18 +57,18 @@ export function startJobs() {
   void pollOutbox();
   timer = setInterval(() => void pollOutbox(), 1_000);
   timer.unref?.();
-  void pollBrasileirao();
-  brasileiraoTimer = setInterval(
-    () => void pollBrasileirao(),
+  void pollConfiguredSeasonProviders();
+  seasonSyncTimer = setInterval(
+    () => void pollConfiguredSeasonProviders(),
     Math.max(5, config.LIVE_POLL_SECONDS) * 1_000,
   );
-  brasileiraoTimer.unref?.();
-  logger.info('Outbox dispatcher and automatic Brasileirao sync started');
+  seasonSyncTimer.unref?.();
+  logger.info('Outbox dispatcher and configured season provider sync started');
 }
 
 export function stopJobs() {
   if (timer) clearInterval(timer);
-  if (brasileiraoTimer) clearInterval(brasileiraoTimer);
+  if (seasonSyncTimer) clearInterval(seasonSyncTimer);
   timer = undefined;
-  brasileiraoTimer = undefined;
+  seasonSyncTimer = undefined;
 }

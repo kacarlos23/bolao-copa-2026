@@ -1,65 +1,68 @@
 import { describe, expect, it } from 'vitest';
 import {
   activePrimaryDestination,
-  competitionForScreen,
-  competitionSlugForScreen,
+  competitionSectionForScreen,
   pageTitle,
-  pathForScreen,
-  screenForCompetitionSlug,
+  pathForCompetition,
+  pathForLeagueTeam,
+  routeFromPath,
   screenForPrimaryDestination,
   screenFromPath,
-  pathForLeagueTeam,
   teamIdFromPath,
 } from './routes';
 
-describe('rotas do Bolão Sirel', () => {
-  it('mantém cada área da Copa dentro da rota legada da competição', () => {
-    expect(pathForScreen('cup')).toBe('/competicoes/copa-do-mundo-2026');
-    expect(pathForScreen('knockout')).toContain('/competicoes/copa-do-mundo-2026/');
-    expect(screenFromPath('/competicoes/copa-do-mundo-2026/times/')).toBe('teams');
+describe('rotas genéricas do Bolão Sirel', () => {
+  it('faz parsing de qualquer slug sem adicionar cases por competição', () => {
+    expect(routeFromPath('/competicoes/copa-hibrida-fixture/jogos')).toEqual({
+      screen: 'competition-games',
+      competitionSlug: 'copa-hibrida-fixture',
+      section: 'games',
+      teamId: null,
+    });
+    expect(screenFromPath('/competicoes/copa-hibrida-fixture/chave')).toBe(
+      'competition-bracket',
+    );
+    expect(pathForCompetition('copa-hibrida-fixture', 'standings')).toBe(
+      '/competicoes/copa-hibrida-fixture/classificacao',
+    );
   });
 
-  it('parses deep links for team profile subsections', () => {
-    const path = pathForLeagueTeam('team/with space', 'matches');
-    expect(path).toBe('/competicoes/brasileirao-serie-a-2026/times/team%2Fwith%20space/partidas');
-    expect(screenFromPath(path)).toBe('brasileirao-team-matches');
+  it('preserva aliases e deep links publicados da Copa e do Brasileirão', () => {
+    expect(routeFromPath('/competicoes/copa-do-mundo-2026/eliminatorias')).toMatchObject({
+      competitionSlug: 'world-cup',
+      section: 'bracket',
+    });
+    expect(routeFromPath('/competicoes/brasileirao-serie-a-2026')).toMatchObject({
+      competitionSlug: 'brasileirao-serie-a',
+      section: 'overview',
+    });
+    expect(pathForCompetition('world-cup', 'predictions')).toBe(
+      '/competicoes/copa-do-mundo-2026/palpites',
+    );
+  });
+
+  it('gera e interpreta subseções de time no slug selecionado', () => {
+    const path = pathForLeagueTeam('copa-hibrida-fixture', 'team/with space', 'matches');
+    expect(path).toBe(
+      '/competicoes/copa-hibrida-fixture/times/team%2Fwith%20space/partidas',
+    );
+    expect(screenFromPath(path)).toBe('competition-team-matches');
     expect(teamIdFromPath(path)).toBe('team/with space');
-    expect(screenFromPath('/competicoes/brasileirao-serie-a-2026/times/team-1/estatisticas')).toBe(
-      'brasileirao-team-statistics',
-    );
-    expect(screenFromPath('/competicoes/brasileirao-serie-a-2026/times')).toBe('brasileirao-teams');
   });
 
-  it('resolve subpáginas da liga e rejeita caminho desconhecido', () => {
-    expect(screenFromPath('/competicoes/brasileirao-serie-a-2026/classificacao')).toBe(
-      'brasileirao-standings',
+  it('generaliza destinos primários, títulos e seções sem conhecer formato nominal', () => {
+    expect(screenForPrimaryDestination('predictions')).toBe('competition-predictions');
+    expect(screenForPrimaryDestination('ranking')).toBe('competition-ranking');
+    expect(activePrimaryDestination('competition-standings')).toBe('competitions');
+    expect(competitionSectionForScreen('competition-ranking')).toBe('ranking');
+    expect(pageTitle('competition-ranking', 'Copa Híbrida')).toBe(
+      'Ranking de Copa Híbrida · Bolão Sirel',
     );
+  });
+
+  it('rejeita seções e slugs malformados', () => {
+    expect(screenFromPath('/competicoes/copa-hibrida-fixture/turno')).toBe('not-found');
+    expect(screenFromPath('/competicoes/Slug_Invalido/jogos')).toBe('not-found');
     expect(screenFromPath('/qualquer-coisa')).toBe('not-found');
-  });
-
-  it('direciona palpites e ranking conforme as capabilities selecionadas', () => {
-    expect(screenForPrimaryDestination('predictions', new Set(['LEAGUE']))).toBe(
-      'brasileirao-predictions',
-    );
-    expect(screenForPrimaryDestination('ranking', new Set(['GROUPS', 'KNOCKOUT']))).toBe('ranking');
-    expect(activePrimaryDestination('brasileirao-standings')).toBe('competitions');
-  });
-
-  it('usa a nova identidade nos títulos globais', () => {
-    expect(pageTitle('home')).toBe('Início · Bolão Sirel');
-  });
-
-  it('preserva a identidade exata das competições publicadas', () => {
-    expect(competitionSlugForScreen('brasileirao-ranking')).toBe('brasileirao-serie-a');
-    expect(competitionSlugForScreen('predictions')).toBe('world-cup');
-    expect(screenForCompetitionSlug('brasileirao-serie-a')).toBe('brasileirao');
-    expect(screenForCompetitionSlug('world-cup')).toBe('cup');
-    expect(screenForCompetitionSlug('outra-liga')).toBeNull();
-    expect(
-      competitionForScreen(
-        [{ slug: 'liga-incorreta' }, { slug: 'brasileirao-serie-a' }],
-        'brasileirao',
-      ),
-    ).toEqual({ slug: 'brasileirao-serie-a' });
   });
 });

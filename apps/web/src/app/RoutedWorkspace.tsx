@@ -10,11 +10,11 @@ import {
 import type { User } from '../api';
 import { SoftReveal } from '../motion';
 import {
-  competitionForScreen,
-  leagueScreens,
+  competitionSectionForScreen,
+  pageTitle,
   screenForPrimaryDestination,
-  worldCupScreens,
   type AppScreen,
+  type CompetitionSection,
 } from '../navigation/routes';
 import { theme } from '../theme/tokens';
 import { useCompetition } from './CompetitionContext';
@@ -24,10 +24,12 @@ import { CompetitionSubnav } from './CompetitionSubnav';
 export function RoutedWorkspace({
   user,
   screen,
+  competitionSlug,
   content,
   scrollRef,
   onScroll,
   onNavigate,
+  onNavigateCompetition,
   onRefresh,
   onUserChange,
   requestContextChange,
@@ -35,10 +37,12 @@ export function RoutedWorkspace({
 }: {
   user: User;
   screen: AppScreen;
+  competitionSlug?: string | null;
   content: ReactNode;
   scrollRef: RefObject<ScrollView | null>;
   onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
   onNavigate: (screen: AppScreen) => void;
+  onNavigateCompetition: (competitionSlug: string, section: CompetitionSection) => void;
   onRefresh: () => void;
   onUserChange: (user: User) => void;
   requestContextChange: (action: () => void) => void;
@@ -49,46 +53,55 @@ export function RoutedWorkspace({
   const compact = width < 768;
 
   useEffect(() => {
-    if (!context.competitions.length) return;
-    const desired = competitionForScreen(context.competitions, screen);
+    if (!context.competitions.length || !competitionSlug) return;
+    const desired = context.competitions.find((item) => item.slug === competitionSlug);
     if (desired && desired.id !== context.competition?.id) {
       void context.selectCompetition(desired.id);
     }
-  }, [context.competition?.id, context.competitions, screen]);
+  }, [competitionSlug, context.competition?.id, context.competitions]);
 
-  const routeCapabilities = leagueScreens.has(screen)
-    ? new Set(['LEAGUE'])
-    : worldCupScreens.has(screen)
-      ? new Set(['GROUPS', 'KNOCKOUT'])
-      : context.capabilities;
+  const section = competitionSectionForScreen(screen);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    document.title = pageTitle(screen, context.season?.name ?? context.competition?.name);
+  }, [context.competition?.name, context.season?.name, screen]);
 
   return (
     <>
       <AppHeader
         user={user}
         screen={screen}
-        competitionName={
-          leagueScreens.has(screen) || worldCupScreens.has(screen)
-            ? (context.season?.name ?? context.competition?.name)
-            : null
-        }
-        primaryScreenFor={(destination) =>
-          screenForPrimaryDestination(destination, routeCapabilities)
-        }
-        onNavigatePrimary={(destination) =>
-          onNavigate(screenForPrimaryDestination(destination, routeCapabilities))
-        }
+        competitionSlug={competitionSlug}
+        competitionName={section ? (context.season?.name ?? context.competition?.name) : null}
+        primaryScreenFor={screenForPrimaryDestination}
+        onNavigatePrimary={(destination) => {
+          const destinationScreen = screenForPrimaryDestination(destination);
+          const destinationSection = competitionSectionForScreen(destinationScreen);
+          if (destinationSection && (competitionSlug ?? context.competition?.slug)) {
+            onNavigateCompetition(
+              (competitionSlug ?? context.competition?.slug)!,
+              destinationSection,
+            );
+          } else {
+            onNavigate(destinationScreen);
+          }
+        }}
         onRefresh={onRefresh}
         onUserChange={onUserChange}
         onNavigateAdmin={user.role === 'ADMIN' ? () => onNavigate('admin') : undefined}
         onLogout={onLogout}
       />
       <CompetitionSubnav
-        screen={screen}
+        section={section}
+        competitionSlug={competitionSlug}
         competitionName={context.season?.name ?? context.competition?.name}
         seasons={context.seasons}
         selectedSeasonId={context.season?.id}
-        onNavigate={onNavigate}
+        onNavigate={(destinationSection) => {
+          if (competitionSlug) onNavigateCompetition(competitionSlug, destinationSection);
+        }}
+        onChangeCompetition={() => onNavigate('competitions')}
         onSelectSeason={(seasonId) => {
           if (seasonId === context.season?.id) return;
           requestContextChange(() => context.selectSeason(seasonId));

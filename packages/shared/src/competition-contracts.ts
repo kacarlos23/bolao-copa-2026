@@ -35,6 +35,7 @@ export const poolSeasonParamsSchema = z
 
 export const competitionCapabilitiesSchema = z
   .object({
+    workspace: z.enum(['GENERIC', 'WORLD_CUP_LEGACY']).optional(),
     format: z.enum(['LEAGUE', 'GROUPS', 'KNOCKOUT', 'TWO_LEGS']).optional(),
     groupStage: z.boolean().optional(),
     knockoutBracket: z.boolean().optional(),

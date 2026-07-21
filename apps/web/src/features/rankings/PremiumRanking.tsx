@@ -21,6 +21,16 @@ import { theme } from '../../theme/tokens';
 export type PremiumRankingScope = 'overall' | 'round' | 'month' | 'turn-1' | 'turn-2';
 type StatusFilter = 'all' | 'live' | 'final';
 
+const rankingScopeCapability: Record<PremiumRankingScope, 'OVERALL' | 'ROUND' | 'MONTH' | 'TURN'> = {
+  overall: 'OVERALL',
+  round: 'ROUND',
+  month: 'MONTH',
+  'turn-1': 'TURN',
+  'turn-2': 'TURN',
+};
+
+const allRankingScopes = new Set(['OVERALL', 'ROUND', 'MONTH', 'TURN']);
+
 function initials(name: string) {
   return name
     .trim()
@@ -212,6 +222,7 @@ export function PremiumRanking({
   roundRanking,
   currentUserId,
   scope,
+  availableScopes = allRankingScopes,
   onScopeChange,
   connection,
   syncing,
@@ -226,6 +237,7 @@ export function PremiumRanking({
   roundRanking: RankingRowDto[];
   currentUserId: string;
   scope: PremiumRankingScope;
+  availableScopes?: ReadonlySet<string>;
   onScopeChange: (scope: PremiumRankingScope) => void;
   connection: ConnectionStatus;
   syncing: boolean;
@@ -279,7 +291,7 @@ export function PremiumRanking({
       </View>
 
       <View {...dataTarget('filters')} style={styles.filters}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRail} accessibilityLabel="Período do ranking">{(['overall','round','month','turn-1','turn-2'] as PremiumRankingScope[]).map((item) => <Pressable key={item} aria-pressed={scope === item} accessibilityRole="button" onPress={(event) => { football(event); onScopeChange(item); }} style={[styles.filterChip, scope === item && styles.filterChipActive]}><Text style={[styles.filterText, scope === item && styles.filterTextActive]}>{scopeLabel(item)}</Text></Pressable>)}</ScrollView>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRail} accessibilityLabel="Período do ranking">{(['overall','round','month','turn-1','turn-2'] as PremiumRankingScope[]).filter((item) => availableScopes.has(rankingScopeCapability[item])).map((item) => <Pressable key={item} aria-pressed={scope === item} accessibilityRole="button" onPress={(event) => { football(event); onScopeChange(item); }} style={[styles.filterChip, scope === item && styles.filterChipActive]}><Text style={[styles.filterText, scope === item && styles.filterTextActive]}>{scopeLabel(item)}</Text></Pressable>)}</ScrollView>
         <View style={styles.searchWrap}><Ionicons name="search" size={17} color={theme.color.textMuted} /><TextInput accessibilityLabel="Buscar participante" placeholder="Buscar participante" placeholderTextColor={theme.color.textMuted} value={search} onChangeText={setSearch} style={styles.searchInput} /></View>
         <View style={styles.statusGroup}>{(['all','live','final'] as StatusFilter[]).map((item) => <Pressable key={item} aria-pressed={statusFilter === item} accessibilityRole="button" onPress={() => setStatusFilter(item)} style={[styles.statusButton, statusFilter === item && styles.statusButtonActive]}><Text style={styles.statusText}>{item === 'all' ? 'Todos' : item === 'live' ? 'Ao vivo' : 'Definitivos'}</Text></Pressable>)}</View>
       </View>

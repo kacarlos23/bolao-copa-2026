@@ -364,7 +364,7 @@ export function AdminOperationsPanel() {
         />
         <Module
           title="Overrides de partida"
-          description={`${divergences.overrides.length} overrides visiveis, com provenance manual e rollback explicito.`}
+          description={`${divergences.overrides.length} overrides visíveis, com provenance manual e rollback explícito.`}
         />
         <Module
           title="Rule sets"

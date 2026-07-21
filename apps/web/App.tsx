@@ -32,7 +32,11 @@ import {
 import { flagSources } from './src/flagSources';
 import type { TeamCatalogEntry } from './src/teamCatalog';
 import { DrawerReveal, SoftReveal, usePrefersReducedMotion } from './src/motion';
-import { CompetitionProvider, normalizeCapabilities } from './src/app/CompetitionContext';
+import {
+  CompetitionProvider,
+  normalizeCapabilities,
+  useCompetition,
+} from './src/app/CompetitionContext';
 import { CompetitionSelector } from './src/features/competitions/CompetitionSelector';
 import { CompetitionHub } from './src/features/competitions/CompetitionHub';
 import { HomeScreen } from './src/features/home/HomeScreen';
@@ -44,16 +48,19 @@ import { runActiveRefresh } from './src/services/active-refresh';
 import { AppShell } from './src/app/AppShell';
 import { RoutedWorkspace } from './src/app/RoutedWorkspace';
 import {
-  leagueScreens,
+  competitionSectionForScreen,
+  isCompetitionScreen,
   pageTitle,
   pathForLeagueTeam,
+  pathForCompetition,
   pathForScreen,
-  screenForCompetitionSlug,
-  screenFromPath,
-  teamIdFromPath,
+  routeFromPath,
+  screenForCompetitionSection,
   type AppScreen,
+  type CompetitionSection,
   type LeagueTeamSection,
 } from './src/navigation/routes';
+import { competitionSectionEnabled } from './src/navigation/competition-navigation';
 
 type Screen = AppScreen;
 type RankingStatusFilter = 'all' | 'live' | 'final';
@@ -75,8 +82,8 @@ const CupOverviewV2 = lazy(() =>
 const DailyPredictionsV2 = lazy(() =>
   import('./src/competitionV2').then((module) => ({ default: module.DailyPredictionsV2 })),
 );
-const Brasileirao2026Screen = lazy(() =>
-  import('./src/brasileirao2026').then((module) => ({ default: module.Brasileirao2026Screen })),
+const SeasonCompetitionScreen = lazy(() =>
+  import('./src/brasileirao2026').then((module) => ({ default: module.SeasonCompetitionScreen })),
 );
 const TeamDirectoryScreen = lazy(() =>
   import('./src/features/teams/LeagueTeamsScreen').then((module) => ({
@@ -98,24 +105,29 @@ const knockoutDeadline = new Date('2026-06-18T23:59:59-03:00').getTime();
 
 function initialAppScreen(): Screen {
   if (!appIaV2 || Platform.OS !== 'web' || typeof window === 'undefined') return 'days';
-  return screenFromPath(window.location.pathname);
+  return routeFromPath(window.location.pathname).screen;
 }
 
 function initialLeagueTeamId() {
   if (!appIaV2 || Platform.OS !== 'web' || typeof window === 'undefined') return null;
-  return teamIdFromPath(window.location.pathname);
+  return routeFromPath(window.location.pathname).teamId;
+}
+
+function initialCompetitionSlug() {
+  if (!appIaV2 || Platform.OS !== 'web' || typeof window === 'undefined') return null;
+  return routeFromPath(window.location.pathname).competitionSlug;
 }
 
 function leagueTeamSectionForScreen(screen: Screen): LeagueTeamSection {
-  if (screen === 'brasileirao-team-matches') return 'matches';
-  if (screen === 'brasileirao-team-statistics') return 'statistics';
+  if (screen === 'competition-team-matches') return 'matches';
+  if (screen === 'competition-team-statistics') return 'statistics';
   return 'athletes';
 }
 
 function screenForLeagueTeamSection(section: LeagueTeamSection): Screen {
-  if (section === 'matches') return 'brasileirao-team-matches';
-  if (section === 'statistics') return 'brasileirao-team-statistics';
-  return 'brasileirao-team-athletes';
+  if (section === 'matches') return 'competition-team-matches';
+  if (section === 'statistics') return 'competition-team-statistics';
+  return 'competition-team-athletes';
 }
 
 const colors = {
@@ -3807,9 +3819,222 @@ function TeamCatalogScreen({
   );
 }
 
+function CompetitionScreenContent({
+  screen,
+  competitionSlug,
+  teamId,
+  currentUserId,
+  refreshVersion,
+  selectedTeamCode,
+  onSelectTeamCode,
+  onNavigateCompetition,
+  onNavigateGlobal,
+  onAdjustScroll,
+}: {
+  screen: Screen;
+  competitionSlug: string;
+  teamId: string | null;
+  currentUserId: string;
+  refreshVersion: number;
+  selectedTeamCode: string | null;
+  onSelectTeamCode: (code: string | null) => void;
+  onNavigateCompetition: (
+    competitionSlug: string,
+    section: CompetitionSection,
+    teamId?: string | null,
+  ) => boolean;
+  onNavigateGlobal: (screen: AppScreen) => boolean;
+  onAdjustScroll: (delta: number) => void;
+}) {
+  const context = useCompetition();
+  const section = competitionSectionForScreen(screen);
+  const routeCompetitionExists = context.competitions.some(
+    (competition) => competition.slug === competitionSlug,
+  );
+  const ready = context.competition?.slug === competitionSlug && Boolean(context.season);
+
+  if (!section || !isCompetitionScreen(screen)) return null;
+  if (!context.loading && context.competitions.length > 0 && !routeCompetitionExists) {
+    return (
+      <RouteState
+        title="Competição não encontrada"
+        message="O endereço informado não corresponde a uma competição publicada."
+        actionLabel="Ver competições"
+        onAction={() => onNavigateGlobal('competitions')}
+      />
+    );
+  }
+  if (!context.loading && context.error) {
+    return (
+      <RouteState
+        tone="warning"
+        title="Não foi possível carregar a competição"
+        message={context.error}
+        actionLabel="Ver competições"
+        onAction={() => onNavigateGlobal('competitions')}
+      />
+    );
+  }
+  if (!ready || context.loading) {
+    return <ActivityIndicator color={colors.green} style={styles.loader} />;
+  }
+  if (!context.uiEnabled) {
+    return (
+      <RouteState
+        tone="warning"
+        title="Competição indisponível"
+        message="Esta temporada ainda não está liberada para este participante."
+        actionLabel="Ver competições"
+        onAction={() => onNavigateGlobal('competitions')}
+      />
+    );
+  }
+  if (!competitionSectionEnabled(section, context.capabilities, context.capabilityConfig)) {
+    return (
+      <RouteState
+        title="Seção indisponível"
+        message="O formato desta temporada não oferece esta seção."
+        actionLabel="Voltar para a competição"
+        onAction={() => onNavigateCompetition(competitionSlug, 'overview')}
+      />
+    );
+  }
+
+  const legacyWorkspace = context.capabilityConfig.workspace === 'WORLD_CUP_LEGACY';
+  if (legacyWorkspace) {
+    if (section === 'overview') {
+      if (competitionUiV2) return <CupOverviewV2 refreshVersion={refreshVersion} />;
+      return (
+        <CupOverviewScreen
+          refreshVersion={refreshVersion}
+          onOpenTeam={(team) => {
+            onSelectTeamCode(team.code ?? null);
+            onNavigateCompetition(competitionSlug, 'teams');
+          }}
+          onOpenKnockout={() => onNavigateCompetition(competitionSlug, 'bracket')}
+        />
+      );
+    }
+    if (section === 'games') {
+      return (
+        <DaysScreen
+          refreshVersion={refreshVersion}
+          onOpenTeam={(team) => {
+            onSelectTeamCode(team.code ?? null);
+            onNavigateCompetition(competitionSlug, 'teams');
+          }}
+        />
+      );
+    }
+    if (section === 'predictions') {
+      return (
+        <PredictionsScreen
+          currentUserId={currentUserId}
+          refreshVersion={refreshVersion}
+          onAdjustScroll={onAdjustScroll}
+          onOpenTeam={(team) => {
+            onSelectTeamCode(team.code ?? null);
+            onNavigateCompetition(competitionSlug, 'teams');
+          }}
+        />
+      );
+    }
+    if (section === 'bracket') {
+      return (
+        <PredictionBoardScreen
+          currentUserId={currentUserId}
+          refreshVersion={refreshVersion}
+          initialView="knockout"
+          standaloneKnockout
+        />
+      );
+    }
+    if (section === 'ranking') {
+      return <RankingScreenLayout refreshVersion={refreshVersion} currentUserId={currentUserId} />;
+    }
+    if (section === 'teams') {
+      return (
+        <TeamCatalogScreen selectedCode={selectedTeamCode} onSelectTeamCode={onSelectTeamCode} />
+      );
+    }
+  }
+
+  if (section === 'teams') {
+    return (
+      <TeamDirectoryScreen
+        refreshVersion={refreshVersion}
+        onOpenTeam={(selectedTeamId) =>
+          onNavigateCompetition(competitionSlug, 'team-athletes', selectedTeamId)
+        }
+      />
+    );
+  }
+  if (section.startsWith('team-')) {
+    if (!teamId) {
+      return (
+        <RouteState
+          title="Time não encontrado"
+          message="O endereço deste perfil está incompleto ou inválido."
+          actionLabel="Ver todos os times"
+          onAction={() => onNavigateCompetition(competitionSlug, 'teams')}
+        />
+      );
+    }
+    return (
+      <TeamProfileScreen
+        teamId={teamId}
+        section={leagueTeamSectionForScreen(screen)}
+        refreshVersion={refreshVersion}
+        onBack={() => onNavigateCompetition(competitionSlug, 'teams')}
+        onOpenSection={(teamSection) =>
+          onNavigateCompetition(
+            competitionSlug,
+            competitionSectionForScreen(screenForLeagueTeamSection(teamSection)) ??
+              'team-athletes',
+            teamId,
+          )
+        }
+      />
+    );
+  }
+  if (section === 'bracket') {
+    return (
+      <RouteState
+        title="Chave da temporada"
+        message="A navegação está habilitada pelo formato; a representação genérica dos confrontos será adicionada na próxima etapa."
+        actionLabel="Ver jogos"
+        onAction={() => onNavigateCompetition(competitionSlug, 'games')}
+      />
+    );
+  }
+
+  const workspaceSection =
+    section === 'games'
+      ? 'matches'
+      : section === 'predictions' ||
+          section === 'standings' ||
+          section === 'ranking' ||
+          section === 'overview'
+        ? section
+        : 'overview';
+  return (
+    <SeasonCompetitionScreen
+      currentUserId={currentUserId}
+      refreshVersion={refreshVersion}
+      section={workspaceSection}
+      onOpenTeam={(selectedTeamId) =>
+        onNavigateCompetition(competitionSlug, 'team-athletes', selectedTeamId)
+      }
+    />
+  );
+}
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [screen, setScreen] = useState<Screen>(initialAppScreen);
+  const [routeCompetitionSlug, setRouteCompetitionSlug] = useState<string | null>(
+    initialCompetitionSlug,
+  );
   const [leagueTeamId, setLeagueTeamId] = useState<string | null>(initialLeagueTeamId);
   const [selectedTeamCode, setSelectedTeamCode] = useState<string | null>('KOR');
   const [refreshVersion, setRefreshVersion] = useState(0);
@@ -3817,12 +4042,12 @@ export default function App() {
   const [booting, setBooting] = useState(true);
   const [nowTime, setNowTime] = useState(Date.now());
   const [knockoutCalloutDismissed, setKnockoutCalloutDismissed] = useState(false);
-  const [brasileiraoNavEnabled, setBrasileiraoNavEnabled] = useState(false);
   const { width: viewportWidth } = useWindowDimensions();
   const appScrollRef = useRef<ScrollView>(null);
   const appScrollY = useRef(0);
   const inactiveSince = useRef<number | null>(null);
   const screenRef = useRef<Screen>(screen);
+  const competitionSlugRef = useRef<string | null>(routeCompetitionSlug);
   const leagueTeamIdRef = useRef<string | null>(leagueTeamId);
   const routePathRef = useRef(
     Platform.OS === 'web' && typeof window !== 'undefined'
@@ -3832,6 +4057,7 @@ export default function App() {
   const userRef = useRef<User | null>(user);
   const appScrollStyle = [styles.appScroll, viewportWidth < 760 && styles.appScrollCompact];
   screenRef.current = screen;
+  competitionSlugRef.current = routeCompetitionSlug;
   leagueTeamIdRef.current = leagueTeamId;
   userRef.current = user;
 
@@ -3862,13 +4088,18 @@ export default function App() {
 
   function navigate(nextScreen: Screen) {
     if (nextScreen === screen) return true;
+    const competitionSection = competitionSectionForScreen(nextScreen);
+    if (competitionSection && routeCompetitionSlug) {
+      return navigateCompetition(routeCompetitionSlug, competitionSection);
+    }
     return requestContextChange(() => {
       if (appIaV2 && Platform.OS === 'web' && typeof window !== 'undefined') {
         const nextPath = pathForScreen(nextScreen);
         window.history.pushState({ screen: nextScreen }, '', nextPath);
         routePathRef.current = nextPath;
       }
-      if (!nextScreen.startsWith('brasileirao-team-')) setLeagueTeamId(null);
+      setRouteCompetitionSlug(null);
+      setLeagueTeamId(null);
       setScreen(nextScreen);
       appScrollY.current = 0;
       appScrollRef.current?.scrollTo({ y: 0, animated: false });
@@ -3876,14 +4107,29 @@ export default function App() {
     });
   }
 
-  function navigateLeagueTeam(teamId: string, section: LeagueTeamSection = 'athletes') {
-    const nextScreen = screenForLeagueTeamSection(section);
+  function navigateCompetition(
+    competitionSlug: string,
+    section: CompetitionSection,
+    teamId: string | null = null,
+  ) {
+    const nextScreen = screenForCompetitionSection(section);
     return requestContextChange(() => {
-      const nextPath = pathForLeagueTeam(teamId, section);
+      const nextPath = section.startsWith('team-') && teamId
+        ? pathForLeagueTeam(
+            competitionSlug,
+            teamId,
+            section === 'team-matches'
+              ? 'matches'
+              : section === 'team-statistics'
+                ? 'statistics'
+                : 'athletes',
+          )
+        : pathForCompetition(competitionSlug, section);
       if (appIaV2 && Platform.OS === 'web' && typeof window !== 'undefined') {
         window.history.pushState({ screen: nextScreen, teamId, section }, '', nextPath);
         routePathRef.current = nextPath;
       }
+      setRouteCompetitionSlug(competitionSlug);
       setLeagueTeamId(teamId);
       setScreen(nextScreen);
       appScrollY.current = 0;
@@ -3912,6 +4158,7 @@ export default function App() {
 
   useEffect(() => {
     if (!appIaV2 || Platform.OS !== 'web' || typeof document === 'undefined') return;
+    if (isCompetitionScreen(screen)) return;
     document.title = pageTitle(screen);
   }, [screen]);
 
@@ -3921,13 +4168,20 @@ export default function App() {
       window.history.replaceState({ screen: screenRef.current }, '', window.location.href);
     }
     const handlePopState = () => {
-      const nextScreen = screenFromPath(window.location.pathname);
-      const nextTeamId = teamIdFromPath(window.location.pathname);
-      if (nextScreen === screenRef.current && nextTeamId === leagueTeamIdRef.current) return;
+      const nextRoute = routeFromPath(window.location.pathname);
+      const nextScreen = nextRoute.screen;
+      const nextTeamId = nextRoute.teamId;
+      if (
+        nextScreen === screenRef.current &&
+        nextTeamId === leagueTeamIdRef.current &&
+        nextRoute.competitionSlug === competitionSlugRef.current
+      )
+        return;
       const targetPath = window.location.pathname;
       const applyPopNavigation = () => {
         window.history.pushState({ screen: nextScreen }, '', targetPath);
         routePathRef.current = targetPath;
+        setRouteCompetitionSlug(nextRoute.competitionSlug);
         setLeagueTeamId(nextTeamId);
         setScreen(nextScreen);
         appScrollY.current = 0;
@@ -3970,31 +4224,6 @@ export default function App() {
   }, [user?.id]);
 
   useEffect(() => {
-    if (!user || !brasileiraoUi) {
-      setBrasileiraoNavEnabled(false);
-      return;
-    }
-    let cancelled = false;
-    api
-      .brasileiraoSeasons()
-      .then((result) => result.seasons.find((season) => season.slug === 'brasileirao-serie-a-2026'))
-      .then(async (season) => {
-        if (!season) return false;
-        if (user.role === 'ADMIN') return true;
-        return (await api.seasonUiFeature(season.id)).uiEnabled;
-      })
-      .then((enabled) => {
-        if (!cancelled) setBrasileiraoNavEnabled(Boolean(enabled));
-      })
-      .catch(() => {
-        if (!cancelled) setBrasileiraoNavEnabled(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [user]);
-
-  useEffect(() => {
     if (typeof document === 'undefined' || typeof window === 'undefined') return undefined;
 
     const markInactive = () => {
@@ -4026,21 +4255,18 @@ export default function App() {
 
   const content = useMemo(() => {
     if (appIaV2 && screen === 'home') {
-      return <HomeScreen user={user as User} onNavigate={navigate} />;
+      return (
+        <HomeScreen
+          user={user as User}
+          onNavigate={navigate}
+          onNavigateCompetition={navigateCompetition}
+        />
+      );
     }
     if (appIaV2 && screen === 'competitions') {
       return (
         <CompetitionHub
-          onOpen={(competition) => {
-            const destination = screenForCompetitionSlug(competition.slug);
-            if (!destination) {
-              if (typeof window !== 'undefined') {
-                window.alert('Esta competição ainda não possui uma área publicada.');
-              }
-              return false;
-            }
-            return navigate(destination);
-          }}
+          onOpen={(competition) => navigateCompetition(competition.slug, 'overview')}
         />
       );
     }
@@ -4065,67 +4291,25 @@ export default function App() {
         />
       );
     }
-    if (appIaV2 && leagueScreens.has(screen)) {
-      if (!brasileiraoNavEnabled) {
-        return (
-          <RouteState
-            tone="warning"
-            title="Competição indisponível"
-            message="O Brasileirão ainda não está liberado para este participante."
-            actionLabel="Ver competições"
-            onAction={() => navigate('competitions')}
-          />
-        );
-      }
-      if (screen === 'brasileirao-teams') {
-        return (
-          <TeamDirectoryScreen
-            refreshVersion={refreshVersion}
-            onOpenTeam={(teamId) => navigateLeagueTeam(teamId)}
-          />
-        );
-      }
-      if (screen.startsWith('brasileirao-team-')) {
-        if (!leagueTeamId) {
-          return (
-            <RouteState
-              title="Time não encontrado"
-              message="O endereço deste perfil está incompleto ou inválido."
-              actionLabel="Ver todos os times"
-              onAction={() => navigate('brasileirao-teams')}
-            />
-          );
-        }
-        return (
-          <TeamProfileScreen
-            teamId={leagueTeamId}
-            section={leagueTeamSectionForScreen(screen)}
-            refreshVersion={refreshVersion}
-            onBack={() => navigate('brasileirao-teams')}
-            onOpenSection={(section) => navigateLeagueTeam(leagueTeamId, section)}
-          />
-        );
-      }
-      const section =
-        screen === 'brasileirao-predictions'
-          ? 'predictions'
-          : screen === 'brasileirao-standings'
-            ? 'standings'
-            : screen === 'brasileirao-ranking'
-              ? 'ranking'
-              : 'overview';
+    if (appIaV2 && isCompetitionScreen(screen) && routeCompetitionSlug) {
       return (
-        <Brasileirao2026Screen
+        <CompetitionScreenContent
+          screen={screen}
+          competitionSlug={routeCompetitionSlug}
+          teamId={leagueTeamId}
           currentUserId={user?.id ?? ''}
           refreshVersion={refreshVersion}
-          section={section}
-          onOpenTeam={(teamId) => navigateLeagueTeam(teamId)}
+          selectedTeamCode={selectedTeamCode}
+          onSelectTeamCode={setSelectedTeamCode}
+          onNavigateCompetition={navigateCompetition}
+          onNavigateGlobal={navigate}
+          onAdjustScroll={adjustAppScroll}
         />
       );
     }
-    if (!appIaV2 && screen === 'brasileirao' && brasileiraoNavEnabled) {
+    if (!appIaV2 && screen === 'brasileirao' && brasileiraoUi) {
       return (
-        <Brasileirao2026Screen currentUserId={user?.id ?? ''} refreshVersion={refreshVersion} />
+        <SeasonCompetitionScreen currentUserId={user?.id ?? ''} refreshVersion={refreshVersion} />
       );
     }
     if (screen === 'ranking')
@@ -4183,9 +4367,9 @@ export default function App() {
       />
     );
   }, [
-    brasileiraoNavEnabled,
     refreshVersion,
     leagueTeamId,
+    routeCompetitionSlug,
     screen,
     selectedTeamCode,
     user?.id,
@@ -4218,17 +4402,22 @@ export default function App() {
   return (
     <ToastProvider>
       <AppShell>
-        <CompetitionProvider>
+        <CompetitionProvider
+          initialCompetitionSlug={routeCompetitionSlug}
+          userRole={user.role}
+        >
           {appIaV2 ? (
             <RoutedWorkspace
               user={user}
               screen={screen}
+              competitionSlug={routeCompetitionSlug}
               content={content}
               scrollRef={appScrollRef}
               onScroll={(event) => {
                 appScrollY.current = event.nativeEvent.contentOffset.y;
               }}
               onNavigate={navigate}
+              onNavigateCompetition={navigateCompetition}
               onRefresh={triggerRefresh}
               onUserChange={setUser}
               requestContextChange={requestContextChange}
@@ -4242,7 +4431,7 @@ export default function App() {
                 setScreen={navigate}
                 onRefresh={triggerRefresh}
                 onUserChange={setUser}
-                showBrasileirao={brasileiraoNavEnabled}
+                showBrasileirao={brasileiraoUi}
                 onLogout={logout}
               />
               {competitionUiV2 ? (
@@ -4250,14 +4439,14 @@ export default function App() {
                   requestChange={requestContextChange}
                   onCompetitionChange={(competition) => {
                     const capabilities = normalizeCapabilities(competition.capabilities, null);
-                    if (capabilities.has('LEAGUE') && brasileiraoNavEnabled)
+                    if (capabilities.has('LEAGUE') && brasileiraoUi)
                       navigate('brasileirao');
                     else if (capabilities.has('KNOCKOUT') || capabilities.has('GROUPS'))
                       navigate('days');
                   }}
                   onSeasonChange={(season) => {
                     const capabilities = normalizeCapabilities(null, season.capabilities);
-                    if (capabilities.has('LEAGUE') && brasileiraoNavEnabled)
+                    if (capabilities.has('LEAGUE') && brasileiraoUi)
                       navigate('brasileirao');
                     else if (capabilities.has('KNOCKOUT')) navigate('knockout');
                     else navigate('days');

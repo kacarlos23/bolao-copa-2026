@@ -5,6 +5,7 @@ const competitionSelect = {
   slug: true,
   name: true,
   capabilities: true,
+  metadata: true,
 } as const;
 
 export async function listCompetitionRecords(pagination: { skip: number; take: number }) {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { api, type CompetitionFeatureFlags } from './api';
+import { normalizeCapabilities } from './app/CompetitionContext';
 
 const emptyFlags: CompetitionFeatureFlags = {
   readEnabled: false,
@@ -22,8 +23,13 @@ export function BrasileiraoCanaryAdmin() {
     setLoading(true);
     setError('');
     try {
-      const seasons = await api.brasileiraoSeasons();
-      const season = seasons.seasons.find((item) => item.slug === 'brasileirao-serie-a-2026');
+      const competitions = await api.competitions();
+      const competition = competitions.competitions.find((item) =>
+        normalizeCapabilities(item.capabilities, null).has('LEAGUE'),
+      );
+      const seasons = competition ? await api.competitionSeasons(competition.slug) : null;
+      const season =
+        seasons?.seasons.find((item) => item.status === 'ACTIVE') ?? seasons?.seasons[0];
       if (!season) {
         setSeasonId('');
         return;

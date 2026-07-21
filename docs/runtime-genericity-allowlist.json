@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "path": "apps/web/src/navigation/legacy-route-aliases.ts",
+      "category": "legacy-route-alias",
+      "reason": "Traduz exclusivamente os dois deep links públicos anteriores para slugs canônicos."
+    },
+    {
+      "path": "apps/api/prisma/seed.ts",
+      "category": "seed",
+      "reason": "Materializa a baseline legada da Copa em ambiente vazio."
+    },
+    {
+      "path": "apps/api/prisma/backfill-world-cup-2026.ts",
+      "category": "seed",
+      "reason": "Backfill idempotente e preservado da Copa existente."
+    },
+    {
+      "path": "apps/api/src/modules/brasileirao/brasileirao-2026.service.ts",
+      "category": "seed",
+      "reason": "Prepara a temporada existente e grava sua configuração de provider em metadata."
+    },
+    {
+      "path": "apps/api/src/scripts/load-brasileirao-2026.ts",
+      "category": "seed",
+      "reason": "Comando explícito de carga da temporada existente."
+    },
+    {
+      "path": "apps/api/src/scripts/reconcile-cbf-2026.ts",
+      "category": "seed",
+      "reason": "Comando explícito de reconciliação da temporada existente."
+    },
+    {
+      "path": "apps/api/src/scripts/sync-cbf-team-profiles.ts",
+      "category": "seed",
+      "reason": "Comando legado explícito para a carga inicial de perfis da temporada existente."
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../http/async-handler.js';
+import { AppError } from '../http/errors.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { adminQueryRouter } from '../modules/admin/admin-query.routes.js';
 import { adminResourceRouter } from '../modules/admin/admin-resource.routes.js';
@@ -26,9 +27,14 @@ import {
 import { CsvProvider, MAX_CSV_BYTES } from '../modules/providers/adapters/csv.provider.js';
 import { ManualProvider } from '../modules/providers/adapters/manual.provider.js';
 import { CbfProvider } from '../modules/providers/adapters/cbf.provider.js';
-import { CbfSerieA2026Provider } from '../modules/providers/adapters/cbf-serie-a-2026.provider.js';
+import type { CbfSerieA2026Evidence } from '../modules/providers/adapters/cbf-serie-a-2026.provider.js';
 import { GeProvider } from '../modules/providers/adapters/ge.provider.js';
 import { runProviderSync } from '../modules/providers/provider-sync.service.js';
+import { seasonProviderRegistry } from '../modules/providers/provider-registry.js';
+import {
+  getSeasonRuntimeConfig,
+  seasonProviderRuntimeConfigSchema,
+} from '../modules/providers/season-runtime-config.js';
 import {
   adminRequestContext,
   authorizeAdminPreview,
@@ -39,8 +45,6 @@ import {
 import {
   assertBrasileirao2026Readiness,
   prepareBrasileirao2026,
-  refreshBrasileirao2026RoundWindows,
-  BRASILEIRAO_2026_SEASON_SLUG,
 } from '../modules/brasileirao/brasileirao-2026.service.js';
 import {
   getCompetitionFeatureFlags,
@@ -228,29 +232,29 @@ adminRouter.post(
     const adminContext = adminRequestContext(req);
     const authorizationRequest = providerAuthorizationRequest(body);
     setAdminScope(req, { seasonId: body.seasonId });
+    let configuredRuntime: ReturnType<typeof seasonProviderRegistry.create> | null = null;
+    let provider;
     if (body.provider === 'cbf-serie-a-2026') {
-      const season = await prisma.competitionSeason.findUnique({
-        where: { id: body.seasonId },
-        select: { slug: true },
-      });
-      if (season?.slug !== BRASILEIRAO_2026_SEASON_SLUG) {
-        res.status(400).json({
-          code: 'CBF_PROVIDER_SEASON_MISMATCH',
-          message: 'O provider fixo só pode sincronizar o Brasileirão Série A 2026.',
-        });
-        return;
+      const season = await getSeasonRuntimeConfig(body.seasonId);
+      const providerConfig = season.providers.find((item) => item.types.includes(body.type));
+      if (!providerConfig) {
+        throw new AppError(
+          400,
+          'A temporada não configurou um provider para este tipo de sincronização.',
+          'SEASON_PROVIDER_NOT_CONFIGURED',
+        );
       }
+      configuredRuntime = seasonProviderRegistry.create(providerConfig);
+      provider = configuredRuntime.provider;
+    } else if (body.provider === 'ge') {
+      provider = new GeProvider();
+    } else if (body.provider === 'csv') {
+      provider = new CsvProvider(body.type, body.csv, body.sourceDocument);
+    } else if (body.provider === 'cbf-official') {
+      provider = new CbfProvider(normalizedPayload(body.type, body.items));
+    } else {
+      provider = new ManualProvider(normalizedPayload(body.type, body.items));
     }
-    const provider =
-      body.provider === 'ge'
-        ? new GeProvider()
-        : body.provider === 'csv'
-          ? new CsvProvider(body.type, body.csv, body.sourceDocument)
-          : body.provider === 'cbf-official'
-            ? new CbfProvider(normalizedPayload(body.type, body.items))
-            : body.provider === 'cbf-serie-a-2026'
-              ? new CbfSerieA2026Provider()
-            : new ManualProvider(normalizedPayload(body.type, body.items));
     if (!body.dryRun) {
       await authorizeAdminPreview({
         context: adminContext,
@@ -285,7 +289,7 @@ adminRouter.post(
       !body.dryRun &&
       ['SCHEDULE', 'RESULTS'].includes(body.type)
     ) {
-      await refreshBrasileirao2026RoundWindows(body.seasonId);
+      await configuredRuntime?.afterSync?.(body.seasonId);
     }
     await prisma.adminAuditLog.create({
       data: {
@@ -310,12 +314,24 @@ adminRouter.post(
 adminRouter.post(
   '/brasileirao-2026/prepare',
   asyncHandler(async (req, res) => {
-    const provider = new CbfSerieA2026Provider();
+    const runtime = seasonProviderRegistry.create(
+      seasonProviderRuntimeConfigSchema.parse({
+        key: 'cbf-official',
+        priority: 1,
+        types: ['TEAMS', 'SCHEDULE', 'RESULTS', 'STANDINGS'],
+        enabled: true,
+        timeoutMs: 10_000,
+        includeProfiles: true,
+      }),
+    );
+    const provider = runtime.provider;
     const context = { seasonId: 'preparation', requestedById: req.session.user!.id };
     const [teams, schedule, evidence] = await Promise.all([
       provider.syncTeams(context),
       provider.syncSchedule(context),
-      provider.evidence(),
+      runtime.evidence
+        ? (runtime.evidence() as Promise<CbfSerieA2026Evidence>)
+        : Promise.reject(new Error('Provider de preparação sem evidência.')),
     ]);
     const readiness = assertBrasileirao2026Readiness({ teams, schedule, evidence });
     const prepared = await prepareBrasileirao2026({

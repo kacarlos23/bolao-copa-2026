@@ -8,6 +8,17 @@ vi.mock('@expo/vector-icons', () => ({
   Ionicons: () => null,
 }));
 
+vi.mock('./CompetitionContext', () => ({
+  useCompetition: () => ({
+    capabilities: new Set(['GROUPS', 'KNOCKOUT']),
+    capabilityConfig: {
+      workspace: 'WORLD_CUP_LEGACY',
+      groupStage: true,
+      knockoutBracket: true,
+    },
+  }),
+}));
+
 afterEach(cleanup);
 
 const user = {
@@ -41,9 +52,11 @@ describe('shell de navegação', () => {
     const onNavigate = vi.fn();
     render(
       <CompetitionSubnav
-        screen="cup"
+        section="overview"
+        competitionSlug="world-cup"
         competitionName="Copa do Mundo 2026"
         onNavigate={onNavigate}
+        onChangeCompetition={vi.fn()}
       />,
     );
 
@@ -59,7 +72,8 @@ describe('shell de navegação', () => {
     const onSelectSeason = vi.fn();
     render(
       <CompetitionSubnav
-        screen="brasileirao"
+        section="overview"
+        competitionSlug="brasileirao-serie-a"
         competitionName="Brasileirão Série A 2026"
         seasons={
           [
@@ -69,6 +83,7 @@ describe('shell de navegação', () => {
         }
         selectedSeasonId="season-2026"
         onNavigate={vi.fn()}
+        onChangeCompetition={vi.fn()}
         onSelectSeason={onSelectSeason}
       />,
     );
@@ -85,9 +100,11 @@ describe('shell de navegação', () => {
   it('mantém Times selecionado dentro das subseções de um clube', () => {
     render(
       <CompetitionSubnav
-        screen="brasileirao-team-matches"
+        section="team-matches"
+        competitionSlug="brasileirao-serie-a"
         competitionName="Brasileirão Série A 2026"
         onNavigate={vi.fn()}
+        onChangeCompetition={vi.fn()}
       />,
     );
 

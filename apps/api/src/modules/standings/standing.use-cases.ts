@@ -1,9 +1,9 @@
 import { standingRowDtoSchema, type PaginationQuery } from '@bolao/shared';
 import type { Prisma } from '@prisma/client';
-import { getSeason } from '../seasons/season.use-cases.js';
 import { paginationMeta } from '../shared/pagination.js';
 import { loadSeasonStandingsData } from './standing.repository.js';
 import { calculateStandings } from './standings.logic.js';
+import { getSeasonRuntimeConfig } from '../providers/season-runtime-config.js';
 
 function jsonString(value: Prisma.JsonValue | null, key: string) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -18,8 +18,10 @@ function providerResultNumber(value: Prisma.JsonValue | null, key: string) {
 }
 
 export async function getSeasonStandings(seasonId: string, query: PaginationQuery) {
-  const season = await getSeason(seasonId);
-  const [seasonTeams, matches] = await loadSeasonStandingsData(seasonId);
+  const [[seasonTeams, matches], runtime] = await Promise.all([
+    loadSeasonStandingsData(seasonId),
+    getSeasonRuntimeConfig(seasonId),
+  ]);
   const groupByTeam = new Map(
     seasonTeams.map((entry) => [entry.team.id, entry.groupName ?? 'Sem grupo']),
   );
@@ -43,10 +45,7 @@ export async function getSeasonStandings(seasonId: string, query: PaginationQuer
       homeRedCards: providerResultNumber(match.rawPayload, 'homeRedCards'),
       awayRedCards: providerResultNumber(match.rawPayload, 'awayRedCards'),
     })),
-    {
-      ruleSet:
-        season.slug === 'brasileirao-serie-a-2026' ? 'CBF_SERIE_A_2026' : 'LEGACY',
-    },
+    { ruleSet: runtime.standingsRule },
   );
 
   const flat = standings.flatMap((group) => group.rows);

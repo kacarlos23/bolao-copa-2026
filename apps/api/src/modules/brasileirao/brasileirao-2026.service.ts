@@ -148,6 +148,16 @@ export async function prepareBrasileirao2026(input: {
           source: sourceEvidence,
           tieBreakRule: BRASILEIRAO_2026_TIE_BREAK_VERSION,
           publicExposureRecommended: false,
+          providers: [
+            {
+              key: 'cbf-official',
+              priority: 1,
+              types: ['TEAMS', 'SCHEDULE', 'RESULTS', 'STANDINGS'],
+              enabled: true,
+              timeoutMs: 10_000,
+              includeProfiles: true,
+            },
+          ],
         },
       },
       update: {
@@ -165,6 +175,16 @@ export async function prepareBrasileirao2026(input: {
           source: sourceEvidence,
           tieBreakRule: BRASILEIRAO_2026_TIE_BREAK_VERSION,
           publicExposureRecommended: false,
+          providers: [
+            {
+              key: 'cbf-official',
+              priority: 1,
+              types: ['TEAMS', 'SCHEDULE', 'RESULTS', 'STANDINGS'],
+              enabled: true,
+              timeoutMs: 10_000,
+              includeProfiles: true,
+            },
+          ],
         },
       },
     });

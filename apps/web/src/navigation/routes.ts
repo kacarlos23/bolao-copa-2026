@@ -1,48 +1,113 @@
-export type AppScreen =
-  | 'home'
-  | 'competitions'
+import {
+  preferredCompetitionRouteSlug,
+  resolveCompetitionRouteSlug,
+} from './legacy-route-aliases';
+
+export type GlobalScreen = 'home' | 'competitions' | 'admin' | 'not-found';
+
+export type CompetitionSection =
+  | 'overview'
+  | 'games'
+  | 'predictions'
+  | 'standings'
+  | 'bracket'
+  | 'ranking'
+  | 'teams'
+  | 'team-athletes'
+  | 'team-matches'
+  | 'team-statistics';
+
+export type CompetitionScreen =
+  | 'competition-overview'
+  | 'competition-games'
+  | 'competition-predictions'
+  | 'competition-standings'
+  | 'competition-bracket'
+  | 'competition-ranking'
+  | 'competition-teams'
+  | 'competition-team-athletes'
+  | 'competition-team-matches'
+  | 'competition-team-statistics';
+
+/** Screens retained only for the non-routed legacy shell. */
+export type LegacyScreen =
   | 'days'
   | 'predictions'
   | 'knockout'
   | 'ranking'
   | 'cup'
   | 'brasileirao'
-  | 'brasileirao-predictions'
-  | 'brasileirao-standings'
-  | 'brasileirao-ranking'
-  | 'brasileirao-teams'
-  | 'brasileirao-team-athletes'
-  | 'brasileirao-team-matches'
-  | 'brasileirao-team-statistics'
-  | 'teams'
-  | 'admin'
-  | 'not-found';
+  | 'teams';
 
+export type AppScreen = GlobalScreen | CompetitionScreen | LegacyScreen;
 export type PrimaryDestination = 'home' | 'competitions' | 'predictions' | 'ranking';
+export type LeagueTeamSection = 'athletes' | 'matches' | 'statistics';
 
-export const routeByScreen: Record<Exclude<AppScreen, 'not-found'>, string> = {
+export interface ParsedAppRoute {
+  screen: AppScreen;
+  competitionSlug: string | null;
+  section: CompetitionSection | null;
+  teamId: string | null;
+}
+
+const sectionBySegment: Record<string, CompetitionSection> = {
+  jogos: 'games',
+  palpites: 'predictions',
+  classificacao: 'standings',
+  chave: 'bracket',
+  eliminatorias: 'bracket',
+  ranking: 'ranking',
+  times: 'teams',
+};
+
+const segmentBySection: Record<CompetitionSection, string> = {
+  overview: '',
+  games: 'jogos',
+  predictions: 'palpites',
+  standings: 'classificacao',
+  bracket: 'chave',
+  ranking: 'ranking',
+  teams: 'times',
+  'team-athletes': 'atletas',
+  'team-matches': 'partidas',
+  'team-statistics': 'estatisticas',
+};
+
+const screenBySection: Record<CompetitionSection, CompetitionScreen> = {
+  overview: 'competition-overview',
+  games: 'competition-games',
+  predictions: 'competition-predictions',
+  standings: 'competition-standings',
+  bracket: 'competition-bracket',
+  ranking: 'competition-ranking',
+  teams: 'competition-teams',
+  'team-athletes': 'competition-team-athletes',
+  'team-matches': 'competition-team-matches',
+  'team-statistics': 'competition-team-statistics',
+};
+
+const sectionByScreen = new Map<CompetitionScreen, CompetitionSection>(
+  Object.entries(screenBySection).map(([section, screen]) => [
+    screen,
+    section as CompetitionSection,
+  ]),
+);
+
+const globalRouteByScreen: Record<Exclude<GlobalScreen, 'not-found'>, string> = {
   home: '/',
   competitions: '/competicoes',
-  days: '/competicoes/copa-do-mundo-2026/jogos',
-  predictions: '/competicoes/copa-do-mundo-2026/palpites',
-  knockout: '/competicoes/copa-do-mundo-2026/eliminatorias',
-  ranking: '/competicoes/copa-do-mundo-2026/ranking',
-  cup: '/competicoes/copa-do-mundo-2026',
-  teams: '/competicoes/copa-do-mundo-2026/times',
-  brasileirao: '/competicoes/brasileirao-serie-a-2026',
-  'brasileirao-predictions': '/competicoes/brasileirao-serie-a-2026/palpites',
-  'brasileirao-standings': '/competicoes/brasileirao-serie-a-2026/classificacao',
-  'brasileirao-ranking': '/competicoes/brasileirao-serie-a-2026/ranking',
-  'brasileirao-teams': '/competicoes/brasileirao-serie-a-2026/times',
-  'brasileirao-team-athletes': '/competicoes/brasileirao-serie-a-2026/times',
-  'brasileirao-team-matches': '/competicoes/brasileirao-serie-a-2026/times',
-  'brasileirao-team-statistics': '/competicoes/brasileirao-serie-a-2026/times',
   admin: '/admin',
 };
 
-const screenByRoute = new Map(
-  Object.entries(routeByScreen).map(([screen, route]) => [route, screen as AppScreen]),
-);
+const legacyTargetByScreen: Record<LegacyScreen, { slug: string; section: CompetitionSection }> = {
+  days: { slug: 'world-cup', section: 'games' },
+  predictions: { slug: 'world-cup', section: 'predictions' },
+  knockout: { slug: 'world-cup', section: 'bracket' },
+  ranking: { slug: 'world-cup', section: 'ranking' },
+  cup: { slug: 'world-cup', section: 'overview' },
+  teams: { slug: 'world-cup', section: 'teams' },
+  brasileirao: { slug: 'brasileirao-serie-a', section: 'overview' },
+};
 
 function normalizePath(pathname: string) {
   const clean = pathname.split('?')[0]?.split('#')[0] || '/';
@@ -50,126 +115,185 @@ function normalizePath(pathname: string) {
   return clean.replace(/\/+$/, '') || '/';
 }
 
-export function screenFromPath(pathname: string): AppScreen {
-  const normalized = normalizePath(pathname);
-  if (normalized === routeByScreen['brasileirao-teams']) return 'brasileirao-teams';
-  const teamRoute = normalized.match(
-    /^\/competicoes\/brasileirao-serie-a-2026\/times\/([^/]+)(?:\/(atletas|partidas|estatisticas))?$/,
-  );
-  if (teamRoute) {
-    if (teamRoute[2] === 'partidas') return 'brasileirao-team-matches';
-    if (teamRoute[2] === 'estatisticas') return 'brasileirao-team-statistics';
-    return 'brasileirao-team-athletes';
-  }
-  return screenByRoute.get(normalized) ?? 'not-found';
-}
-
-export type LeagueTeamSection = 'athletes' | 'matches' | 'statistics';
-
-export function teamIdFromPath(pathname: string) {
-  const match = normalizePath(pathname).match(
-    /^\/competicoes\/brasileirao-serie-a-2026\/times\/([^/]+)(?:\/(?:atletas|partidas|estatisticas))?$/,
-  );
-  if (!match) return null;
+function safeDecode(value: string) {
   try {
-    const value = decodeURIComponent(match[1] ?? '');
-    return value.length >= 1 && value.length <= 128 ? value : null;
+    const decoded = decodeURIComponent(value);
+    return decoded.length >= 1 && decoded.length <= 128 ? decoded : null;
   } catch {
     return null;
   }
 }
 
-export function pathForLeagueTeam(teamId: string, section: LeagueTeamSection = 'athletes') {
-  const suffix =
-    section === 'athletes' ? 'atletas' : section === 'matches' ? 'partidas' : 'estatisticas';
-  return `/competicoes/brasileirao-serie-a-2026/times/${encodeURIComponent(teamId)}/${suffix}`;
+export function screenForCompetitionSection(section: CompetitionSection) {
+  return screenBySection[section];
 }
 
-export function pathForScreen(screen: AppScreen) {
+export function competitionSectionForScreen(screen: AppScreen) {
+  return sectionByScreen.get(screen as CompetitionScreen) ?? null;
+}
+
+export function isCompetitionScreen(screen: AppScreen): screen is CompetitionScreen {
+  return sectionByScreen.has(screen as CompetitionScreen);
+}
+
+export function routeFromPath(pathname: string): ParsedAppRoute {
+  const normalized = normalizePath(pathname);
+  const global = Object.entries(globalRouteByScreen).find(([, path]) => path === normalized);
+  if (global) {
+    return {
+      screen: global[0] as AppScreen,
+      competitionSlug: null,
+      section: null,
+      teamId: null,
+    };
+  }
+
+  const parts = normalized.split('/').filter(Boolean);
+  if (parts[0] !== 'competicoes' || !parts[1] || parts.length > 5) {
+    return { screen: 'not-found', competitionSlug: null, section: null, teamId: null };
+  }
+  const routeSlug = parts[1];
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(routeSlug)) {
+    return { screen: 'not-found', competitionSlug: null, section: null, teamId: null };
+  }
+  const competitionSlug = resolveCompetitionRouteSlug(routeSlug);
+  if (parts.length === 2) {
+    return {
+      screen: screenBySection.overview,
+      competitionSlug,
+      section: 'overview',
+      teamId: null,
+    };
+  }
+
+  const section = sectionBySegment[parts[2] ?? ''];
+  if (!section) {
+    return { screen: 'not-found', competitionSlug: null, section: null, teamId: null };
+  }
+  if (section !== 'teams') {
+    if (parts.length !== 3) {
+      return { screen: 'not-found', competitionSlug: null, section: null, teamId: null };
+    }
+    return { screen: screenBySection[section], competitionSlug, section, teamId: null };
+  }
+  if (parts.length === 3) {
+    return { screen: screenBySection.teams, competitionSlug, section: 'teams', teamId: null };
+  }
+
+  const teamId = safeDecode(parts[3] ?? '');
+  const teamSection =
+    parts[4] === 'partidas'
+      ? 'team-matches'
+      : parts[4] === 'estatisticas'
+        ? 'team-statistics'
+        : parts[4] == null || parts[4] === 'atletas'
+          ? 'team-athletes'
+          : null;
+  if (!teamId || !teamSection) {
+    return { screen: 'not-found', competitionSlug: null, section: null, teamId: null };
+  }
+  return { screen: screenBySection[teamSection], competitionSlug, section: teamSection, teamId };
+}
+
+export function screenFromPath(pathname: string) {
+  return routeFromPath(pathname).screen;
+}
+
+export function competitionSlugFromPath(pathname: string) {
+  return routeFromPath(pathname).competitionSlug;
+}
+
+export function teamIdFromPath(pathname: string) {
+  return routeFromPath(pathname).teamId;
+}
+
+export function pathForCompetition(
+  competitionSlug: string,
+  section: CompetitionSection = 'overview',
+) {
+  const base = `/competicoes/${encodeURIComponent(preferredCompetitionRouteSlug(competitionSlug))}`;
+  const segment = segmentBySection[section];
+  return segment ? `${base}/${segment}` : base;
+}
+
+export function pathForLeagueTeam(
+  competitionSlug: string,
+  teamId: string,
+  section: LeagueTeamSection = 'athletes',
+) {
+  const teamSection =
+    section === 'matches'
+      ? 'team-matches'
+      : section === 'statistics'
+        ? 'team-statistics'
+        : 'team-athletes';
+  return `${pathForCompetition(competitionSlug, 'teams')}/${encodeURIComponent(teamId)}/${segmentBySection[teamSection]}`;
+}
+
+export function pathForScreen(
+  screen: AppScreen,
+  target?: { competitionSlug?: string | null; teamId?: string | null },
+) {
   if (screen === 'not-found') return '/nao-encontrado';
-  return routeByScreen[screen];
+  if (screen in globalRouteByScreen) {
+    return globalRouteByScreen[screen as Exclude<GlobalScreen, 'not-found'>];
+  }
+  const legacyTarget = legacyTargetByScreen[screen as LegacyScreen];
+  if (legacyTarget) return pathForCompetition(legacyTarget.slug, legacyTarget.section);
+  const section = competitionSectionForScreen(screen);
+  const competitionSlug = target?.competitionSlug;
+  if (!section || !competitionSlug) return '/competicoes';
+  if (section.startsWith('team-') && target?.teamId) {
+    const teamSection: LeagueTeamSection =
+      section === 'team-matches'
+        ? 'matches'
+        : section === 'team-statistics'
+          ? 'statistics'
+          : 'athletes';
+    return pathForLeagueTeam(competitionSlug, target.teamId, teamSection);
+  }
+  return pathForCompetition(competitionSlug, section);
 }
 
-export function pageTitle(screen: AppScreen) {
-  const labels: Record<AppScreen, string> = {
+export function pageTitle(screen: AppScreen, competitionName?: string | null) {
+  const staticLabels: Partial<Record<AppScreen, string>> = {
     home: 'Início',
     competitions: 'Competições',
-    days: 'Jogos da Copa 2026',
-    predictions: 'Palpites da Copa 2026',
-    knockout: 'Eliminatórias da Copa 2026',
-    ranking: 'Ranking da Copa 2026',
-    cup: 'Copa do Mundo 2026',
-    teams: 'Seleções da Copa 2026',
-    brasileirao: 'Brasileirão Série A 2026',
-    'brasileirao-predictions': 'Palpites do Brasileirão',
-    'brasileirao-standings': 'Classificação do Brasileirão',
-    'brasileirao-ranking': 'Ranking do Brasileirão',
-    'brasileirao-teams': 'Times do Brasileirão',
-    'brasileirao-team-athletes': 'Atletas do time',
-    'brasileirao-team-matches': 'Partidas do time',
-    'brasileirao-team-statistics': 'Estatísticas do time',
     admin: 'Administração',
     'not-found': 'Página não encontrada',
   };
-  return `${labels[screen]} · Bolão Sirel`;
+  const section = competitionSectionForScreen(screen);
+  const sectionLabels: Record<CompetitionSection, string> = {
+    overview: competitionName ?? 'Competição',
+    games: `Jogos${competitionName ? ` de ${competitionName}` : ''}`,
+    predictions: `Palpites${competitionName ? ` de ${competitionName}` : ''}`,
+    standings: `Classificação${competitionName ? ` de ${competitionName}` : ''}`,
+    bracket: `Chave${competitionName ? ` de ${competitionName}` : ''}`,
+    ranking: `Ranking${competitionName ? ` de ${competitionName}` : ''}`,
+    teams: `Times${competitionName ? ` de ${competitionName}` : ''}`,
+    'team-athletes': 'Atletas do time',
+    'team-matches': 'Partidas do time',
+    'team-statistics': 'Estatísticas do time',
+  };
+  const label = staticLabels[screen] ?? (section ? sectionLabels[section] : 'Bolão Sirel');
+  return `${label} · Bolão Sirel`;
 }
 
-export const worldCupScreens = new Set<AppScreen>([
-  'days',
-  'predictions',
-  'knockout',
-  'ranking',
-  'cup',
-  'teams',
-]);
-
-export const leagueScreens = new Set<AppScreen>([
-  'brasileirao',
-  'brasileirao-predictions',
-  'brasileirao-standings',
-  'brasileirao-ranking',
-  'brasileirao-teams',
-  'brasileirao-team-athletes',
-  'brasileirao-team-matches',
-  'brasileirao-team-statistics',
-]);
-
-export function competitionSlugForScreen(screen: AppScreen) {
-  if (leagueScreens.has(screen)) return 'brasileirao-serie-a';
-  if (worldCupScreens.has(screen)) return 'world-cup';
-  return null;
-}
-
-export function competitionForScreen<T extends { slug: string }>(
-  competitions: readonly T[],
-  screen: AppScreen,
-) {
-  const slug = competitionSlugForScreen(screen);
-  return slug ? (competitions.find((competition) => competition.slug === slug) ?? null) : null;
-}
-
-export function screenForCompetitionSlug(slug: string): AppScreen | null {
-  if (slug === 'brasileirao-serie-a') return 'brasileirao';
-  if (slug === 'world-cup') return 'cup';
-  return null;
-}
-
-export function screenForPrimaryDestination(
-  destination: PrimaryDestination,
-  capabilities: ReadonlySet<string>,
-): AppScreen {
-  if (destination === 'home' || destination === 'competitions') return destination;
-  if (capabilities.has('LEAGUE')) {
-    return destination === 'predictions' ? 'brasileirao-predictions' : 'brasileirao-ranking';
-  }
+export function screenForPrimaryDestination(destination: PrimaryDestination): AppScreen {
+  if (destination === 'predictions') return screenBySection.predictions;
+  if (destination === 'ranking') return screenBySection.ranking;
   return destination;
 }
 
 export function activePrimaryDestination(screen: AppScreen): PrimaryDestination | null {
   if (screen === 'home') return 'home';
   if (screen === 'competitions') return 'competitions';
-  if (screen === 'predictions' || screen === 'brasileirao-predictions') return 'predictions';
-  if (screen === 'ranking' || screen === 'brasileirao-ranking') return 'ranking';
-  if (worldCupScreens.has(screen) || leagueScreens.has(screen)) return 'competitions';
+  const section = competitionSectionForScreen(screen);
+  if (section === 'predictions') return 'predictions';
+  if (section === 'ranking') return 'ranking';
+  if (section) return 'competitions';
+  if (screen === 'predictions') return 'predictions';
+  if (screen === 'ranking') return 'ranking';
+  if (legacyTargetByScreen[screen as LegacyScreen]) return 'competitions';
   return null;
 }

@@ -22,7 +22,7 @@ export async function listSeasonTeamProfiles(
           select: {
             ...teamSummarySelect,
             profileSnapshots: {
-              where: { seasonId, provider: 'cbf-official' },
+              where: { seasonId },
               orderBy: { collectedAt: 'desc' },
               take: 1,
               select: { externalTeamId: true, state: true, collectedAt: true },
@@ -33,7 +33,8 @@ export async function listSeasonTeamProfiles(
     }),
     prisma.seasonTeam.count({ where: { seasonId } }),
     prisma.providerEntityMapping.findMany({
-      where: { seasonId, provider: 'cbf-official', entityType: 'TEAM' },
+      where: { seasonId, entityType: 'TEAM' },
+      orderBy: { collectedAt: 'desc' },
       select: { internalId: true, externalId: true },
     }),
   ]);
@@ -48,7 +49,7 @@ export function findSeasonTeamProfile(seasonId: string, teamId: string) {
         select: {
           ...teamSummarySelect,
           profileSnapshots: {
-            where: { seasonId, provider: 'cbf-official' },
+            where: { seasonId },
             orderBy: { collectedAt: 'desc' },
             take: 1,
           },

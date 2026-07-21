@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { CompetitionDto } from '@bolao/shared';
 import { useCompetition } from '../../app/CompetitionContext';
 import { AsyncState } from '../../components/AsyncState';
 import { normalizeCapabilities } from '../../app/CompetitionContext';
-import { pathForScreen, screenForCompetitionSlug } from '../../navigation/routes';
+import { pathForCompetition } from '../../navigation/routes';
 import { RouteLink } from '../../navigation/RouteLink';
 import { theme } from '../../theme/tokens';
 
@@ -15,10 +15,6 @@ function competitionKind(item: CompetitionDto) {
   if (capabilities.has('GROUPS') && capabilities.has('KNOCKOUT')) return 'Grupos · mata-mata';
   if (capabilities.has('KNOCKOUT')) return 'Mata-mata';
   return 'Competição';
-}
-
-function isLegacyWorldCup(item: CompetitionDto) {
-  return /world-cup|copa-do-mundo/i.test(item.slug);
 }
 
 export function CompetitionHub({ onOpen }: { onOpen: (competition: CompetitionDto) => boolean }) {
@@ -62,8 +58,7 @@ export function CompetitionHub({ onOpen }: { onOpen: (competition: CompetitionDt
         <View style={styles.list} role="list">
           {context.competitions.map((item) => {
             const selected = item.id === context.competition?.id;
-            const legacy = isLegacyWorldCup(item);
-            const destination = screenForCompetitionSlug(item.slug);
+            const legacy = item.capabilities?.workspace === 'WORLD_CUP_LEGACY';
             const kind = competitionKind(item);
             const accessibleLabel = [
               `${openingId === item.id ? 'Abrindo' : 'Abrir'} ${item.name}`,
@@ -71,7 +66,6 @@ export function CompetitionHub({ onOpen }: { onOpen: (competition: CompetitionDt
               kind,
               selected ? 'competição atual' : '',
               selected && context.season ? context.season.name : '',
-              destination ? '' : 'área ainda indisponível',
             ]
               .filter(Boolean)
               .join(', ');
@@ -100,7 +94,7 @@ export function CompetitionHub({ onOpen }: { onOpen: (competition: CompetitionDt
                 </View>
                 <View style={styles.openAction}>
                   <Text style={styles.openText}>
-                    {openingId === item.id ? 'Abrindo...' : destination ? 'Abrir' : 'Indisponível'}
+                    {openingId === item.id ? 'Abrindo...' : 'Abrir'}
                   </Text>
                   <Ionicons name="chevron-forward" size={18} color={theme.color.textMuted} />
                 </View>
@@ -111,10 +105,10 @@ export function CompetitionHub({ onOpen }: { onOpen: (competition: CompetitionDt
               selected && styles.rowSelected,
               pressed && styles.rowPressed,
             ];
-            return destination ? (
+            return (
               <RouteLink
                 key={item.id}
-                href={pathForScreen(destination)}
+                href={pathForCompetition(item.slug)}
                 accessibilityLabel={accessibleLabel}
                 disabled={Boolean(openingId)}
                 onActivate={() => openCompetition(item)}
@@ -122,17 +116,6 @@ export function CompetitionHub({ onOpen }: { onOpen: (competition: CompetitionDt
               >
                 {rowContent}
               </RouteLink>
-            ) : (
-              <Pressable
-                key={item.id}
-                accessibilityRole="button"
-                accessibilityLabel={accessibleLabel}
-                disabled={Boolean(openingId)}
-                onPress={() => openCompetition(item)}
-                style={rowStyle}
-              >
-                {rowContent}
-              </Pressable>
             );
           })}
         </View>

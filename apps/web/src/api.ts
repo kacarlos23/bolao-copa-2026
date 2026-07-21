@@ -527,16 +527,12 @@ export const api = {
         schema: competitionSeasonsResponseSchema,
       },
     ),
-  brasileiraoSeasons: () =>
-    request('/api/competitions/brasileirao-serie-a/seasons?page=1&pageSize=10', {
-      schema: competitionSeasonsResponseSchema,
-    }),
   seasonRounds: (seasonId: string) =>
     request(`/api/seasons/${seasonId}/rounds?page=1&pageSize=100`, {
       schema: roundsResponseSchema,
     }),
-  seasonUiFeature: (seasonId: string) =>
-    request<{ uiEnabled: boolean }>(`/api/seasons/${seasonId}/features`),
+  seasonUiFeature: (seasonId: string, signal?: AbortSignal) =>
+    request<{ uiEnabled: boolean }>(`/api/seasons/${seasonId}/features`, { signal }),
   seasonMatches: (seasonId: string, query: string | SeasonMatchesQuery) => {
     const options = typeof query === 'string' ? { roundId: query } : query;
     const params = new URLSearchParams({

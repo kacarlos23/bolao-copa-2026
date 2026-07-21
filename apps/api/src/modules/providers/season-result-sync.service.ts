@@ -1,14 +1,15 @@
 import { AppError } from '../../http/errors.js';
 import { prisma } from '../../prisma.js';
-import {
-  BRASILEIRAO_2026_SEASON_SLUG,
-  refreshBrasileirao2026RoundWindows,
-} from '../brasileirao/brasileirao-2026.service.js';
-import { dispatchOutboxEvent, enqueueOutboxEvent } from '../events/outbox.js';
 import { getScoreSyncSetting } from '../../services/score-sync-settings.service.js';
-import { importCbfSerieA2026TeamProfiles } from '../teams/team-profile.importer.js';
-import { CbfSerieA2026Provider } from './adapters/cbf-serie-a-2026.provider.js';
+import { dispatchOutboxEvent, enqueueOutboxEvent } from '../events/outbox.js';
+import { seasonProviderRegistry, type ProviderRuntime } from './provider-registry.js';
 import { runProviderSync, type ProviderSyncSummary } from './provider-sync.service.js';
+import {
+  getSeasonRuntimeConfig,
+  listActiveSeasonRuntimeConfigs,
+  type ConfiguredProviderType,
+  type SeasonProviderRuntimeConfig,
+} from './season-runtime-config.js';
 
 const USER_COOLDOWN_MS = 30_000;
 const RESULTS_SYNC_TIMEOUT_MS = 60_000;
@@ -60,23 +61,27 @@ function changedMatchIds(summary: ProviderSyncSummary) {
   );
 }
 
-async function assertBrasileiraoSeason(seasonId: string) {
-  const season = await prisma.competitionSeason.findUnique({
-    where: { id: seasonId },
-    select: { slug: true },
-  });
-  if (!season) throw new AppError(404, 'Temporada nao encontrada.', 'SEASON_NOT_FOUND');
-  if (season.slug !== BRASILEIRAO_2026_SEASON_SLUG) {
+async function configuredProviders(
+  seasonId: string,
+  requestedTypes: readonly ConfiguredProviderType[],
+) {
+  const runtime = await getSeasonRuntimeConfig(seasonId);
+  const providers = runtime.providers.filter((provider) =>
+    provider.types.some((type) => requestedTypes.includes(type)),
+  );
+  if (!providers.length) {
     throw new AppError(
       400,
       'Esta temporada nao possui sincronizacao publica configurada.',
       'SEASON_PROVIDER_NOT_CONFIGURED',
     );
   }
+  return providers;
 }
 
 async function assertUserCooldown(input: {
   seasonId: string;
+  providerKey: string;
   userId?: string | null;
   idempotencyKey: string;
 }) {
@@ -84,7 +89,7 @@ async function assertUserCooldown(input: {
   const exactRun = await prisma.providerSyncRun.findUnique({
     where: {
       provider_seasonId_type_idempotencyKey: {
-        provider: 'cbf-official',
+        provider: input.providerKey,
         seasonId: input.seasonId,
         type: 'RESULTS',
         idempotencyKey: `${input.idempotencyKey}:results`,
@@ -97,7 +102,7 @@ async function assertUserCooldown(input: {
   const recent = await prisma.providerSyncRun.findFirst({
     where: {
       seasonId: input.seasonId,
-      provider: 'cbf-official',
+      provider: input.providerKey,
       type: 'RESULTS',
       requestedById: input.userId,
       startedAt: { gt: new Date(Date.now() - USER_COOLDOWN_MS) },
@@ -116,6 +121,7 @@ async function assertUserCooldown(input: {
 
 async function emitCompetitionSyncEvents(input: {
   seasonId: string;
+  providerKey: string;
   results: ProviderSyncSummary;
   runs: ProviderSyncSummary[];
   profileCount?: number;
@@ -127,7 +133,7 @@ async function emitCompetitionSyncEvents(input: {
       type: 'match.updated',
       seasonId: input.seasonId,
       poolSeasonId: null,
-      payload: { matchIds, provider: 'cbf-official', changedMatches },
+      payload: { matchIds, provider: input.providerKey, changedMatches },
       idempotencyKey: `match.updated:${input.seasonId}:${input.results.runId}`,
     });
     const completedEvent = await enqueueOutboxEvent(tx, {
@@ -135,7 +141,7 @@ async function emitCompetitionSyncEvents(input: {
       seasonId: input.seasonId,
       poolSeasonId: null,
       payload: {
-        provider: 'cbf-official',
+        provider: input.providerKey,
         changedMatches,
         profileCount: input.profileCount ?? 0,
         runs: input.runs.map((run) => ({ type: run.type, runId: run.runId })),
@@ -145,25 +151,30 @@ async function emitCompetitionSyncEvents(input: {
     return [matchEvent.id, completedEvent.id];
   });
   for (const eventId of eventIds) await dispatchOutboxEvent(eventId);
-  return { changedMatches };
+  return changedMatches;
 }
 
-async function runOfficialCbfSync(input: {
+interface ProviderExecution {
+  config: SeasonProviderRuntimeConfig;
+  runtime: ProviderRuntime;
+  runs: ProviderSyncSummary[];
+  profiles: unknown[];
+}
+
+async function runConfiguredProvider(input: {
+  config: SeasonProviderRuntimeConfig;
   seasonId: string;
   userId?: string | null;
   idempotencyKey: string;
-  types: Array<'TEAMS' | 'SCHEDULE' | 'RESULTS' | 'STANDINGS'>;
+  requestedTypes: readonly ConfiguredProviderType[];
   includeProfiles?: boolean;
-}) {
-  const provider = new CbfSerieA2026Provider({
-    timeoutMs: 10_000,
-    maxBytes: 768 * 1024,
-    retries: 2,
-  });
+}): Promise<ProviderExecution> {
+  const runtime = seasonProviderRegistry.create(input.config);
+  const types = input.config.types.filter((type) => input.requestedTypes.includes(type));
   const runs: ProviderSyncSummary[] = [];
-  for (const type of input.types) {
+  for (const type of types) {
     runs.push(
-      await runProviderSync(provider, {
+      await runProviderSync(runtime.provider, {
         type,
         seasonId: input.seasonId,
         idempotencyKey: `${input.idempotencyKey}:${type.toLowerCase()}`,
@@ -171,16 +182,52 @@ async function runOfficialCbfSync(input: {
       }),
     );
   }
-  const profiles = input.includeProfiles
-    ? await importCbfSerieA2026TeamProfiles(input.seasonId)
-    : [];
-  await refreshBrasileirao2026RoundWindows(input.seasonId);
-  return { runs, profiles };
+  const profiles =
+    input.includeProfiles && input.config.includeProfiles && runtime.importProfiles
+      ? await runtime.importProfiles(input.seasonId)
+      : [];
+  await runtime.afterSync?.(input.seasonId);
+  return { config: input.config, runtime, runs, profiles };
+}
+
+async function runConfiguredSeasonSync(input: {
+  seasonId: string;
+  userId?: string | null;
+  idempotencyKey: string;
+  requestedTypes: readonly ConfiguredProviderType[];
+  includeProfiles?: boolean;
+}) {
+  const providers = await configuredProviders(input.seasonId, input.requestedTypes);
+  for (const provider of providers) {
+    await assertUserCooldown({
+      seasonId: input.seasonId,
+      providerKey: provider.key,
+      userId: input.userId,
+      idempotencyKey: input.idempotencyKey,
+    });
+  }
+  const executions: ProviderExecution[] = [];
+  for (const provider of providers) {
+    executions.push(await runConfiguredProvider({ ...input, config: provider }));
+  }
+  return executions;
 }
 
 export async function getSeasonResultSyncStatus(seasonId: string) {
+  const runtime = await getSeasonRuntimeConfig(seasonId);
+  const providerKeys = runtime.providers
+    .filter((provider) => provider.types.includes('RESULTS'))
+    .map((provider) => provider.key);
+  if (!providerKeys.length) {
+    return { status: 'NEVER' as const, lastSyncedAt: null, changedMatches: 0 };
+  }
   const latest = await prisma.providerSyncRun.findFirst({
-    where: { seasonId, provider: 'cbf-official', type: 'RESULTS', status: { not: 'RUNNING' } },
+    where: {
+      seasonId,
+      provider: { in: providerKeys },
+      type: 'RESULTS',
+      status: { not: 'RUNNING' },
+    },
     orderBy: [{ finishedAt: 'desc' }, { startedAt: 'desc' }],
     select: { status: true, finishedAt: true, updatedCount: true, insertedCount: true },
   });
@@ -200,29 +247,35 @@ export async function syncOfficialSeasonResults(input: {
   if (!idempotencyKey) {
     throw new AppError(400, 'Informe uma chave de idempotencia.', 'IDEMPOTENCY_KEY_REQUIRED');
   }
-  await assertBrasileiraoSeason(input.seasonId);
-  await assertUserCooldown({ ...input, idempotencyKey });
-
-  const { runs } = await withTimeout(
-    runOfficialCbfSync({
-      seasonId: input.seasonId,
-      userId: input.userId,
+  const executions = await withTimeout(
+    runConfiguredSeasonSync({
+      ...input,
       idempotencyKey,
-      types: ['RESULTS', 'STANDINGS'],
+      requestedTypes: ['RESULTS', 'STANDINGS'],
     }),
     RESULTS_SYNC_TIMEOUT_MS,
   );
-  const results = runs.find((run) => run.type === 'RESULTS')!;
-  const { changedMatches } = await emitCompetitionSyncEvents({
-    seasonId: input.seasonId,
-    results,
-    runs,
-  });
-
+  let changedMatches = 0;
+  for (const execution of executions) {
+    const results = execution.runs.find((run) => run.type === 'RESULTS');
+    if (!results) continue;
+    changedMatches += await emitCompetitionSyncEvents({
+      seasonId: input.seasonId,
+      providerKey: execution.config.key,
+      results,
+      runs: execution.runs,
+    });
+  }
+  const runs = executions.flatMap((execution) => execution.runs);
+  const lastSyncedAt = runs
+    .filter((run) => run.type === 'RESULTS')
+    .map((run) => run.finishedAt)
+    .sort()
+    .at(-1) ?? new Date().toISOString();
   return {
     status: changedMatches > 0 ? ('UPDATED' as const) : ('UNCHANGED' as const),
     changedMatches,
-    lastSyncedAt: results.finishedAt,
+    lastSyncedAt,
     runs: runs.map(publicSummary),
   };
 }
@@ -237,55 +290,66 @@ export async function syncOfficialSeasonCompetitionData(input: {
   if (!idempotencyKey) {
     throw new AppError(400, 'Informe uma chave de idempotencia.', 'IDEMPOTENCY_KEY_REQUIRED');
   }
-  await assertBrasileiraoSeason(input.seasonId);
-  await assertUserCooldown({ ...input, idempotencyKey });
-
-  const { runs, profiles } = await withTimeout(
-    runOfficialCbfSync({
-      seasonId: input.seasonId,
-      userId: input.userId,
+  const executions = await withTimeout(
+    runConfiguredSeasonSync({
+      ...input,
       idempotencyKey,
-      types: ['TEAMS', 'SCHEDULE', 'RESULTS', 'STANDINGS'],
-      includeProfiles: input.includeProfiles,
+      requestedTypes: ['TEAMS', 'SCHEDULE', 'RESULTS', 'STANDINGS'],
     }),
     FULL_SYNC_TIMEOUT_MS,
   );
-  const results = runs.find((run) => run.type === 'RESULTS')!;
-  const { changedMatches } = await emitCompetitionSyncEvents({
-    seasonId: input.seasonId,
-    results,
-    runs,
-    profileCount: profiles.length,
-  });
-
+  let changedMatches = 0;
+  for (const execution of executions) {
+    const results = execution.runs.find((run) => run.type === 'RESULTS');
+    if (!results) continue;
+    changedMatches += await emitCompetitionSyncEvents({
+      seasonId: input.seasonId,
+      providerKey: execution.config.key,
+      results,
+      runs: execution.runs,
+      profileCount: execution.profiles.length,
+    });
+  }
+  const runs = executions.flatMap((execution) => execution.runs);
+  const updatedProfiles = executions.reduce(
+    (total, execution) => total + execution.profiles.length,
+    0,
+  );
+  const lastSyncedAt = runs
+    .filter((run) => run.type === 'RESULTS')
+    .map((run) => run.finishedAt)
+    .sort()
+    .at(-1) ?? new Date().toISOString();
   return {
     status:
-      changedMatches > 0 ||
-      runs.some((run) => changedCount(run) > 0) ||
-      profiles.length > 0
+      changedMatches > 0 || runs.some((run) => changedCount(run) > 0) || updatedProfiles > 0
         ? ('UPDATED' as const)
         : ('UNCHANGED' as const),
     changedMatches,
-    updatedProfiles: profiles.length,
-    lastSyncedAt: results.finishedAt,
+    updatedProfiles,
+    lastSyncedAt,
     runs: runs.map(publicSummary),
   };
 }
 
-export async function runAutomaticBrasileiraoSync() {
+export async function runAutomaticSeasonSyncs() {
   const setting = await getScoreSyncSetting();
-  if (!setting.enabled) return null;
-  const season = await prisma.competitionSeason.findFirst({
-    where: { slug: BRASILEIRAO_2026_SEASON_SLUG },
-    orderBy: { year: 'desc' },
-    select: { id: true },
-  });
-  if (!season) return null;
+  if (!setting.enabled) return [];
+  const targets = await listActiveSeasonRuntimeConfigs();
   const bucket = Math.floor(Date.now() / AUTOMATIC_SYNC_BUCKET_MS);
-  return syncOfficialSeasonCompetitionData({
-    seasonId: season.id,
-    userId: null,
-    idempotencyKey: `auto:${season.id}:${bucket}`,
-    includeProfiles: false,
-  });
+  return Promise.all(
+    targets.map(async (target) => {
+      try {
+        const summary = await syncOfficialSeasonCompetitionData({
+          seasonId: target.seasonId,
+          userId: null,
+          idempotencyKey: `auto:${target.seasonId}:${bucket}`,
+          includeProfiles: false,
+        });
+        return { seasonId: target.seasonId, ok: true as const, summary };
+      } catch (error) {
+        return { seasonId: target.seasonId, ok: false as const, error };
+      }
+    }),
+  );
 }

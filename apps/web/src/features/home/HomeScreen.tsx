@@ -3,39 +3,44 @@ import { Ionicons } from '@expo/vector-icons';
 import type { User } from '../../api';
 import { useCompetition } from '../../app/CompetitionContext';
 import { AsyncState } from '../../components/AsyncState';
-import { pathForScreen, type AppScreen } from '../../navigation/routes';
+import {
+  pathForCompetition,
+  pathForScreen,
+  type AppScreen,
+  type CompetitionSection,
+} from '../../navigation/routes';
 import { RouteLink } from '../../navigation/RouteLink';
 import { theme } from '../../theme/tokens';
 
 export function HomeScreen({
   user,
   onNavigate,
+  onNavigateCompetition,
 }: {
   user: User;
   onNavigate: (screen: AppScreen) => void;
+  onNavigateCompetition: (competitionSlug: string, section: CompetitionSection) => void;
 }) {
   const context = useCompetition();
   const { width } = useWindowDimensions();
   const compact = width < 768;
-  const league = context.capabilities.has('LEAGUE');
-  const predictionScreen: AppScreen = league ? 'brasileirao-predictions' : 'predictions';
-  const rankingScreen: AppScreen = league ? 'brasileirao-ranking' : 'ranking';
-  const competitionScreen: AppScreen = league ? 'brasileirao' : 'cup';
+  const competitionSlug = context.competition?.slug;
 
   const actions: Array<{
-    screen: AppScreen;
+    screen?: AppScreen;
+    section?: CompetitionSection;
     label: string;
     description: string;
     icon: keyof typeof Ionicons.glyphMap;
   }> = [
     {
-      screen: predictionScreen,
+      section: 'predictions',
       label: 'Fazer palpites',
       description: 'Preencha os jogos abertos e acompanhe o salvamento de cada placar.',
       icon: 'create-outline',
     },
     {
-      screen: rankingScreen,
+      section: 'ranking',
       label: 'Ver minha disputa',
       description: 'Confira posição, rival mais próximo, movimento e desempates.',
       icon: 'podium-outline',
@@ -88,16 +93,22 @@ export function HomeScreen({
               {[...context.capabilities].join(' · ') || 'Temporada ativa'}
             </Text>
             <RouteLink
-              href={pathForScreen(predictionScreen)}
-              onActivate={() => onNavigate(predictionScreen)}
+              href={competitionSlug ? pathForCompetition(competitionSlug, 'predictions') : pathForScreen('competitions')}
+              onActivate={() => {
+                if (competitionSlug) onNavigateCompetition(competitionSlug, 'predictions');
+                else onNavigate('competitions');
+              }}
               style={styles.primaryAction}
             >
               <Text style={styles.primaryActionText}>Abrir palpites</Text>
               <Ionicons name="arrow-forward" size={18} color={theme.color.accentInk} />
             </RouteLink>
             <RouteLink
-              href={pathForScreen(competitionScreen)}
-              onActivate={() => onNavigate(competitionScreen)}
+              href={competitionSlug ? pathForCompetition(competitionSlug) : pathForScreen('competitions')}
+              onActivate={() => {
+                if (competitionSlug) onNavigateCompetition(competitionSlug, 'overview');
+                else onNavigate('competitions');
+              }}
               style={styles.secondaryAction}
             >
               <Text style={styles.secondaryActionText}>Ver competição</Text>
@@ -136,9 +147,19 @@ export function HomeScreen({
         <View style={styles.actionList}>
           {actions.map((item) => (
             <RouteLink
-              key={item.screen}
-              href={pathForScreen(item.screen)}
-              onActivate={() => onNavigate(item.screen)}
+              key={item.section ?? item.screen}
+              href={
+                item.section && competitionSlug
+                  ? pathForCompetition(competitionSlug, item.section)
+                  : pathForScreen(item.screen ?? 'competitions')
+              }
+              onActivate={() => {
+                if (item.section && competitionSlug) {
+                  onNavigateCompetition(competitionSlug, item.section);
+                } else {
+                  onNavigate(item.screen ?? 'competitions');
+                }
+              }}
               style={({ pressed }) => [styles.actionRow, pressed && styles.actionRowPressed]}
             >
               <View style={styles.actionIcon} accessibilityElementsHidden>

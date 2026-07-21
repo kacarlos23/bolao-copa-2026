@@ -5,7 +5,6 @@ import type {
   PublicMatchPredictionDto,
   RankingRowDto,
   RoundDto,
-  SeasonDto,
   StandingRowDto,
 } from '@bolao/shared';
 import { useCompetition } from '../../app/CompetitionContext';
@@ -15,6 +14,7 @@ import { ScoreInput } from '../../components/ScoreInput';
 import { TeamBadge } from '../../components/TeamBadge';
 import { RouteLink } from '../../navigation/RouteLink';
 import { pathForLeagueTeam } from '../../navigation/routes';
+import { enabledRankingScopes } from '../../navigation/competition-navigation';
 import { useToast } from '../../components/Toast';
 import {
   api,
@@ -52,7 +52,13 @@ import {
 
 const POOL_SLUG = 'bolao-do-trabalho';
 type RankingScope = 'overall' | 'round' | 'month' | 'turn-1' | 'turn-2';
-export type SeasonWorkspaceSection = 'all' | 'overview' | 'predictions' | 'standings' | 'ranking';
+export type SeasonWorkspaceSection =
+  | 'all'
+  | 'overview'
+  | 'matches'
+  | 'predictions'
+  | 'standings'
+  | 'ranking';
 
 function formatMatchHour(value: string, timezone: string) {
   return new Intl.DateTimeFormat('pt-BR', {
@@ -195,6 +201,7 @@ function rankingQuery(scope: RankingScope, round: RoundDto | undefined, matches:
 function standingsTable(
   rows: StandingRowDto[],
   compact: boolean,
+  competitionSlug: string,
   onOpenTeam?: (teamId: string) => void,
 ) {
   return (
@@ -217,7 +224,7 @@ function standingsTable(
             <Text style={[styles.standingCell, styles.standingPosition]}>{row.rank}</Text>
             {onOpenTeam ? (
               <RouteLink
-                href={pathForLeagueTeam(row.team.id)}
+                href={pathForLeagueTeam(competitionSlug, row.team.id)}
                 accessibilityLabel={`Abrir perfil de ${row.team.name}`}
                 onActivate={() => onOpenTeam(row.team.id)}
                 style={[styles.standingTeam, styles.standingIdentity]}
@@ -261,9 +268,10 @@ export function SeasonWorkspace({
   const { showToast } = useToast();
   const { width } = useWindowDimensions();
   const compact = width < 768;
-  const isLeague = context.capabilities.has('LEAGUE');
-  const [fallbackSeason, setFallbackSeason] = useState<SeasonDto | null>(null);
-  const season = isLeague ? context.season : fallbackSeason;
+  const season = context.season;
+  const competitionSlug = context.competition?.slug ?? '';
+  const supportsStandings = context.capabilityConfig.standings === true;
+  const rankingScopes = enabledRankingScopes(context.capabilityConfig);
   const [rounds, setRounds] = useState<RoundDto[]>([]);
   const [roundId, setRoundId] = useState('');
   const [matches, setMatches] = useState<MatchDto[]>([]);
@@ -302,7 +310,7 @@ export function SeasonWorkspace({
   const publicPredictionsRequestRef = useRef(0);
   draftRef.current = draft;
   const stablePoolSeasonKey = season ? `pool:${POOL_SLUG}:season:${season.id}` : 'pending';
-  const storageKey = draftStorageKey(currentUserId, stablePoolSeasonKey, 'league-predictions');
+  const storageKey = draftStorageKey(currentUserId, stablePoolSeasonKey, 'season-predictions');
   const timezone = season?.timezone ?? 'America/Sao_Paulo';
   const predictionDays = groupPredictionMatchesByDay(
     predictionMatches,
@@ -316,21 +324,6 @@ export function SeasonWorkspace({
   function dispatch(action: Parameters<typeof draftReducer>[1]) {
     setDraft((current) => draftReducer(current, action));
   }
-
-  useEffect(() => {
-    if (isLeague) {
-      setFallbackSeason(null);
-      return;
-    }
-    api
-      .brasileiraoSeasons()
-      .then((result) => {
-        setFallbackSeason(
-          result.seasons.find((item) => item.status === 'ACTIVE') ?? result.seasons[0] ?? null,
-        );
-      })
-      .catch((cause) => setError(errorMessage(cause)));
-  }, [isLeague]);
 
   useEffect(() => {
     if (!season) return;
@@ -349,7 +342,6 @@ export function SeasonWorkspace({
         setRounds(result.rounds);
         const active =
           result.rounds.find((round) => round.status === 'ACTIVE') ??
-          result.rounds.find((round) => round.order === 20) ??
           result.rounds[0];
         setRoundId(active?.id ?? '');
       })
@@ -358,6 +350,18 @@ export function SeasonWorkspace({
         setStatus('error');
       });
   }, [season?.id, refreshVersion]);
+
+  useEffect(() => {
+    const declaredScope =
+      scope === 'turn-1' || scope === 'turn-2'
+        ? 'TURN'
+        : scope === 'month'
+          ? 'MONTH'
+          : scope === 'round'
+            ? 'ROUND'
+            : 'OVERALL';
+    if (!rankingScopes.has(declaredScope)) setScope('overall');
+  }, [context.capabilityConfig.rankingScopes, scope]);
 
   useEffect(() => {
     if (!season || !roundId) return;
@@ -377,7 +381,12 @@ export function SeasonWorkspace({
           awardsResult,
         ] = await Promise.all([
           api.seasonMatches(season.id, roundId),
-          api.seasonStandings(season.id),
+          supportsStandings
+            ? api.seasonStandings(season.id)
+            : Promise.resolve({
+                standingsByGroup: [],
+                pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
+              }),
           api.seasonPredictions(POOL_SLUG, season.id),
           api.seasonRanking(POOL_SLUG, season.id, query),
           api.seasonRanking(
@@ -457,7 +466,15 @@ export function SeasonWorkspace({
       realtime.close();
       dataRequest.cancel();
     };
-  }, [season?.id, roundId, scope, refreshVersion, workspaceRefreshVersion, poolSeasonId]);
+  }, [
+    season?.id,
+    roundId,
+    scope,
+    refreshVersion,
+    workspaceRefreshVersion,
+    poolSeasonId,
+    supportsStandings,
+  ]);
 
   useEffect(() => {
     if (!season) return;
@@ -745,16 +762,19 @@ export function SeasonWorkspace({
   const sectionSubtitle: Record<SeasonWorkspaceSection, string> = {
     all: 'Palpites, classificação e ranking no mesmo contexto de temporada.',
     overview: 'Resumo da temporada, regras e seu progresso no bolão.',
+    matches: 'Calendário e resultados da temporada selecionada.',
     predictions: 'Escolha o dia, preencha os placares e acompanhe cada salvamento.',
-    standings: 'Tabela oficial da liga, separada dos palpites e do ranking do bolão.',
+    standings: 'Classificação esportiva da temporada, separada do ranking do bolão.',
     ranking: 'Sua posição, o rival mais próximo e os critérios de desempate.',
   };
 
   return (
-    <View style={styles.page} accessibilityLabel={season?.name ?? 'Temporada de liga'}>
+    <View style={styles.page} accessibilityLabel={season?.name ?? 'Temporada'}>
       <View style={[styles.titleRow, compact && styles.titleRowCompact]}>
         <View>
-          <Text style={styles.eyebrow}>TEMPORADA · LIGA</Text>
+          <Text style={styles.eyebrow}>
+            TEMPORADA · {[...context.capabilities].join(' · ') || 'COMPETIÇÃO'}
+          </Text>
           <Text role="heading" aria-level={1} style={styles.title}>
             {season?.name ?? 'Competição'}
           </Text>
@@ -817,7 +837,7 @@ export function SeasonWorkspace({
         </View>
       ) : null}
 
-      {section === 'ranking' || section === 'all' ? (
+      {section === 'ranking' || section === 'matches' || section === 'all' ? (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -841,6 +861,36 @@ export function SeasonWorkspace({
             );
           })}
         </ScrollView>
+      ) : null}
+
+      {section === 'matches' ? (
+        <AsyncState
+          status={status}
+          error={error}
+          emptyTitle="Nenhum jogo nesta rodada"
+          emptyMessage="Escolha outra fase ou rodada para consultar o calendário."
+          skeletonLines={5}
+        >
+          <View style={styles.standingsPage} accessibilityLabel="Jogos da temporada">
+            <View>
+              <Text style={styles.sectionEyebrow}>JOGOS</Text>
+              <Text style={styles.sectionTitle}>{selectedRound?.name ?? 'Calendário'}</Text>
+            </View>
+            {matches.map((match) => (
+              <View key={match.id} style={styles.fixtureRow}>
+                <View style={styles.matchIdentity}>
+                  <TeamBadge team={match.homeTeam} kind="crest" size={34} />
+                  <Text style={styles.matchTeam}>{match.homeTeam.name}</Text>
+                </View>
+                <Text style={styles.matchScore}>{score(match) ?? formatMatchHour(match.startsAt, timezone)}</Text>
+                <View style={[styles.matchIdentity, styles.matchIdentityAway]}>
+                  <Text style={[styles.matchTeam, styles.matchTeamAway]}>{match.awayTeam.name}</Text>
+                  <TeamBadge team={match.awayTeam} kind="crest" size={34} />
+                </View>
+              </View>
+            ))}
+          </View>
+        </AsyncState>
       ) : null}
 
       {section === 'predictions' || section === 'all' ? (
@@ -1124,7 +1174,7 @@ export function SeasonWorkspace({
         </View>
       ) : null}
 
-      {section === 'standings' || section === 'all' ? (
+      {(section === 'standings' || section === 'all') && supportsStandings ? (
         <AsyncState
           status={status}
           error={error}
@@ -1136,10 +1186,12 @@ export function SeasonWorkspace({
           <View style={styles.standingsPage}>
             <View>
               <Text style={styles.sectionEyebrow}>CLASSIFICAÇÃO</Text>
-              <Text style={styles.sectionTitle}>Tabela da liga</Text>
+              <Text style={styles.sectionTitle}>
+                {context.capabilities.has('LEAGUE') ? 'Tabela da liga' : 'Grupos da temporada'}
+              </Text>
             </View>
             {standings.length ? (
-              standingsTable(standings, compact, onOpenTeam)
+              standingsTable(standings, compact, competitionSlug, onOpenTeam)
             ) : (
               <AsyncState
                 status="empty"
@@ -1155,12 +1207,13 @@ export function SeasonWorkspace({
         <View style={styles.rankingSection}>
           {ranking.length ? (
             <PremiumRanking
-              seasonName={season?.name ?? 'Brasileirão Série A 2026'}
+              seasonName={season?.name ?? 'Competição'}
               ranking={ranking}
               roundRanking={roundRanking}
               currentUserId={currentUserId}
               scope={scope}
               onScopeChange={setScope}
+              availableScopes={rankingScopes}
               connection={connection}
               syncing={syncing}
               lastSyncedAt={lastSyncedAt}
@@ -1394,6 +1447,20 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
   },
   standingsPage: { gap: theme.space.lg, maxWidth: 920, width: '100%' },
+  fixtureRow: {
+    alignItems: 'center',
+    borderBottomColor: theme.color.borderMuted,
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    gap: theme.space.md,
+    minHeight: 68,
+    paddingVertical: theme.space.sm,
+  },
+  matchIdentity: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: theme.space.sm },
+  matchIdentityAway: { justifyContent: 'flex-end' },
+  matchTeam: { color: theme.color.text, flex: 1, fontSize: 12, fontWeight: '800' },
+  matchTeamAway: { textAlign: 'right' },
+  matchScore: { color: theme.color.gold, fontSize: 13, fontWeight: '900', minWidth: 76, textAlign: 'center' },
   sectionHeading: {
     alignItems: 'flex-end',
     flexDirection: 'row',

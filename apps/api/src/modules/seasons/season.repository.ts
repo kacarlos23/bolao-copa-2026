@@ -12,6 +12,7 @@ export const seasonSelect = {
   startsAt: true,
   endsAt: true,
   capabilities: true,
+  metadata: true,
 } satisfies Prisma.CompetitionSeasonSelect;
 
 export async function findSeasonById(seasonId: string) {

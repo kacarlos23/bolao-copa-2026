@@ -1,58 +1,58 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { SeasonDto } from '@bolao/shared';
-import {
-  leagueScreens,
-  pathForScreen,
-  worldCupScreens,
-  type AppScreen,
-} from '../navigation/routes';
+import { competitionSectionsForCapabilities } from '../navigation/competition-navigation';
+import { pathForCompetition, pathForScreen, type CompetitionSection } from '../navigation/routes';
 import { RouteLink } from '../navigation/RouteLink';
 import { theme } from '../theme/tokens';
+import { useCompetition } from './CompetitionContext';
 
 type NavItem = {
-  screen: AppScreen;
+  section: CompetitionSection;
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
 };
 
-const leagueItems: NavItem[] = [
-  { screen: 'brasileirao', label: 'Visão geral', icon: 'grid-outline' },
-  { screen: 'brasileirao-predictions', label: 'Palpites', icon: 'create-outline' },
-  { screen: 'brasileirao-standings', label: 'Classificação', icon: 'list-outline' },
-  { screen: 'brasileirao-ranking', label: 'Ranking', icon: 'podium-outline' },
-  { screen: 'brasileirao-teams', label: 'Times', icon: 'shield-outline' },
-];
-
-const worldCupItems: NavItem[] = [
-  { screen: 'cup', label: 'Visão geral', icon: 'football-outline' },
-  { screen: 'days', label: 'Jogos', icon: 'calendar-outline' },
-  { screen: 'predictions', label: 'Palpites', icon: 'create-outline' },
-  { screen: 'knockout', label: 'Eliminatórias', icon: 'git-network-outline' },
-  { screen: 'ranking', label: 'Ranking', icon: 'podium-outline' },
-  { screen: 'teams', label: 'Seleções', icon: 'people-outline' },
-];
+const itemBySection: Record<
+  Exclude<CompetitionSection, 'team-athletes' | 'team-matches' | 'team-statistics'>,
+  NavItem
+> = {
+  overview: { section: 'overview', label: 'Visão geral', icon: 'grid-outline' },
+  games: { section: 'games', label: 'Jogos', icon: 'calendar-outline' },
+  predictions: { section: 'predictions', label: 'Palpites', icon: 'create-outline' },
+  standings: { section: 'standings', label: 'Classificação', icon: 'list-outline' },
+  bracket: { section: 'bracket', label: 'Chave', icon: 'git-network-outline' },
+  ranking: { section: 'ranking', label: 'Ranking', icon: 'podium-outline' },
+  teams: { section: 'teams', label: 'Times', icon: 'shield-outline' },
+};
 
 export function CompetitionSubnav({
-  screen,
+  section,
+  competitionSlug,
   competitionName,
   seasons = [],
   selectedSeasonId,
   onNavigate,
+  onChangeCompetition,
   onSelectSeason,
 }: {
-  screen: AppScreen;
+  section?: CompetitionSection | null;
+  competitionSlug?: string | null;
   competitionName?: string | null;
   seasons?: SeasonDto[];
   selectedSeasonId?: string | null;
-  onNavigate: (screen: AppScreen) => void;
+  onNavigate: (section: CompetitionSection) => void;
+  onChangeCompetition: () => void;
   onSelectSeason?: (seasonId: string) => void;
 }) {
-  const isLeague = leagueScreens.has(screen);
-  const isWorldCup = worldCupScreens.has(screen);
-  if (!isLeague && !isWorldCup) return null;
-  const items = isLeague ? leagueItems : worldCupItems;
-  const title = competitionName ?? (isLeague ? 'Brasileirão Série A 2026' : 'Copa do Mundo 2026');
+  const context = useCompetition();
+  if (!section || !competitionSlug) return null;
+  const items = competitionSectionsForCapabilities(
+    context.capabilities,
+    context.capabilityConfig,
+  ).map((enabledSection) => itemBySection[enabledSection as keyof typeof itemBySection]);
+  const title = competitionName ?? 'Competição';
+  const legacy = context.capabilityConfig.workspace === 'WORLD_CUP_LEGACY';
 
   return (
     <View style={styles.shell}>
@@ -60,7 +60,7 @@ export function CompetitionSubnav({
         <View style={styles.contextText}>
           <View style={styles.eyebrowRow}>
             <Text style={styles.eyebrow}>COMPETIÇÃO</Text>
-            {!isLeague ? <Text style={styles.legacyBadge}>LEGADO</Text> : null}
+            {legacy ? <Text style={styles.legacyBadge}>LEGADO</Text> : null}
           </View>
           <Text style={styles.title} numberOfLines={1}>
             {title}
@@ -69,7 +69,7 @@ export function CompetitionSubnav({
         <RouteLink
           href={pathForScreen('competitions')}
           accessibilityLabel="Trocar competição"
-          onActivate={() => onNavigate('competitions')}
+          onActivate={onChangeCompetition}
           style={styles.allButton}
         >
           <Ionicons name="swap-horizontal-outline" size={17} color={theme.color.textMuted} />
@@ -113,16 +113,16 @@ export function CompetitionSubnav({
       >
         {items.map((item) => {
           const selected =
-            item.screen === screen ||
-            (item.screen === 'brasileirao-teams' && screen.startsWith('brasileirao-team-'));
+            item.section === section ||
+            (item.section === 'teams' && section.startsWith('team-'));
           return (
             <RouteLink
-              key={item.screen}
+              key={item.section}
               {...({ 'aria-current': selected ? 'page' : undefined } as never)}
-              href={pathForScreen(item.screen)}
+              href={pathForCompetition(competitionSlug, item.section)}
               accessibilityLabel={item.label}
               accessibilityState={{ selected }}
-              onActivate={() => onNavigate(item.screen)}
+              onActivate={() => onNavigate(item.section)}
               style={[styles.item, selected && styles.itemActive]}
             >
               <Ionicons

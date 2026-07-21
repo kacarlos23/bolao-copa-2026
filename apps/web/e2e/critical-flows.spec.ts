@@ -288,6 +288,45 @@ test('troca de competição/temporada abre workspace orientado a capability', as
   await expect(page.getByLabel('Placar de Brasil, mandante')).toBeVisible();
 });
 
+test('competição híbrida navega por capabilities sem consultar o Brasileirão', async ({
+  page,
+}) => {
+  const apiRequests: string[] = [];
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (url.pathname.startsWith('/api/')) apiRequests.push(`${request.method()} ${url.pathname}`);
+  });
+  await installApiMocks(page);
+  await page.goto('/competicoes/torneio-hibrido');
+
+  const navigation = page.getByRole('navigation', { name: 'Seções de Torneio Híbrido 2026' });
+  const destinations = [
+    ['Visão geral', '/competicoes/torneio-hibrido'],
+    ['Jogos', '/competicoes/torneio-hibrido/jogos'],
+    ['Palpites', '/competicoes/torneio-hibrido/palpites'],
+    ['Classificação', '/competicoes/torneio-hibrido/classificacao'],
+    ['Chave', '/competicoes/torneio-hibrido/chave'],
+    ['Ranking', '/competicoes/torneio-hibrido/ranking'],
+    ['Times', '/competicoes/torneio-hibrido/times'],
+  ] as const;
+
+  await expect(page.getByRole('heading', { level: 1, name: 'Torneio Híbrido 2026' })).toBeVisible();
+  for (const [label, path] of destinations) {
+    const link = navigation.getByRole('link', { name: label, exact: true });
+    await expect(link).toBeVisible();
+    await link.click();
+    await expect(page).toHaveURL(path);
+  }
+
+  await navigation.getByRole('link', { name: 'Ranking', exact: true }).click();
+  await expect(page.getByRole('tab', { name: /Turno 1|Turno 2/ })).toHaveCount(0);
+  await expect(page.getByText('Critérios de desempate', { exact: true })).toBeVisible();
+  expect(apiRequests.filter((request) => /brasileirao|season-league|cbf/i.test(request))).toEqual(
+    [],
+  );
+  expect(apiRequests).toContain('GET /api/seasons/season-hybrid/standings');
+});
+
 test('ranking destaca usuário, líder da rodada, distância e desempates', async ({ page }) => {
   await installApiMocks(page);
   await page.goto('/competicoes/brasileirao-serie-a-2026/ranking');
