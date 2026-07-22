@@ -248,7 +248,7 @@ export async function prepareSudamericana2026(input: {
         priority: 1,
         enabledTypes: ['TEAMS', 'STRUCTURE', 'TIES', 'SCHEDULE', 'RESULTS', 'STANDINGS'],
         cadenceSeconds: 300,
-        timeoutMs: 15_000,
+        timeoutMs: 20_000,
         active: true,
         includeProfiles: false,
         source: input.evidence.source,
@@ -256,6 +256,7 @@ export async function prepareSudamericana2026(input: {
         settings: {
           competition: SUDAMERICANA_COMPETITION_SLUG,
           fixtureName: SUDAMERICANA_2026_FIXTURE,
+          collectionStrategy: 'LIVE_SUDAMERICANA_2026',
           fallbackProviders: ['manual'],
           automaticSyncControlledByFeatureFlag: true,
         },
@@ -264,7 +265,7 @@ export async function prepareSudamericana2026(input: {
         priority: 1,
         enabledTypes: ['TEAMS', 'STRUCTURE', 'TIES', 'SCHEDULE', 'RESULTS', 'STANDINGS'],
         cadenceSeconds: 300,
-        timeoutMs: 15_000,
+        timeoutMs: 20_000,
         active: true,
         includeProfiles: false,
         source: input.evidence.source,
@@ -272,6 +273,7 @@ export async function prepareSudamericana2026(input: {
         settings: {
           competition: SUDAMERICANA_COMPETITION_SLUG,
           fixtureName: SUDAMERICANA_2026_FIXTURE,
+          collectionStrategy: 'LIVE_SUDAMERICANA_2026',
           fallbackProviders: ['manual'],
           automaticSyncControlledByFeatureFlag: true,
         },

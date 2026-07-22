@@ -92,10 +92,31 @@ export interface SeasonSyncResponse {
   changedMatches: number;
   updatedProfiles?: number;
   lastSyncedAt: string;
+  featureFlags?: CompetitionFeatureFlags;
+  featureFlagsUnchanged?: boolean;
+  supplemental?: Array<{ provider: string; summary: unknown }>;
+  warnings?: Array<{ provider: string; scope: string; message: string }>;
+  evidence?: Array<{
+    provider: string;
+    details: {
+      source?: string;
+      collectedAt?: string;
+      checksum?: string;
+      collectionTimezone?: string;
+      sourceOffset?: string;
+      timezone?: string;
+      artifacts?: Array<{ source: string; checksum: string; byteLength: number }>;
+      documents?: Array<{ url: string; checksum: string; bytes: number; collectedAt: string }>;
+    };
+  }>;
   runs: Array<{
     runId: string;
-    type: 'TEAMS' | 'SCHEDULE' | 'RESULTS' | 'STANDINGS';
-    status: 'SUCCESS' | 'PARTIAL' | 'DRY_RUN';
+    provider: string;
+    type: 'TEAMS' | 'STRUCTURE' | 'TIES' | 'SCHEDULE' | 'RESULTS' | 'STANDINGS';
+    status: 'SUCCESS' | 'PARTIAL' | 'DRY_RUN' | 'VERIFIED';
+    source: string;
+    collectedAt: string;
+    checksum: string;
     counts: {
       fetched: number;
       inserted: number;

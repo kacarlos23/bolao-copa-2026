@@ -9,6 +9,7 @@ import { recalculateScoresForMatch } from '../../services/ranking.service.js';
 import { recomputeTie } from '../ties/tie-recomputation.service.js';
 import { manualMatchOverrideSchema } from '../providers/manual-override.service.js';
 import { syncOfficialSeasonCompetitionData } from '../providers/season-result-sync.service.js';
+import { getCompetitionFeatureFlags } from '../competitions/competition-feature.service.js';
 import {
   adminRequestContext,
   createAdminPreview,
@@ -33,12 +34,17 @@ adminProviderRouter.post(
     const body = competitionDataRefreshSchema.parse(req.body);
     const context = adminRequestContext(req);
     setAdminScope(req, { seasonId: req.params.seasonId });
+    const featureFlagsBefore = await getCompetitionFeatureFlags(req.params.seasonId);
     const result = await syncOfficialSeasonCompetitionData({
       seasonId: req.params.seasonId,
       userId: req.session.user!.id,
       idempotencyKey: context.idempotencyKey,
       includeProfiles: body.includeProfiles,
     });
+    const featureFlags = await getCompetitionFeatureFlags(req.params.seasonId);
+    const featureFlagsUnchanged =
+      JSON.stringify(featureFlagsBefore) === JSON.stringify(featureFlags);
+    const response = { ...result, featureFlags, featureFlagsUnchanged };
     await prisma.adminAuditLog.create({
       data: {
         actorId: context.actorId,
@@ -50,8 +56,8 @@ adminProviderRouter.post(
         justification: body.justification,
         idempotencyKey: `audit:${context.idempotencyKey}`,
         origin: context.origin,
-        before: {},
-        after: JSON.parse(JSON.stringify(result)),
+        before: { featureFlags: featureFlagsBefore },
+        after: JSON.parse(JSON.stringify(response)),
         details: {
           affectedCount:
             result.runs.reduce(
@@ -62,7 +68,7 @@ adminProviderRouter.post(
         },
       },
     });
-    res.json(result);
+    res.json(response);
   }),
 );
 

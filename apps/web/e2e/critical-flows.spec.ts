@@ -60,10 +60,12 @@ test('Brasileirão agrupa rodadas distintas por dia e persiste o salvamento em l
     await expect(crest).toBeVisible();
     await expect
       .poll(() =>
-        crest.locator('img').evaluate(
-          (image) =>
-            image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0,
-        ),
+        crest
+          .locator('img')
+          .evaluate(
+            (image) =>
+              image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0,
+          ),
       )
       .toBe(true);
     const frame = await crest.evaluate((element) => {
@@ -143,10 +145,12 @@ test('Brasileirão agrupa rodadas distintas por dia e persiste o salvamento em l
     await expect(crest).toBeVisible();
     await expect
       .poll(() =>
-        crest.locator('img').evaluate(
-          (image) =>
-            image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0,
-        ),
+        crest
+          .locator('img')
+          .evaluate(
+            (image) =>
+              image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0,
+          ),
       )
       .toBe(true);
   }
@@ -288,9 +292,7 @@ test('troca de competição/temporada abre workspace orientado a capability', as
   await expect(page.getByLabel('Placar de Brasil, mandante')).toBeVisible();
 });
 
-test('competição híbrida navega por capabilities sem consultar o Brasileirão', async ({
-  page,
-}) => {
+test('competição híbrida navega por capabilities sem consultar o Brasileirão', async ({ page }) => {
   const apiRequests: string[] = [];
   page.on('request', (request) => {
     const url = new URL(request.url());
@@ -352,6 +354,26 @@ test('admin importa, inspeciona override e bloqueia usuário com feedback', asyn
     .last()
     .click();
   await expect(page.getByText('Usuário bloqueado.')).toBeVisible();
+});
+
+test('admin atualiza a competição pelo provider configurado e preserva o canário', async ({
+  page,
+}) => {
+  await installApiMocks(page, { admin: true });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Abrir menu de Maria' }).click();
+  await page.getByRole('button', { name: 'Administração' }).click();
+
+  const refresh = page.getByRole('button', { name: /Buscar e atualizar/ });
+  await expect(refresh).toBeEnabled();
+  await refresh.click();
+
+  await expect(page.getByLabel('Relatório da atualização da competição')).toBeVisible();
+  await expect(page.getByText(/10 lidos · 0 inseridos · 0 atualizados/)).toBeVisible();
+  await expect(
+    page.getByText('Flags preservadas: nenhuma liberação pública foi feita.'),
+  ).toBeVisible();
+  await expect(page.getByText(/sha256 a{64}/)).toBeVisible();
 });
 
 test('@rollback admin desliga flags de leitura, escrita e UI em uma ação auditável', async ({

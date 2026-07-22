@@ -4,19 +4,23 @@ import { z } from 'zod';
 import { refreshBrasileirao2026RoundWindows } from '../brasileirao/brasileirao-2026.service.js';
 import { importCbfSerieA2026TeamProfiles } from '../teams/team-profile.importer.js';
 import { CbfSerieA2026Provider } from './adapters/cbf-serie-a-2026.provider.js';
+import { FifaWorldCup2026Provider } from './adapters/fifa-world-cup-2026.provider.js';
 import { GeProvider } from './adapters/ge.provider.js';
+import { RefreshingConmebolProvider } from './adapters/refreshing-snapshot.provider.js';
 import {
   CbfCopaDoBrasilProvider,
   ConmebolProvider,
 } from './adapters/snapshot-competition.provider.js';
 import type { CompetitionDataProvider } from './competition-data-provider.js';
 import type { SeasonProviderRuntimeConfig } from './season-runtime-config.js';
+import { collectSudamericana2026Snapshot } from '../../scripts/collect-sudamericana-2026.js';
+import { syncFifaWorldCup2026LegacyKnockout } from './fifa-world-cup-2026-sync.service.js';
 
 export interface ProviderRuntime {
   provider: CompetitionDataProvider;
   evidence?: () => Promise<unknown>;
   importProfiles?: (seasonId: string) => Promise<unknown[]>;
-  afterSync?: (seasonId: string) => Promise<void>;
+  afterSync?: (seasonId: string) => Promise<unknown>;
 }
 
 export type ProviderRuntimeFactory = (config: SeasonProviderRuntimeConfig) => ProviderRuntime;
@@ -57,10 +61,20 @@ const snapshotSettingsSchema = z
   .object({
     fixtureName: z.string().trim().min(1).max(160),
     competition: z.string().trim().min(1).max(120).optional(),
+    collectionStrategy: z.enum(['IMMUTABLE_FIXTURE', 'LIVE_SUDAMERICANA_2026']).optional(),
   })
   .passthrough();
 
 export const seasonProviderRegistry = new ProviderRegistry()
+  .register('fifa-official', () => {
+    const provider = new FifaWorldCup2026Provider();
+    return {
+      provider,
+      evidence: () => provider.snapshotEvidence(),
+      afterSync: async (seasonId) =>
+        syncFifaWorldCup2026LegacyKnockout(await provider.legacyKnockoutUpdates(), seasonId),
+    };
+  })
   .register('ge', (providerConfig) => ({
     provider: new GeProvider({
       timeoutMs: providerConfig.timeoutMs,
@@ -86,16 +100,31 @@ export const seasonProviderRegistry = new ProviderRegistry()
   .register('conmebol-official', (providerConfig) => {
     const settings = snapshotSettingsSchema.parse(providerConfig.settings);
     if (!settings.competition) throw new Error('CONMEBOL provider requires competition setting.');
-    return {
-      provider: new ConmebolProvider({
-        fixtureName: settings.fixtureName,
+    if (settings.collectionStrategy === 'LIVE_SUDAMERICANA_2026') {
+      const provider = new RefreshingConmebolProvider({
         competition: settings.competition,
-      }),
+        source: providerConfig.source,
+        collectSnapshot: collectSudamericana2026Snapshot,
+      });
+      return {
+        provider,
+        evidence: () => provider.snapshotEvidence(),
+      };
+    }
+    const provider = new ConmebolProvider({
+      fixtureName: settings.fixtureName,
+      competition: settings.competition,
+    });
+    return {
+      provider,
+      evidence: () => provider.snapshotEvidence(),
     };
   })
   .register('cbf-copa-do-brasil-official', (providerConfig) => {
     const settings = snapshotSettingsSchema.parse(providerConfig.settings);
+    const provider = new CbfCopaDoBrasilProvider({ fixtureName: settings.fixtureName });
     return {
-      provider: new CbfCopaDoBrasilProvider({ fixtureName: settings.fixtureName }),
+      provider,
+      evidence: () => provider.snapshotEvidence(),
     };
   });

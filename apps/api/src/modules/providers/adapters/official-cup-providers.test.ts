@@ -1,11 +1,12 @@
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { computeTieResult } from '../../ties/tie-result.js';
 import {
   computeOfficialSnapshotChecksum,
   parseOfficialSourceSnapshot,
 } from '../official-source-snapshot.js';
 import { ManualProvider } from './manual.provider.js';
+import { RefreshingConmebolProvider } from './refreshing-snapshot.provider.js';
 import { CbfCopaDoBrasilProvider, ConmebolProvider } from './snapshot-competition.provider.js';
 
 function conmebolFixture() {
@@ -72,6 +73,29 @@ describe('providers oficiais compartilhados para copas', () => {
     await expect(sudamericana.syncStructure({ seasonId: 'sud-2026' })).resolves.toEqual(
       await libertadores.syncStructure({ seasonId: 'lib-2026' }),
     );
+  });
+
+  it('coleta uma revisao oficial nova por operacao e a reutiliza em todas as etapas', async () => {
+    const snapshot = withSnapshotChecksum({
+      ...conmebolFixture(),
+      competition: 'conmebol-sudamericana',
+      source: 'https://fixture.invalid/conmebol/sudamericana/live',
+    });
+    const collectSnapshot = vi.fn().mockResolvedValue(snapshot);
+    const provider = new RefreshingConmebolProvider({
+      competition: 'conmebol-sudamericana',
+      source: 'https://fixture.invalid/conmebol/sudamericana/live',
+      collectSnapshot,
+    });
+
+    await Promise.all([
+      provider.syncTeams({ seasonId: 'sud-2026' }),
+      provider.syncSchedule({ seasonId: 'sud-2026' }),
+      provider.syncResults({ seasonId: 'sud-2026' }),
+      provider.snapshotEvidence(),
+    ]);
+
+    expect(collectSnapshot).toHaveBeenCalledTimes(1);
   });
 
   it('preserva offset, estadio, grupo e a inversao de mando entre ida e volta', async () => {

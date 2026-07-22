@@ -726,6 +726,49 @@ async function main() {
 
       const competition = await ensureCompetition(tx);
       const season = await ensureSeason(tx, competition.id, currentSeasonStatus, startsAt, endsAt);
+      await tx.seasonProviderConfig.upsert({
+        where: {
+          seasonId_providerKey: { seasonId: season.id, providerKey: 'fifa-official' },
+        },
+        create: {
+          seasonId: season.id,
+          providerKey: 'fifa-official',
+          priority: 1,
+          enabledTypes: ['TEAMS', 'SCHEDULE', 'RESULTS'],
+          cadenceSeconds: 300,
+          timeoutMs: 20_000,
+          active: true,
+          includeProfiles: false,
+          source:
+            'https://api.fifa.com/api/v3/calendar/matches?idSeason=285023&idCompetition=17&count=500&language=pt',
+          provenance: 'world-cup-2026-official-provider-backfill',
+          settings: {
+            competition: 'world-cup',
+            year: 2026,
+            collectionStrategy: 'LIVE_FIFA_WORLD_CUP_2026',
+            legacyKnockoutAdapter: true,
+            fallbackProviders: ['manual'],
+          },
+        },
+        update: {
+          priority: 1,
+          enabledTypes: ['TEAMS', 'SCHEDULE', 'RESULTS'],
+          cadenceSeconds: 300,
+          timeoutMs: 20_000,
+          active: true,
+          includeProfiles: false,
+          source:
+            'https://api.fifa.com/api/v3/calendar/matches?idSeason=285023&idCompetition=17&count=500&language=pt',
+          provenance: 'world-cup-2026-official-provider-backfill',
+          settings: {
+            competition: 'world-cup',
+            year: 2026,
+            collectionStrategy: 'LIVE_FIFA_WORLD_CUP_2026',
+            legacyKnockoutAdapter: true,
+            fallbackProviders: ['manual'],
+          },
+        },
+      });
       const groupStage = await ensureStage(tx, {
         id: IDS.groupStage,
         seasonId: season.id,

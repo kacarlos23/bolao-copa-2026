@@ -4,6 +4,7 @@ import { getScoreSyncSetting } from '../../services/score-sync-settings.service.
 import { dispatchOutboxEvent, enqueueOutboxEvent } from '../events/outbox.js';
 import { getCompetitionFeatureFlags } from '../competitions/competition-feature.service.js';
 import { seasonProviderRegistry, type ProviderRuntime } from './provider-registry.js';
+import { redactProviderError } from './provider-utils.js';
 import { runProviderSync, type ProviderSyncSummary } from './provider-sync.service.js';
 import {
   getSeasonRuntimeConfig,
@@ -37,8 +38,12 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
 function publicSummary(summary: ProviderSyncSummary) {
   return {
     runId: summary.runId,
+    provider: summary.provider,
     type: summary.type,
     status: summary.status,
+    source: summary.source,
+    collectedAt: summary.collectedAt,
+    checksum: summary.checksum,
     counts: summary.counts,
     reused: summary.reused ?? false,
     startedAt: summary.startedAt,
@@ -159,6 +164,9 @@ interface ProviderExecution {
   runtime: ProviderRuntime;
   runs: ProviderSyncSummary[];
   profiles: unknown[];
+  supplemental: unknown | null;
+  evidence: unknown | null;
+  warnings: Array<{ scope: 'TEAM_PROFILES'; message: string }>;
 }
 
 async function runConfiguredProvider(input: {
@@ -184,12 +192,18 @@ async function runConfiguredProvider(input: {
       }),
     );
   }
-  const profiles =
-    input.includeProfiles && input.config.includeProfiles && runtime.importProfiles
-      ? await runtime.importProfiles(input.seasonId)
-      : [];
-  await runtime.afterSync?.(input.seasonId);
-  return { config: input.config, runtime, runs, profiles };
+  let profiles: unknown[] = [];
+  const warnings: ProviderExecution['warnings'] = [];
+  if (input.includeProfiles && input.config.includeProfiles && runtime.importProfiles) {
+    try {
+      profiles = await runtime.importProfiles(input.seasonId);
+    } catch (error) {
+      warnings.push({ scope: 'TEAM_PROFILES', message: redactProviderError(error) });
+    }
+  }
+  const evidence = runtime.evidence ? await runtime.evidence() : null;
+  const supplemental = runtime.afterSync ? await runtime.afterSync(input.seasonId) : null;
+  return { config: input.config, runtime, runs, profiles, supplemental, evidence, warnings };
 }
 
 async function runConfiguredSeasonSync(input: {
@@ -285,6 +299,19 @@ export async function syncOfficialSeasonResults(input: {
     changedMatches,
     lastSyncedAt,
     runs: runs.map(publicSummary),
+    supplemental: executions.flatMap((execution) =>
+      execution.supplemental == null
+        ? []
+        : [{ provider: execution.config.key, summary: execution.supplemental }],
+    ),
+    evidence: executions.flatMap((execution) =>
+      execution.evidence == null
+        ? []
+        : [{ provider: execution.config.key, details: execution.evidence }],
+    ),
+    warnings: executions.flatMap((execution) =>
+      execution.warnings.map((warning) => ({ provider: execution.config.key, ...warning })),
+    ),
   };
 }
 
@@ -339,6 +366,19 @@ export async function syncOfficialSeasonCompetitionData(input: {
     updatedProfiles,
     lastSyncedAt,
     runs: runs.map(publicSummary),
+    supplemental: executions.flatMap((execution) =>
+      execution.supplemental == null
+        ? []
+        : [{ provider: execution.config.key, summary: execution.supplemental }],
+    ),
+    evidence: executions.flatMap((execution) =>
+      execution.evidence == null
+        ? []
+        : [{ provider: execution.config.key, details: execution.evidence }],
+    ),
+    warnings: executions.flatMap((execution) =>
+      execution.warnings.map((warning) => ({ provider: execution.config.key, ...warning })),
+    ),
   };
 }
 

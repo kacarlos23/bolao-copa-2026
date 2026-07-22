@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { fetchBytesWithPolicy } from '../http/fetch-policy.js';
 import {
   computeOfficialSnapshotChecksum,
@@ -142,6 +143,45 @@ function playoffDefinition(match: JsonRecord) {
   return definition;
 }
 
+function decidedTie(legs: JsonRecord[]) {
+  if (!legs.length || !legs.every((match) => statusOf(match) === 'FINISHED')) return null;
+  const totals = new Map<string, number>();
+  for (const leg of legs) {
+    const { home, away } = teamPair(leg);
+    totals.set(
+      home.externalId,
+      (totals.get(home.externalId) ?? 0) + (leg.liveData.home_score ?? 0),
+    );
+    totals.set(
+      away.externalId,
+      (totals.get(away.externalId) ?? 0) + (leg.liveData.away_score ?? 0),
+    );
+  }
+  const [teamAId, teamBId] = [...totals.keys()];
+  const lastLeg = legs.at(-1)!;
+  const penalties = lastLeg.liveData?.scoreEntries?.pen;
+  const pair = teamPair(lastLeg);
+  const winnerFromLastMatch =
+    lastLeg.liveData?.match_winner === 'home'
+      ? pair.home.externalId
+      : lastLeg.liveData?.match_winner === 'away'
+        ? pair.away.externalId
+        : undefined;
+  const winnerTeamExternalId = penalties
+    ? winnerFromLastMatch
+    : totals.get(teamAId)! > totals.get(teamBId)!
+      ? teamAId
+      : totals.get(teamBId)! > totals.get(teamAId)!
+        ? teamBId
+        : winnerFromLastMatch;
+  return winnerTeamExternalId
+    ? {
+        winnerTeamExternalId,
+        decisionMethod: penalties ? ('PENALTIES' as const) : ('AGGREGATE' as const),
+      }
+    : null;
+}
+
 function roundWindow(matches: JsonRecord[], round: number) {
   const dates = matches
     .filter((match) => groupRound(new Date(match.matchInfo.date * 1000).toISOString()) === round)
@@ -150,11 +190,44 @@ function roundWindow(matches: JsonRecord[], round: number) {
   return { startsAt: dates.at(0), endsAt: dates.at(-1) };
 }
 
-async function main() {
-  const outputArgument = process.argv.find((argument) => argument.startsWith('--output='));
-  const output = outputArgument
-    ? resolve(outputArgument.slice('--output='.length))
-    : DEFAULT_OUTPUT;
+type FinalRoundKey = 'playoffs' | 'round-of-16' | 'quarterfinals' | 'semifinals' | 'final';
+
+function finalRoundKey(stageName: string): FinalRoundKey {
+  const value = normalizeEntityName(stageName);
+  if (value.includes('play off')) return 'playoffs';
+  if (value.includes('8th final') || value.includes('round of 16') || value.includes('octav')) {
+    return 'round-of-16';
+  }
+  if (value.includes('quarter') || value.includes('cuarto') || value.includes('quarta')) {
+    return 'quarterfinals';
+  }
+  if (value.includes('semi')) return 'semifinals';
+  if (value === 'final') return 'final';
+  throw new Error(`Unrecognized official final-stage label: ${stageName}.`);
+}
+
+function roundExternalId(stageName: string, startsAt: string) {
+  if (stageName === '1st Round') return 'round:preliminary';
+  if (stageName === 'Fase de grupos') return `round:group-${groupRound(startsAt)}`;
+  return `round:${finalRoundKey(stageName)}`;
+}
+
+function officialWindow(matches: JsonRecord[]) {
+  const dates = matches.map((match) => new Date(match.matchInfo.date * 1000).toISOString()).sort();
+  return dates.length ? { startsAt: dates.at(0), endsAt: dates.at(-1) } : {};
+}
+
+function officialRoundStatus(matches: JsonRecord[]) {
+  if (matches.length && matches.every((match) => statusOf(match) === 'FINISHED')) {
+    return 'FINISHED' as const;
+  }
+  if (matches.some((match) => ['LIVE', 'FINISHED'].includes(statusOf(match)))) {
+    return 'ACTIVE' as const;
+  }
+  return 'SCHEDULED' as const;
+}
+
+export async function collectSudamericana2026Snapshot() {
   const sourceSpecs = [
     [MANUAL_PAGE_URL, 'PAGE'],
     [MANUAL_PDF_URL, 'PDF'],
@@ -266,6 +339,15 @@ async function main() {
   const groupMatches = concreteMatches.filter(
     (match) => match.matchInfo.stage.name === 'Fase de grupos',
   );
+  const finalMatchesByRound = new Map<FinalRoundKey, JsonRecord[]>();
+  for (const match of matches.filter(
+    (candidate) => !['1st Round', 'Fase de grupos'].includes(candidate.matchInfo.stage.name),
+  )) {
+    const key = finalRoundKey(match.matchInfo.stage.name);
+    const entries = finalMatchesByRound.get(key) ?? [];
+    entries.push(match);
+    finalMatchesByRound.set(key, entries);
+  }
   const structure: JsonRecord[] = [
     {
       kind: 'STAGE',
@@ -324,9 +406,8 @@ async function main() {
       stageExternalId: 'stage:finals',
       name: 'Playoffs das oitavas',
       order: 1,
-      status: 'ACTIVE',
-      startsAt: '2026-07-21T22:00:00Z',
-      endsAt: '2026-07-31T00:30:00Z',
+      status: officialRoundStatus(finalMatchesByRound.get('playoffs') ?? []),
+      ...officialWindow(finalMatchesByRound.get('playoffs') ?? []),
       metadata: {
         format: 'TWO_LEGS',
         entrants: '8 group runners-up + 8 Libertadores third-placed',
@@ -338,7 +419,8 @@ async function main() {
       stageExternalId: 'stage:finals',
       name: 'Oitavas de final',
       order: 2,
-      status: 'SCHEDULED',
+      status: officialRoundStatus(finalMatchesByRound.get('round-of-16') ?? []),
+      ...officialWindow(finalMatchesByRound.get('round-of-16') ?? []),
       metadata: {
         format: 'TWO_LEGS',
         officialWindow: ['2026-08-12', '2026-08-19'],
@@ -356,7 +438,8 @@ async function main() {
       stageExternalId: 'stage:finals',
       name: 'Quartas de final',
       order: 3,
-      status: 'SCHEDULED',
+      status: officialRoundStatus(finalMatchesByRound.get('quarterfinals') ?? []),
+      ...officialWindow(finalMatchesByRound.get('quarterfinals') ?? []),
       metadata: {
         format: 'TWO_LEGS',
         officialWindow: ['2026-09-09', '2026-09-16'],
@@ -370,7 +453,8 @@ async function main() {
       stageExternalId: 'stage:finals',
       name: 'Semifinais',
       order: 4,
-      status: 'SCHEDULED',
+      status: officialRoundStatus(finalMatchesByRound.get('semifinals') ?? []),
+      ...officialWindow(finalMatchesByRound.get('semifinals') ?? []),
       metadata: {
         format: 'TWO_LEGS',
         officialWindow: ['2026-10-14', '2026-10-21'],
@@ -384,7 +468,8 @@ async function main() {
       stageExternalId: 'stage:finals',
       name: 'Final',
       order: 5,
-      status: 'SCHEDULED',
+      status: officialRoundStatus(finalMatchesByRound.get('final') ?? []),
+      ...officialWindow(finalMatchesByRound.get('final') ?? []),
       metadata: {
         format: 'SINGLE_MATCH',
         officialDate: '2026-11-21',
@@ -435,6 +520,7 @@ async function main() {
     const teamA = participantByName.get(normalizeEntityName(definition.teams[0]));
     const teamB = participantByName.get(normalizeEntityName(definition.teams[1]));
     if (!teamA || !teamB) throw new Error(`Participants for ${definition.key} did not resolve.`);
+    const decision = decidedTie(legs);
     ties.push({
       externalId: `tie:${definition.key}`,
       key: definition.key,
@@ -446,15 +532,114 @@ async function main() {
       teamAName: teamA.name,
       teamBName: teamB.name,
       expectedLegs: 2,
-      status: legs.every((match) => statusOf(match) === 'FINISHED') ? 'DECIDED' : 'IN_PROGRESS',
-      ...(legs.every((match) => statusOf(match) === 'FINISHED')
-        ? { decisionMethod: 'AGGREGATE' }
-        : {}),
+      status: decision
+        ? 'DECIDED'
+        : legs.some((match) => ['LIVE', 'FINISHED'].includes(statusOf(match)))
+          ? 'IN_PROGRESS'
+          : 'SCHEDULED',
+      ...(decision ?? {}),
       provenance: `${PLAYOFF_PAIRINGS_URL} | ${PLAYOFF_SCHEDULE_URL}`,
       metadata: {
         transferRule: 'Sudamericana group runner-up vs Libertadores group third-placed',
         roundOf16Opponent: definition.roundOf16Opponent,
       },
+    });
+  }
+
+  const downstreamTieByMatchId = new Map<string, { externalId: string; legNumber: 1 | 2 }>();
+  const downstreamGroups = new Map<string, JsonRecord[]>();
+  for (const match of concreteMatches.filter((candidate) => {
+    const stage = candidate.matchInfo.stage.name;
+    return !['1st Round', 'Fase de grupos', 'Knockout Round Play-offs'].includes(stage);
+  })) {
+    const participants = (match.matchInfo.contestant as JsonRecord[])
+      .map((team) => team.externalId as string)
+      .sort();
+    const key = `${finalRoundKey(match.matchInfo.stage.name)}:${participants.join(':')}`;
+    const entries = downstreamGroups.get(key) ?? [];
+    entries.push(match);
+    downstreamGroups.set(key, entries);
+  }
+  const downstreamEntries = [...downstreamGroups.entries()].sort(([left], [right]) =>
+    left.localeCompare(right),
+  );
+  for (const [index, [groupKey, groupMatches]] of downstreamEntries.entries()) {
+    const legs = groupMatches.sort((left, right) => left.matchInfo.date - right.matchInfo.date);
+    const key = finalRoundKey(legs[0].matchInfo.stage.name);
+    const expectedLegs = key === 'final' ? 1 : 2;
+    if (legs.length !== expectedLegs) continue;
+    const [teamAId, teamBId] = (legs[0].matchInfo.contestant as JsonRecord[])
+      .map((team) => team.externalId as string)
+      .sort();
+    const teamA = teamRecords.get(teamAId);
+    const teamB = teamRecords.get(teamBId);
+    if (!teamA || !teamB)
+      throw new Error(`Official tie participants did not resolve: ${groupKey}.`);
+    const allFinished = legs.every((match) => statusOf(match) === 'FINISHED');
+    const totals = new Map<string, number>([
+      [teamAId, 0],
+      [teamBId, 0],
+    ]);
+    for (const leg of legs) {
+      const { home, away } = teamPair(leg);
+      totals.set(
+        home.externalId,
+        (totals.get(home.externalId) ?? 0) + (leg.liveData.home_score ?? 0),
+      );
+      totals.set(
+        away.externalId,
+        (totals.get(away.externalId) ?? 0) + (leg.liveData.away_score ?? 0),
+      );
+    }
+    const lastLeg = legs.at(-1)!;
+    const penalties = lastLeg.liveData?.scoreEntries?.pen;
+    const winnerPosition = lastLeg.liveData?.match_winner;
+    const lastPair = teamPair(lastLeg);
+    const winnerFromLastMatch =
+      winnerPosition === 'home'
+        ? lastPair.home.externalId
+        : winnerPosition === 'away'
+          ? lastPair.away.externalId
+          : undefined;
+    const winnerTeamExternalId = penalties
+      ? winnerFromLastMatch
+      : totals.get(teamAId)! > totals.get(teamBId)!
+        ? teamAId
+        : totals.get(teamBId)! > totals.get(teamAId)!
+          ? teamBId
+          : winnerFromLastMatch;
+    const externalId = `tie:${groupKey}`;
+    ties.push({
+      externalId,
+      key: `${key}-${teamA.code ?? teamAId.slice(0, 8)}-${teamB.code ?? teamBId.slice(0, 8)}`.toLowerCase(),
+      order: index + 1,
+      stageExternalId: 'stage:finals',
+      roundExternalId: `round:${key}`,
+      teamAExternalId: teamAId,
+      teamBExternalId: teamBId,
+      teamAName: teamA.name,
+      teamBName: teamB.name,
+      expectedLegs,
+      status:
+        allFinished && winnerTeamExternalId
+          ? 'DECIDED'
+          : legs.some((match) => ['LIVE', 'FINISHED'].includes(statusOf(match)))
+            ? 'IN_PROGRESS'
+            : 'SCHEDULED',
+      ...(allFinished && winnerTeamExternalId
+        ? {
+            decisionMethod: penalties ? 'PENALTIES' : 'AGGREGATE',
+            winnerTeamExternalId,
+          }
+        : {}),
+      provenance: FIXTURES_URL,
+      metadata: { officialStage: legs[0].matchInfo.stage.name },
+    });
+    legs.forEach((leg, legIndex) => {
+      downstreamTieByMatchId.set(leg.matchInfo.externalId, {
+        externalId,
+        legNumber: (legIndex + 1) as 1 | 2,
+      });
     });
   }
 
@@ -469,12 +654,7 @@ async function main() {
           ? 'stage:groups'
           : 'stage:finals';
     const definition = stageName === 'Knockout Round Play-offs' ? playoffDefinition(match) : null;
-    const roundExternalId =
-      stageName === '1st Round'
-        ? 'round:preliminary'
-        : stageName === 'Fase de grupos'
-          ? `round:group-${groupRound(startsAt)}`
-          : 'round:playoffs';
+    const matchRoundExternalId = roundExternalId(stageName, startsAt);
     const groupName = groupByTeam.get(home.externalId);
     const playoffLegs = definition
       ? playoffMatches
@@ -494,7 +674,7 @@ async function main() {
       kickoffConfirmed: !match.matchInfo.tbc,
       status: statusOf(match),
       stageExternalId,
-      roundExternalId,
+      roundExternalId: matchRoundExternalId,
       ...(stageName === '1st Round'
         ? { tieExternalId: `tie:preliminary:${match.matchInfo.externalId}`, legNumber: 1 }
         : definition
@@ -504,7 +684,12 @@ async function main() {
                 (candidate) => candidate.matchInfo.externalId === match.matchInfo.externalId,
               ) + 1) as 1 | 2,
             }
-          : {}),
+          : downstreamTieByMatchId.has(match.matchInfo.externalId)
+            ? {
+                tieExternalId: downstreamTieByMatchId.get(match.matchInfo.externalId)!.externalId,
+                legNumber: downstreamTieByMatchId.get(match.matchInfo.externalId)!.legNumber,
+              }
+            : {}),
       ...(groupName ? { groupName } : {}),
       ...(venue ? { venue } : {}),
       providerMetadata: {
@@ -618,16 +803,25 @@ async function main() {
     provider: 'conmebol-official',
     competition: 'conmebol-sudamericana',
   });
-  if (teams.length !== 56 || schedule.length !== 128 || standings.length !== 32) {
+  if (teams.length < 56 || schedule.length < 128 || standings.length !== 32) {
     throw new Error(
-      `Unexpected official cardinality: ${teams.length} teams, ${schedule.length} matches, ${standings.length} standings.`,
+      `Incomplete official cardinality: ${teams.length} teams, ${schedule.length} matches, ${standings.length} standings.`,
     );
   }
-  if (transferredTeamIds.size !== 8 || unknownPlaceholders.length !== 16) {
+  if (transferredTeamIds.size !== 8 || unknownPlaceholders.length > 16) {
     throw new Error(
       `Unexpected transfer/TBC cardinality: ${transferredTeamIds.size} transfers, ${unknownPlaceholders.length} placeholders.`,
     );
   }
+  return snapshot;
+}
+
+async function main() {
+  const outputArgument = process.argv.find((argument) => argument.startsWith('--output='));
+  const output = outputArgument
+    ? resolve(outputArgument.slice('--output='.length))
+    : DEFAULT_OUTPUT;
+  const snapshot = await collectSudamericana2026Snapshot();
   await writeFile(output, `${JSON.stringify(snapshot, null, 2)}\n`, 'utf8');
   console.log(
     JSON.stringify(
@@ -635,20 +829,20 @@ async function main() {
         output,
         collectedAt: snapshot.collectedAt,
         checksum: snapshot.snapshotChecksum,
-        artifacts: artifacts.map(({ source, checksum, byteLength }) => ({
+        artifacts: snapshot.artifacts.map(({ source, checksum, byteLength }) => ({
           source,
           checksum,
           byteLength,
         })),
         counts: {
-          teams: teams.length,
-          structure: structure.length,
-          ties: ties.length,
-          schedule: schedule.length,
-          results: results.length,
-          standings: standings.length,
-          excludedTbcPlaceholders: unknownPlaceholders.length,
-          libertadoresTransfers: transferredTeamIds.size,
+          teams: snapshot.data.teams.length,
+          structure: snapshot.data.structure.length,
+          ties: snapshot.data.ties.length,
+          schedule: snapshot.data.schedule.length,
+          results: snapshot.data.results.length,
+          standings: snapshot.data.standings.length,
+          excludedTbcPlaceholders: snapshot.metadata.excludedUnknownPlaceholderCount,
+          libertadoresTransfers: snapshot.metadata.transferredLibertadoresTeamIds.length,
         },
       },
       null,
@@ -657,4 +851,6 @@ async function main() {
   );
 }
 
-await main();
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await main();
+}

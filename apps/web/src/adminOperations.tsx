@@ -8,7 +8,12 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { api, type GenericMatch } from './api';
+import {
+  api,
+  type CompetitionFeatureFlags,
+  type GenericMatch,
+  type SeasonSyncResponse,
+} from './api';
 import { errorMessage, request } from './services/api-client';
 import { civilDateKey, prioritizeAdminMatches } from './adminOperations.logic';
 
@@ -21,6 +26,26 @@ type Season = {
   rounds: unknown[];
   poolSeasons: PoolSeason[];
   _count: { matches: number; teams: number };
+  featureFlags: CompetitionFeatureFlags;
+  refresh: {
+    available: boolean;
+    providers: Array<{
+      providerKey: string;
+      enabledTypes: string[];
+      includeProfiles: boolean;
+      source: string;
+      provenance: string;
+    }>;
+    lastRun: {
+      provider: string;
+      status: string;
+      source: string;
+      collectedAt: string | null;
+      checksum: string | null;
+      startedAt: string;
+      finishedAt: string | null;
+    } | null;
+  };
 };
 type Preview = {
   previewId: string;
@@ -106,6 +131,7 @@ export function AdminOperationsPanel() {
   const [awayScore, setAwayScore] = useState('');
   const [liveStatus, setLiveStatus] = useState<'LIVE' | 'FINISHED'>('LIVE');
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [refreshResult, setRefreshResult] = useState<SeasonSyncResponse | null>(null);
   const [confirmation, setConfirmation] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -247,14 +273,16 @@ export function AdminOperationsPanel() {
     setBusy(true);
     setError('');
     setMessage('');
+    setRefreshResult(null);
     try {
       const result = await api.adminRefreshCompetitionData(
         selectedSeason.id,
         competitionReason,
         true,
       );
+      setRefreshResult(result);
       setMessage(
-        `Dados atualizados: ${result.changedMatches} jogo(s), ${result.updatedProfiles ?? 0} perfil(is), ${result.runs.length} etapa(s).`,
+        `${selectedSeason.name}: ${result.status === 'UPDATED' ? 'dados reconciliados' : 'fonte já estava reconciliada'}; ${result.changedMatches} jogo(s), ${result.updatedProfiles ?? 0} perfil(is), ${result.runs.length} etapa(s).`,
       );
       await load();
     } catch (cause) {
@@ -339,6 +367,7 @@ export function AdminOperationsPanel() {
               setSeasonId(season.id);
               setPoolSeasonId(season.poolSeasons[0]?.id ?? '');
               setPreview(null);
+              setRefreshResult(null);
             }}
             style={[styles.season, season.id === seasonId && styles.selected]}
           >
@@ -356,7 +385,7 @@ export function AdminOperationsPanel() {
         />
         <Module
           title="Import / sync"
-          description={`${divergences.runs.length} execucoes recentes. Use o botao abaixo para atualizar tudo pela CBF.`}
+          description={`${divergences.runs.length} execuções recentes. A fonte é escolhida pela configuração da competição, sem lógica específica no painel.`}
         />
         <Module
           title="Mappings e quarantine"
@@ -388,9 +417,27 @@ export function AdminOperationsPanel() {
         />
       </View>
       <Module
-        title="Atualizar dados da competicao"
-        description="Executa CBF oficial em uma acao: equipes, tabela, placares, resultados, classificacao e perfis de jogadores."
+        title="Atualizar informações da competição"
+        description={
+          selectedSeason?.refresh.available
+            ? `Busca agora em ${selectedSeason.refresh.providers.map((provider) => provider.providerKey).join(', ')} e reconcilia ${selectedSeason.refresh.providers.flatMap((provider) => provider.enabledTypes).join(', ')}. A ação não habilita leitura, escrita, UI pública ou sync automático.`
+            : 'Esta temporada ainda não possui uma fonte de atualização configurada.'
+        }
       >
+        {selectedSeason?.refresh.providers.map((provider) => (
+          <View key={provider.providerKey} style={styles.provider}>
+            <Text style={styles.seasonName}>{provider.providerKey}</Text>
+            <Text style={styles.meta}>{provider.source}</Text>
+          </View>
+        ))}
+        {selectedSeason ? (
+          <Text style={styles.copy}>
+            Canário atual — leitura: {selectedSeason.featureFlags.readEnabled ? 'on' : 'off'};
+            escrita: {selectedSeason.featureFlags.writeEnabled ? 'on' : 'off'}; UI:{' '}
+            {selectedSeason.featureFlags.uiEnabled ? 'on' : 'off'}; automático:{' '}
+            {selectedSeason.featureFlags.syncEnabled ? 'on' : 'off'}.
+          </Text>
+        ) : null}
         <TextInput
           accessibilityLabel="Justificativa da atualizacao da competicao"
           value={competitionReason}
@@ -401,11 +448,81 @@ export function AdminOperationsPanel() {
         />
         <View style={styles.actions}>
           <Button
-            label="Atualizar dados da competicao"
+            label={
+              selectedSeason ? `Buscar e atualizar ${selectedSeason.name}` : 'Buscar e atualizar'
+            }
             onPress={() => void refreshCompetitionData()}
-            disabled={busy || !selectedSeason || competitionReason.trim().length < 10}
+            disabled={
+              busy || !selectedSeason?.refresh.available || competitionReason.trim().length < 10
+            }
           />
         </View>
+        {refreshResult ? (
+          <View style={styles.report} accessibilityLabel="Relatório da atualização da competição">
+            <Text style={styles.seasonName}>
+              Relatório {refreshResult.status} —{' '}
+              {new Date(refreshResult.lastSyncedAt).toLocaleString('pt-BR')}
+            </Text>
+            {refreshResult.runs.map((run) => (
+              <View key={run.runId} style={styles.run}>
+                <Text style={styles.seasonName}>
+                  {run.type} · {run.status}
+                </Text>
+                <Text style={styles.meta}>
+                  {run.counts.fetched} lidos · {run.counts.inserted} inseridos ·{' '}
+                  {run.counts.updated} atualizados · {run.counts.unchanged} iguais ·{' '}
+                  {run.counts.quarantined} em quarentena
+                </Text>
+                <Text style={styles.meta}>{run.source}</Text>
+                <Text style={styles.hash}>
+                  coleta {new Date(run.collectedAt).toLocaleString('pt-BR')} · sha256{' '}
+                  {run.checksum || 'indisponível'}
+                </Text>
+              </View>
+            ))}
+            {refreshResult.evidence?.map(({ provider, details }) => (
+              <View key={`evidence:${provider}`} style={styles.run}>
+                <Text style={styles.seasonName}>Evidência oficial · {provider}</Text>
+                <Text style={styles.meta}>
+                  coleta{' '}
+                  {details.collectedAt
+                    ? new Date(details.collectedAt).toLocaleString('pt-BR')
+                    : 'não informada'}{' '}
+                  · fuso {details.collectionTimezone ?? details.timezone ?? 'não informado'}{' '}
+                  {details.sourceOffset ?? ''}
+                </Text>
+                <Text style={styles.hash}>
+                  snapshot sha256 {details.checksum ?? 'indisponível'}
+                </Text>
+                {[
+                  ...(details.artifacts ?? []),
+                  ...(details.documents ?? []).map((document) => ({
+                    source: document.url,
+                    checksum: document.checksum,
+                    byteLength: document.bytes,
+                  })),
+                ].map((artifact) => (
+                  <View key={`${provider}:${artifact.source}`}>
+                    <Text style={styles.meta}>{artifact.source}</Text>
+                    <Text style={styles.hash}>
+                      {artifact.byteLength} bytes · sha256 {artifact.checksum}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ))}
+            {refreshResult.warnings?.map((warning) => (
+              <Text key={`${warning.provider}:${warning.scope}`} style={styles.warning}>
+                Aviso {warning.provider} / {warning.scope}: {warning.message}
+              </Text>
+            ))}
+            <Text style={refreshResult.featureFlagsUnchanged ? styles.success : styles.error}>
+              {refreshResult.featureFlagsUnchanged
+                ? 'Flags preservadas: nenhuma liberação pública foi feita.'
+                : 'Atenção: as flags mudaram durante a operação; revise a auditoria.'}
+            </Text>
+          </View>
+        ) : null}
       </Module>
       <Module
         title="Placar ao vivo"
@@ -597,6 +714,10 @@ const styles = StyleSheet.create({
   scoreRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   scoreInput: { minWidth: 120 },
   confirm: { borderTopColor: '#254d75', borderTopWidth: 1, gap: 9, paddingTop: 10 },
+  provider: { borderTopColor: '#254d75', borderTopWidth: 1, paddingTop: 8 },
+  report: { borderTopColor: '#315b83', borderTopWidth: 1, gap: 9, paddingTop: 10 },
+  run: { borderLeftColor: '#34d17b', borderLeftWidth: 2, gap: 3, paddingLeft: 9 },
+  hash: { color: '#8fa5bd', fontFamily: 'monospace', fontSize: 11 },
   code: { color: '#f0c773', fontFamily: 'monospace', fontWeight: '900' },
   job: {
     alignItems: 'center',

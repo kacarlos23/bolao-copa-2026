@@ -408,20 +408,37 @@ async function processTeam(
     return { diff: quarantineDiff('TEAM', quarantine), quarantine };
   }
   if (!internal) {
-    const resolution = uniqueNameCandidate(
-      team.name,
-      seasonTeams.map((entry) => entry.team),
-    );
-    if (resolution.matches.length > 1) {
+    const codeMatches = team.code
+      ? seasonTeams
+          .map((entry) => entry.team)
+          .filter((candidate) => candidate.code?.toUpperCase() === team.code?.toUpperCase())
+      : [];
+    if (codeMatches.length > 1) {
       const quarantine = {
         externalId: team.externalId,
         reason: 'AMBIGUOUS_NAME' as const,
-        message: 'Normalized team name matched more than one internal team.',
+        message: 'Team code matched more than one internal team.',
         payload: team,
       };
       return { diff: quarantineDiff('TEAM', quarantine), quarantine };
     }
-    internal = resolution.candidate ?? undefined;
+    internal = codeMatches[0];
+    if (!internal) {
+      const resolution = uniqueNameCandidate(
+        team.name,
+        seasonTeams.map((entry) => entry.team),
+      );
+      if (resolution.matches.length > 1) {
+        const quarantine = {
+          externalId: team.externalId,
+          reason: 'AMBIGUOUS_NAME' as const,
+          message: 'Normalized team name matched more than one internal team.',
+          payload: team,
+        };
+        return { diff: quarantineDiff('TEAM', quarantine), quarantine };
+      }
+      internal = resolution.candidate ?? undefined;
+    }
   }
 
   let reusedAcrossSeasons = false;
@@ -437,11 +454,25 @@ async function processTeam(
 
     if (!internal) {
       const globalCandidates = await prisma.team.findMany({
-        where: { type: 'CLUB' },
-        select: { id: true, name: true, countryCode: true },
+        where: { type: team.type ?? 'CLUB' },
+        select: { id: true, name: true, code: true, countryCode: true },
       });
+      const codeMatches = team.code
+        ? globalCandidates.filter(
+            (candidate) => candidate.code?.toUpperCase() === team.code?.toUpperCase(),
+          )
+        : [];
+      if (codeMatches.length > 1) {
+        const quarantine = {
+          externalId: team.externalId,
+          reason: 'AMBIGUOUS_NAME' as const,
+          message: 'Team code matched more than one compatible global team.',
+          payload: team,
+        };
+        return { diff: quarantineDiff('TEAM', quarantine), quarantine };
+      }
       const resolution = uniqueGlobalClubCandidate(team.name, team.countryCode, globalCandidates);
-      if (resolution.matches.length > 1) {
+      if (!codeMatches[0] && resolution.matches.length > 1) {
         const quarantine = {
           externalId: team.externalId,
           reason: 'AMBIGUOUS_NAME' as const,
@@ -450,8 +481,9 @@ async function processTeam(
         };
         return { diff: quarantineDiff('TEAM', quarantine), quarantine };
       }
-      internal = resolution.candidate
-        ? ((await prisma.team.findUnique({ where: { id: resolution.candidate.id } })) ?? undefined)
+      const candidate = codeMatches[0] ?? resolution.candidate;
+      internal = candidate
+        ? ((await prisma.team.findUnique({ where: { id: candidate.id } })) ?? undefined)
         : undefined;
     }
     reusedAcrossSeasons = Boolean(internal);

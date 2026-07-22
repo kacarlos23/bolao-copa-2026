@@ -1,3 +1,18 @@
+import * as tls from 'node:tls';
+
+// Node 22+ can merge the operating-system trust store with its bundled roots.
+// This keeps official HTTPS collection working behind managed Windows PKI
+// without disabling certificate verification. Older supported runtimes simply
+// retain Node's bundled trust store.
+if (
+  process.platform === 'win32' &&
+  typeof tls.getCACertificates === 'function' &&
+  typeof tls.setDefaultCACertificates === 'function'
+) {
+  const certificates = [...tls.getCACertificates('default'), ...tls.getCACertificates('system')];
+  tls.setDefaultCACertificates([...new Set(certificates)]);
+}
+
 export interface FetchTextPolicy {
   timeoutMs: number;
   maxBytes: number;

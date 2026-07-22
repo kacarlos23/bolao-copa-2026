@@ -4,6 +4,31 @@
 
 Toda mutação administrativa usa uma sessão revalidada no banco, papel global `ADMIN`, CSRF, `Idempotency-Key`, justificativa com no mínimo 10 caracteres e `x-request-id`. O papel global não cria `PoolMembership`: acesso social continua dependendo de membership explícita.
 
+## Atualização de uma competição
+
+Em **Administração → Central de operação segura**, selecione a temporada e use
+**Buscar e atualizar <competição>**. O painel consulta a `SeasonProviderConfig`
+ativa da temporada e executa, na ordem, equipes, estrutura, confrontos,
+calendário, resultados e classificação conforme as capacidades daquele
+provider. Não há seleção de competição codificada no frontend.
+
+Cada execução mostra URL, `collectedAt`, timezone/offset, checksum do snapshot e
+dos artefatos, além das contagens de itens lidos, inseridos, atualizados,
+inalterados e enviados para quarentena. A operação é auditada como
+`SYNC_REQUESTED` e uma segunda execução sem mudança oficial deve retornar
+`UNCHANGED`.
+
+Uma indisponibilidade isolada de perfis de atletas aparece como aviso no
+relatório; equipes, tabela, resultados e classificação já reconciliados não são
+revertidos nem ocultados.
+
+O clique é uma atualização administrativa manual. Ele nunca altera
+`readEnabled`, `writeEnabled`, `uiEnabled` ou `syncEnabled`; o relatório confirma
+explicitamente que as quatro flags foram preservadas. A configuração atual usa
+FIFA oficial na Copa do Mundo, CBF oficial no Brasileirão e CONMEBOL oficial na
+Sul-Americana. Uma temporada sem provider ativo exibe o botão desabilitado até
+receber uma configuração persistida e auditável.
+
 Ações de alto impacto seguem duas requisições distintas:
 
 1. gerar `preview`/`dry-run` com chave idempotente própria;

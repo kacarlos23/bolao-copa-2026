@@ -42,6 +42,7 @@ vi.mock('../competitions/competition-feature.service.js', () => ({
 
 import {
   runAutomaticSeasonSyncs,
+  syncOfficialSeasonCompetitionData,
   syncOfficialSeasonResults,
 } from './season-result-sync.service.js';
 
@@ -139,6 +140,40 @@ describe('sincronização configurada por temporada', () => {
       }),
     ).rejects.toMatchObject({ code: 'SEASON_PROVIDER_NOT_CONFIGURED' });
     expect(mocks.registryCreate).not.toHaveBeenCalled();
+  });
+
+  it('preserva a atualizacao principal quando o perfil opcional esta indisponivel', async () => {
+    const configWithProfiles = { ...providerConfig, includeProfiles: true };
+    mocks.getRuntime.mockResolvedValueOnce({
+      seasonId: 'hybrid-season',
+      status: 'ACTIVE',
+      providers: [configWithProfiles],
+      standingsRule: 'LEGACY',
+    });
+    mocks.registryCreate.mockReturnValueOnce({
+      provider: { name: providerConfig.key, source: 'fixture://hybrid' },
+      importProfiles: vi.fn().mockRejectedValue(new TypeError('fetch failed')),
+      afterSync: mocks.afterSync,
+    });
+
+    const result = await syncOfficialSeasonCompetitionData({
+      seasonId: 'hybrid-season',
+      userId: 'user-1',
+      idempotencyKey: 'request-with-profile-failure',
+      includeProfiles: true,
+    });
+
+    expect(result).toMatchObject({
+      status: 'UPDATED',
+      updatedProfiles: 0,
+      warnings: [
+        {
+          provider: providerConfig.key,
+          scope: 'TEAM_PROFILES',
+          message: 'fetch failed',
+        },
+      ],
+    });
   });
 
   it('agenda todas as temporadas ativas configuradas e isola falhas', async () => {
