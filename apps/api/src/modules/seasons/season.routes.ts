@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   listMatchesQuerySchema,
+  listTiesQuerySchema,
   paginationQuerySchema,
   seasonParamsSchema,
   seasonTeamParamsSchema,
@@ -13,6 +14,7 @@ import { listSeasonStages } from '../stages/stage.use-cases.js';
 import { getSeason } from './season.use-cases.js';
 import { getSeasonStandings } from '../standings/standing.use-cases.js';
 import { getTeamProfile, listSeasonTeams } from '../teams/team.use-cases.js';
+import { listSeasonTies } from '../ties/tie.use-cases.js';
 import {
   assertCompetitionFeature,
   getCompetitionFeatureFlags,
@@ -58,6 +60,16 @@ seasonRouter.get(
     res.locals.seasonId = seasonId;
     await assertCompetitionFeature(seasonId, 'read', req.session.user!.role);
     res.json(await listSeasonMatches(seasonId, listMatchesQuerySchema.parse(req.query)));
+  }),
+);
+
+seasonRouter.get(
+  '/:seasonId/ties',
+  asyncHandler(async (req, res) => {
+    const { seasonId } = seasonParamsSchema.parse(req.params);
+    res.locals.seasonId = seasonId;
+    await assertCompetitionFeature(seasonId, 'read', req.session.user!.role);
+    res.json(await listSeasonTies(seasonId, listTiesQuerySchema.parse(req.query)));
   }),
 );
 

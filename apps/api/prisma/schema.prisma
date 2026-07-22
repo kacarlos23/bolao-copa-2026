@@ -75,6 +75,22 @@ enum ProviderEntityType {
   ROUND
   TEAM
   MATCH
+  TIE
+}
+
+enum TieStatus {
+  SCHEDULED
+  IN_PROGRESS
+  DECIDED
+  CANCELLED
+}
+
+enum TieDecisionMethod {
+  AGGREGATE
+  EXTRA_TIME
+  PENALTIES
+  WALKOVER
+  ADMINISTRATIVE
 }
 
 enum ScoreType {
@@ -236,6 +252,7 @@ model CompetitionSeason {
   teams                  SeasonTeam[]
   matchDays              MatchDay[]
   matches                Match[]
+  ties                   Tie[]
   knockoutFixtures       KnockoutFixture[]
   knockoutGenerations    KnockoutGeneration[]
   poolSeasons            PoolSeason[]
@@ -267,6 +284,7 @@ model Stage {
   season    CompetitionSeason @relation(fields: [seasonId], references: [id])
   rounds    Round[]
   matches   Match[]
+  ties      Tie[]
 
   @@unique([seasonId, slug])
   @@unique([seasonId, order])
@@ -288,6 +306,7 @@ model Round {
   season           CompetitionSeason @relation(fields: [seasonId], references: [id])
   stage            Stage             @relation(fields: [stageId], references: [id])
   matches          Match[]
+  ties             Tie[]
   rankingSnapshots RankingSnapshot[]
   rankingMovements RankingMovement[]
 
@@ -297,25 +316,28 @@ model Round {
 }
 
 model Team {
-  id                    String            @id @default(cuid())
-  externalId            String            @unique
+  id                    String                @id @default(cuid())
+  externalId            String                @unique
   name                  String
   code                  String?
   flagUrl               String?
   type                  TeamType?
   crestUrl              String?
   metadata              Json?
-  createdAt             DateTime          @default(now())
-  updatedAt             DateTime          @updatedAt
-  homeMatches           Match[]           @relation("HomeTeam")
-  awayMatches           Match[]           @relation("AwayTeam")
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  homeMatches           Match[]               @relation("HomeTeam")
+  awayMatches           Match[]               @relation("AwayTeam")
+  tiesAsTeamA           Tie[]                 @relation("TieTeamA")
+  tiesAsTeamB           Tie[]                 @relation("TieTeamB")
+  wonTies               Tie[]                 @relation("TieWinnerTeam")
   fifaRank              Int?
-  knockoutHomeFixtures  KnockoutFixture[] @relation("KnockoutHomeTeam")
-  knockoutAwayFixtures  KnockoutFixture[] @relation("KnockoutAwayTeam")
-  knockoutWinners       KnockoutFixture[] @relation("KnockoutWinnerTeam")
-  knockoutPickHome      KnockoutPick[]    @relation("KnockoutPickHomeTeam")
-  knockoutPickAway      KnockoutPick[]    @relation("KnockoutPickAwayTeam")
-  knockoutPickAdvancing KnockoutPick[]    @relation("KnockoutPickAdvancingTeam")
+  knockoutHomeFixtures  KnockoutFixture[]     @relation("KnockoutHomeTeam")
+  knockoutAwayFixtures  KnockoutFixture[]     @relation("KnockoutAwayTeam")
+  knockoutWinners       KnockoutFixture[]     @relation("KnockoutWinnerTeam")
+  knockoutPickHome      KnockoutPick[]        @relation("KnockoutPickHomeTeam")
+  knockoutPickAway      KnockoutPick[]        @relation("KnockoutPickAwayTeam")
+  knockoutPickAdvancing KnockoutPick[]        @relation("KnockoutPickAdvancingTeam")
   seasons               SeasonTeam[]
   profileSnapshots      TeamProfileSnapshot[]
 
@@ -535,36 +557,46 @@ model MatchDay {
 }
 
 model Match {
-  id                 String                         @id @default(cuid())
-  externalId         String                         @unique
-  matchDayId         String
-  seasonId           String?
-  stageId            String?
-  roundId            String?
-  homeTeamId         String
-  awayTeamId         String
-  startsAt           DateTime
-  predictionClosesAt DateTime?
-  status             MatchStatus                    @default(SCHEDULED)
-  homeScore          Int?
-  awayScore          Int?
-  finalHomeScore     Int?
-  finalAwayScore     Int?
-  rawPayload         Json?
-  lastSyncedAt       DateTime?
-  createdAt          DateTime                       @default(now())
-  updatedAt          DateTime                       @updatedAt
-  matchDay           MatchDay                       @relation(fields: [matchDayId], references: [id], onDelete: Cascade)
-  season             CompetitionSeason?             @relation(fields: [seasonId], references: [id], onDelete: SetNull)
-  stage              Stage?                         @relation(fields: [stageId], references: [id], onDelete: SetNull)
-  round              Round?                         @relation(fields: [roundId], references: [id], onDelete: SetNull)
-  homeTeam           Team                           @relation("HomeTeam", fields: [homeTeamId], references: [id])
-  awayTeam           Team                           @relation("AwayTeam", fields: [awayTeamId], references: [id])
-  predictions        Prediction[]
-  scores             PredictionScore[]
-  groupSimulations   KnockoutGroupSimulationScore[]
-  manualOverride     MatchOverride?
+  id                  String                         @id @default(cuid())
+  externalId          String                         @unique
+  matchDayId          String
+  seasonId            String?
+  stageId             String?
+  roundId             String?
+  tieId               String?
+  legNumber           Int?
+  homeTeamId          String
+  awayTeamId          String
+  startsAt            DateTime
+  predictionClosesAt  DateTime?
+  status              MatchStatus                    @default(SCHEDULED)
+  homeScore           Int?
+  awayScore           Int?
+  finalHomeScore      Int?
+  finalAwayScore      Int?
+  regulationHomeScore Int?
+  regulationAwayScore Int?
+  extraTimeHomeScore  Int?
+  extraTimeAwayScore  Int?
+  penaltyHomeScore    Int?
+  penaltyAwayScore    Int?
+  rawPayload          Json?
+  lastSyncedAt        DateTime?
+  createdAt           DateTime                       @default(now())
+  updatedAt           DateTime                       @updatedAt
+  matchDay            MatchDay                       @relation(fields: [matchDayId], references: [id], onDelete: Cascade)
+  season              CompetitionSeason?             @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+  stage               Stage?                         @relation(fields: [stageId], references: [id], onDelete: SetNull)
+  round               Round?                         @relation(fields: [roundId], references: [id], onDelete: SetNull)
+  tie                 Tie?                           @relation(fields: [tieId], references: [id], onDelete: Restrict)
+  homeTeam            Team                           @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam            Team                           @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  predictions         Prediction[]
+  scores              PredictionScore[]
+  groupSimulations    KnockoutGroupSimulationScore[]
+  manualOverride      MatchOverride?
 
+  @@unique([tieId, legNumber])
   @@index([matchDayId, startsAt])
   @@index([status, startsAt])
   @@index([homeTeamId])
@@ -574,6 +606,47 @@ model Match {
   @@index([seasonId, roundId, startsAt])
   @@index([stageId, startsAt])
   @@index([roundId, startsAt])
+  @@index([tieId, status])
+}
+
+model Tie {
+  id                  String             @id @default(cuid())
+  seasonId            String
+  stageId             String
+  roundId             String
+  key                 String
+  order               Int
+  teamAId             String
+  teamBId             String
+  expectedLegs        Int
+  status              TieStatus          @default(SCHEDULED)
+  decisionMethod      TieDecisionMethod?
+  winnerTeamId        String?
+  aggregateTeamAScore Int?
+  aggregateTeamBScore Int?
+  decidedAt           DateTime?
+  lastRecomputedAt    DateTime?
+  provenance          String
+  metadata            Json?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  season              CompetitionSeason  @relation(fields: [seasonId], references: [id], onDelete: Restrict)
+  stage               Stage              @relation(fields: [stageId], references: [id], onDelete: Restrict)
+  round               Round              @relation(fields: [roundId], references: [id], onDelete: Restrict)
+  teamA               Team               @relation("TieTeamA", fields: [teamAId], references: [id], onDelete: Restrict)
+  teamB               Team               @relation("TieTeamB", fields: [teamBId], references: [id], onDelete: Restrict)
+  winnerTeam          Team?              @relation("TieWinnerTeam", fields: [winnerTeamId], references: [id], onDelete: Restrict)
+  matches             Match[]
+
+  @@unique([seasonId, key])
+  @@unique([roundId, order])
+  @@unique([id, seasonId])
+  @@unique([id, seasonId, stageId, roundId])
+  @@index([seasonId, status, order])
+  @@index([stageId, roundId, order])
+  @@index([teamAId])
+  @@index([teamBId])
+  @@index([winnerTeamId])
 }
 
 model Prediction {
@@ -1113,30 +1186,30 @@ model AdminOperation {
 }
 
 model AdminJob {
-  id                      String         @id @default(cuid())
-  type                    String
-  status                  AdminJobStatus @default(QUEUED)
-  seasonId                String
-  poolSeasonId            String?
-  ruleSetVersionId        String?
-  requestedById           String
-  requestId               String
-  justification           String
-  idempotencyKey          String         @unique
-  payload                 Json
-  preview                 Json
-  affectedCount           Int            @default(0)
-  processedCount          Int            @default(0)
-  attempts                Int            @default(0)
-  maxAttempts             Int            @default(3)
-  pauseRequested          Boolean        @default(false)
-  result                  Json?
-  errorCode               String?
-  errorMessage            String?
-  createdAt               DateTime       @default(now())
-  startedAt               DateTime?
-  finishedAt              DateTime?
-  updatedAt               DateTime       @updatedAt
+  id               String         @id @default(cuid())
+  type             String
+  status           AdminJobStatus @default(QUEUED)
+  seasonId         String
+  poolSeasonId     String?
+  ruleSetVersionId String?
+  requestedById    String
+  requestId        String
+  justification    String
+  idempotencyKey   String         @unique
+  payload          Json
+  preview          Json
+  affectedCount    Int            @default(0)
+  processedCount   Int            @default(0)
+  attempts         Int            @default(0)
+  maxAttempts      Int            @default(3)
+  pauseRequested   Boolean        @default(false)
+  result           Json?
+  errorCode        String?
+  errorMessage     String?
+  createdAt        DateTime       @default(now())
+  startedAt        DateTime?
+  finishedAt       DateTime?
+  updatedAt        DateTime       @updatedAt
 
   @@index([status, createdAt])
   @@index([seasonId, poolSeasonId, createdAt])

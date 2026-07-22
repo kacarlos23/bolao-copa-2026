@@ -70,13 +70,29 @@ function sha256Rows(rows) {
   return hash.digest('hex');
 }
 
+const EXPAND_ONLY_CONTENT_COLUMNS = {
+  Match: [
+    'tieId',
+    'legNumber',
+    'regulationHomeScore',
+    'regulationAwayScore',
+    'extraTimeHomeScore',
+    'extraTimeAwayScore',
+    'penaltyHomeScore',
+    'penaltyAwayScore',
+  ],
+};
+
 async function createContentHashes(client, hasPoolSeason) {
   if (!hasPoolSeason) {
     const legacyHashes = {};
     for (const tableName of Object.keys(BUSINESS_HASH_TABLES)) {
       const identifier = tableName.replaceAll('"', '""');
+      const ignoredColumns = EXPAND_ONLY_CONTENT_COLUMNS[tableName] ?? [];
       const rows = await client.query(
-        `SELECT to_jsonb(source_row)::text AS row FROM public."${identifier}" source_row`,
+        `SELECT (to_jsonb(source_row) - $1::text[])::text AS row
+         FROM public."${identifier}" source_row`,
+        [ignoredColumns],
       );
       legacyHashes[tableName] = sha256Rows(rows.rows);
     }
@@ -90,12 +106,10 @@ async function createContentHashes(client, hasPoolSeason) {
     Stage: 'WHERE source_row."seasonId" = $1',
     Round: 'WHERE source_row."seasonId" = $1',
     SeasonTeam: 'WHERE source_row."seasonId" = $1',
-    Team:
-      'WHERE source_row."id" IN (SELECT "teamId" FROM "SeasonTeam" WHERE "seasonId" = $1)',
+    Team: 'WHERE source_row."id" IN (SELECT "teamId" FROM "SeasonTeam" WHERE "seasonId" = $1)',
     MatchDay: 'WHERE source_row."seasonId" = $1',
     Match: 'WHERE source_row."seasonId" = $1',
-    Prediction:
-      'WHERE source_row."matchId" IN (SELECT "id" FROM "Match" WHERE "seasonId" = $1)',
+    Prediction: 'WHERE source_row."matchId" IN (SELECT "id" FROM "Match" WHERE "seasonId" = $1)',
     PredictionScore:
       'WHERE source_row."matchId" IN (SELECT "id" FROM "Match" WHERE "seasonId" = $1)',
     KnockoutFixture: 'WHERE source_row."seasonId" = $1',
@@ -109,8 +123,7 @@ async function createContentHashes(client, hasPoolSeason) {
     Pool: 'WHERE source_row."id" IN (SELECT "poolId" FROM "PoolSeason" WHERE "id" = $2)',
     ScoringRuleSet:
       'WHERE source_row."id" IN (SELECT "scoringRuleSetId" FROM "PoolSeason" WHERE "id" = $2)',
-    MatchOverride:
-      'WHERE source_row."matchId" IN (SELECT "id" FROM "Match" WHERE "seasonId" = $1)',
+    MatchOverride: 'WHERE source_row."matchId" IN (SELECT "id" FROM "Match" WHERE "seasonId" = $1)',
   };
   const contentHashes = {};
 
@@ -124,9 +137,11 @@ async function createContentHashes(client, hasPoolSeason) {
         ? [WORLD_CUP_SEASON_ID, WORLD_CUP_POOL_SEASON_ID]
         : [WORLD_CUP_SEASON_ID]
       : [WORLD_CUP_POOL_SEASON_ID];
+    const ignoredColumns = EXPAND_ONLY_CONTENT_COLUMNS[tableName] ?? [];
     const rows = await client.query(
-      `SELECT to_jsonb(source_row)::text AS row FROM public."${identifier}" source_row ${queryWhere}`,
-      parameters,
+      `SELECT (to_jsonb(source_row) - $${parameters.length + 1}::text[])::text AS row
+       FROM public."${identifier}" source_row ${queryWhere}`,
+      [...parameters, ignoredColumns],
     );
     contentHashes[tableName] = sha256Rows(rows.rows);
   }
@@ -138,7 +153,14 @@ const BUSINESS_HASH_TABLES = {
   User: ['sessionVersion'],
   Team: ['type', 'crestUrl', 'updatedAt'],
   MatchDay: ['seasonId', 'updatedAt'],
-  Match: ['seasonId', 'stageId', 'roundId', 'predictionClosesAt', 'updatedAt'],
+  Match: [
+    'seasonId',
+    'stageId',
+    'roundId',
+    'predictionClosesAt',
+    'updatedAt',
+    ...EXPAND_ONLY_CONTENT_COLUMNS.Match,
+  ],
   Prediction: ['poolSeasonId', 'updatedAt'],
   PredictionScore: ['poolSeasonId'],
   KnockoutFixture: ['seasonId', 'updatedAt'],
@@ -179,7 +201,8 @@ async function createSnapshot(client, { includeBusinessHashes = false } = {}) {
   const matchScope = hasPoolSeason ? 'WHERE "seasonId" = $1' : '';
   const poolScope = hasPoolSeason ? 'WHERE "poolSeasonId" = $2' : '';
   const scorePoolScope = hasPoolSeason ? 'WHERE "poolSeasonId" = $1' : '';
-  const countsResult = await client.query(`
+  const countsResult = await client.query(
+    `
     SELECT
       (SELECT COUNT(*)::text FROM "User" WHERE "status" = 'ACTIVE') AS "activeUsers",
       (SELECT COUNT(*)::text FROM "Match" ${matchScope}) AS "matches",
@@ -198,9 +221,12 @@ async function createSnapshot(client, { includeBusinessHashes = false } = {}) {
       (SELECT COUNT(*)::text FROM "Prediction" ${poolScope}) AS "matchPredictions",
       (SELECT COUNT(*)::text FROM "KnockoutPick" ${poolScope}) AS "knockoutPicks",
       (SELECT COUNT(*)::text FROM "KnockoutGroupSimulationScore" ${poolScope}) AS "knockoutGroupSimulations"
-  `, hasPoolSeason ? [WORLD_CUP_SEASON_ID, WORLD_CUP_POOL_SEASON_ID] : []);
+  `,
+    hasPoolSeason ? [WORLD_CUP_SEASON_ID, WORLD_CUP_POOL_SEASON_ID] : [],
+  );
 
-  const totalsResult = await client.query(`
+  const totalsResult = await client.query(
+    `
     WITH all_scores AS (
       SELECT "userId", "points", "scoreType"::text AS "scoreType", "isFinal"
       FROM "PredictionScore"
@@ -240,7 +266,9 @@ async function createSnapshot(client, { includeBusinessHashes = false } = {}) {
     LEFT JOIN score_totals totals ON totals."userId" = users."id"
     WHERE users."role" = 'USER'
     ORDER BY users."id" ASC
-  `, hasPoolSeason ? [WORLD_CUP_POOL_SEASON_ID] : []);
+  `,
+    hasPoolSeason ? [WORLD_CUP_POOL_SEASON_ID] : [],
+  );
 
   const counts = countsResult.rows[0];
   const userTotals = totalsResult.rows.map(mapUserTotal);

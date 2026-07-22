@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   apiErrorSchema,
   listMatchesQuerySchema,
+  matchDtoSchema,
   realtimeEventEnvelopeSchema,
+  tieDtoSchema,
   teamProfileDtoSchema,
   upsertSeasonPredictionsSchema,
 } from './competition-contracts.js';
@@ -19,6 +21,93 @@ describe('generic competition contracts', () => {
         seasonId: 'must-not-be-trusted-from-body',
       }),
     ).toThrow();
+  });
+
+  it('keeps regulation, extra time, penalties, aggregate and winner unambiguous', () => {
+    const teamA = { id: 'team-a', name: 'A', code: null, flagUrl: null, crestUrl: null };
+    const teamB = { id: 'team-b', name: 'B', code: null, flagUrl: null, crestUrl: null };
+    const tie = {
+      id: 'tie-1',
+      seasonId: 'season-1',
+      stageId: 'stage-1',
+      roundId: 'round-1',
+      key: 'final',
+      order: 1,
+      expectedLegs: 1,
+      status: 'DECIDED',
+      decisionMethod: 'PENALTIES',
+      aggregateTeamAScore: 1,
+      aggregateTeamBScore: 1,
+      decidedAt: '2026-07-21T12:00:00.000Z',
+      lastRecomputedAt: '2026-07-21T12:00:00.000Z',
+      provenance: 'fixture:test',
+      metadata: null,
+      teamA,
+      teamB,
+      winnerTeam: teamA,
+      matches: [
+        {
+          id: 'match-1',
+          seasonId: 'season-1',
+          stageId: 'stage-1',
+          roundId: 'round-1',
+          tieId: 'tie-1',
+          legNumber: 1,
+          matchDayId: 'day-1',
+          startsAt: '2026-07-21T10:00:00.000Z',
+          predictionClosesAt: null,
+          status: 'FINISHED',
+          homeScore: 1,
+          awayScore: 1,
+          finalHomeScore: null,
+          finalAwayScore: null,
+          regulationHomeScore: 1,
+          regulationAwayScore: 1,
+          extraTimeHomeScore: 0,
+          extraTimeAwayScore: 0,
+          penaltyHomeScore: 5,
+          penaltyAwayScore: 4,
+          homeTeam: teamA,
+          awayTeam: teamB,
+        },
+      ],
+    };
+
+    expect(tieDtoSchema.parse(tie)).toEqual(tie);
+    expect(() =>
+      tieDtoSchema.parse({
+        ...tie,
+        matches: [{ ...tie.matches[0], regulationAwayScore: undefined }],
+      }),
+    ).toThrow();
+  });
+
+  it('defaults additive Tie fields to null for legacy Match payloads', () => {
+    const team = { id: 'team-a', name: 'A', code: null, flagUrl: null, crestUrl: null };
+    const parsed = matchDtoSchema.parse({
+      id: 'match-legacy',
+      seasonId: 'season-1',
+      stageId: null,
+      roundId: null,
+      matchDayId: 'day-1',
+      startsAt: '2026-07-21T10:00:00.000Z',
+      predictionClosesAt: null,
+      status: 'FINISHED',
+      homeScore: 1,
+      awayScore: 0,
+      finalHomeScore: 1,
+      finalAwayScore: 0,
+      homeTeam: team,
+      awayTeam: { ...team, id: 'team-b', name: 'B' },
+    });
+
+    expect(parsed).toMatchObject({
+      tieId: null,
+      legNumber: null,
+      regulationHomeScore: null,
+      extraTimeHomeScore: null,
+      penaltyHomeScore: null,
+    });
   });
 
   it('coerces bounded pagination while keeping query schemas strict', () => {

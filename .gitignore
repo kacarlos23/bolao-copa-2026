@@ -8,6 +8,7 @@ coverage/
 output/playwright/
 .playwright-cli/
 output/release-gates/
+output/tie-migration-rehearsal/
 .env
 .env.*
 !.env.example

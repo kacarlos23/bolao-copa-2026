@@ -21,6 +21,8 @@ export const matchSelect = {
   seasonId: true,
   stageId: true,
   roundId: true,
+  tieId: true,
+  legNumber: true,
   matchDayId: true,
   startsAt: true,
   predictionClosesAt: true,
@@ -29,6 +31,12 @@ export const matchSelect = {
   awayScore: true,
   finalHomeScore: true,
   finalAwayScore: true,
+  regulationHomeScore: true,
+  regulationAwayScore: true,
+  extraTimeHomeScore: true,
+  extraTimeAwayScore: true,
+  penaltyHomeScore: true,
+  penaltyAwayScore: true,
   homeTeam: { select: teamSelect },
   awayTeam: { select: teamSelect },
 } satisfies Prisma.MatchSelect;
@@ -39,7 +47,12 @@ function whereFor(seasonId: string, filters: MatchFilters): Prisma.MatchWhereInp
     ...(filters.roundId ? { roundId: filters.roundId } : {}),
     ...(filters.status ? { status: filters.status } : {}),
     ...(filters.from || filters.to
-      ? { startsAt: { ...(filters.from ? { gte: filters.from } : {}), ...(filters.to ? { lt: filters.to } : {}) } }
+      ? {
+          startsAt: {
+            ...(filters.from ? { gte: filters.from } : {}),
+            ...(filters.to ? { lt: filters.to } : {}),
+          },
+        }
       : {}),
   };
 }

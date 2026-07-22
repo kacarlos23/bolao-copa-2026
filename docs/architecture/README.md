@@ -6,27 +6,28 @@ conclusão da Etapa 2.
 
 ## Glossário canônico
 
-| Termo | Definição |
-|---|---|
-| Competition | Identidade permanente de um torneio, independente de ano, como Copa do Mundo. |
-| CompetitionSeason | Uma edição esportiva com timezone, calendário, status e capabilities, como Copa do Mundo 2026. Nunca usar `Season` isoladamente em contrato. |
-| Stage | Segmento de uma CompetitionSeason com formato próprio: liga, grupos ou mata-mata. |
-| Round | Unidade ordenada dentro de um Stage; não é sinônimo de data. |
-| Match | Partida pertencente a exatamente uma CompetitionSeason; durante expand a FK legada pode ser nullable, mas o runtime novo nunca cria partida sem contexto. |
-| Pool | Grupo social permanente do bolão. |
-| PoolMembership | Vínculo e papel social de um User em um Pool. Admin global não implica membership. |
-| PoolSeason | Participação de um Pool em uma CompetitionSeason, com regras e janela pontuável próprias. |
-| Prediction | Palpite de User para Match dentro de PoolSeason. |
-| PredictionScore | Pontuação derivada e versionada de uma Prediction. |
-| Standings | Classificação esportiva dos times; não é ranking do bolão. |
-| Ranking | Ordenação de participantes de um PoolSeason. |
-| Capability | Característica declarativa (`LEAGUE`, `GROUPS`, `KNOCKOUT`, `TWO_LEGS`) que orienta comportamento sem condicional por slug. |
-| Rule set | Versão imutável das regras de pontuação/desempate. |
-| Provider | Fonte externa acessada por adapter, nunca dona do modelo interno. |
-| Mapping | Relação auditável entre identificador externo e entidade interna. |
-| Override | Alteração manual com ator, justificativa e provenance, com precedência sobre sync automático. |
-| Alias da Copa | Rota legada que resolve o contexto fixo da Copa e delega ao mesmo caso de uso genérico; não é cópia de regra. |
-| Contract phase | Remoção posterior de coluna/rota antiga, proibida nas Etapas 0–2. |
+| Termo             | Definição                                                                                                                                                 |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Competition       | Identidade permanente de um torneio, independente de ano, como Copa do Mundo.                                                                             |
+| CompetitionSeason | Uma edição esportiva com timezone, calendário, status e capabilities, como Copa do Mundo 2026. Nunca usar `Season` isoladamente em contrato.              |
+| Stage             | Segmento de uma CompetitionSeason com formato próprio: liga, grupos ou mata-mata.                                                                         |
+| Round             | Unidade ordenada dentro de um Stage; não é sinônimo de data.                                                                                              |
+| Match             | Partida pertencente a exatamente uma CompetitionSeason; durante expand a FK legada pode ser nullable, mas o runtime novo nunca cria partida sem contexto. |
+| Tie               | Série eliminatória de um ou dois Match, com agregado derivado e classificado somente quando houver decisão suficiente.                                    |
+| Pool              | Grupo social permanente do bolão.                                                                                                                         |
+| PoolMembership    | Vínculo e papel social de um User em um Pool. Admin global não implica membership.                                                                        |
+| PoolSeason        | Participação de um Pool em uma CompetitionSeason, com regras e janela pontuável próprias.                                                                 |
+| Prediction        | Palpite de User para Match dentro de PoolSeason.                                                                                                          |
+| PredictionScore   | Pontuação derivada e versionada de uma Prediction.                                                                                                        |
+| Standings         | Classificação esportiva dos times; não é ranking do bolão.                                                                                                |
+| Ranking           | Ordenação de participantes de um PoolSeason.                                                                                                              |
+| Capability        | Característica declarativa (`LEAGUE`, `GROUPS`, `KNOCKOUT`, `TWO_LEGS`) que orienta comportamento sem condicional por slug.                               |
+| Rule set          | Versão imutável das regras de pontuação/desempate.                                                                                                        |
+| Provider          | Fonte externa acessada por adapter, nunca dona do modelo interno.                                                                                         |
+| Mapping           | Relação auditável entre identificador externo e entidade interna.                                                                                         |
+| Override          | Alteração manual com ator, justificativa e provenance, com precedência sobre sync automático.                                                             |
+| Alias da Copa     | Rota legada que resolve o contexto fixo da Copa e delega ao mesmo caso de uso genérico; não é cópia de regra.                                             |
+| Contract phase    | Remoção posterior de coluna/rota antiga, proibida nas Etapas 0–2.                                                                                         |
 
 ## ADRs
 

@@ -60,6 +60,21 @@ export const listMatchesQuerySchema = paginationQuerySchema.extend({
   to: z.string().datetime({ offset: true }).optional(),
 });
 
+export const tieStatusSchema = z.enum(['SCHEDULED', 'IN_PROGRESS', 'DECIDED', 'CANCELLED']);
+export const tieDecisionMethodSchema = z.enum([
+  'AGGREGATE',
+  'EXTRA_TIME',
+  'PENALTIES',
+  'WALKOVER',
+  'ADMINISTRATIVE',
+]);
+
+export const listTiesQuerySchema = paginationQuerySchema.extend({
+  stageId: entityIdSchema.optional(),
+  roundId: entityIdSchema.optional(),
+  status: tieStatusSchema.optional(),
+});
+
 export const rankingQuerySchema = paginationQuerySchema
   .extend({
     period: z.enum(['all', 'week', 'day']).default('all'),
@@ -294,6 +309,8 @@ export const matchDtoSchema = z
     seasonId: entityIdSchema,
     stageId: entityIdSchema.nullable(),
     roundId: entityIdSchema.nullable(),
+    tieId: entityIdSchema.nullable().default(null),
+    legNumber: z.number().int().min(1).max(2).nullable().default(null),
     matchDayId: entityIdSchema,
     startsAt: z.string().datetime(),
     predictionClosesAt: nullableDateTimeSchema,
@@ -302,8 +319,81 @@ export const matchDtoSchema = z
     awayScore: z.number().int().nullable(),
     finalHomeScore: z.number().int().nullable(),
     finalAwayScore: z.number().int().nullable(),
+    regulationHomeScore: z.number().int().nonnegative().nullable().default(null),
+    regulationAwayScore: z.number().int().nonnegative().nullable().default(null),
+    extraTimeHomeScore: z.number().int().nonnegative().nullable().default(null),
+    extraTimeAwayScore: z.number().int().nonnegative().nullable().default(null),
+    penaltyHomeScore: z.number().int().nonnegative().nullable().default(null),
+    penaltyAwayScore: z.number().int().nonnegative().nullable().default(null),
     homeTeam: teamDtoSchema,
     awayTeam: teamDtoSchema,
+  })
+  .strict()
+  .superRefine((match, context) => {
+    const pairs: Array<[string, number | null, string, number | null]> = [
+      [
+        'regulationHomeScore',
+        match.regulationHomeScore,
+        'regulationAwayScore',
+        match.regulationAwayScore,
+      ],
+      [
+        'extraTimeHomeScore',
+        match.extraTimeHomeScore,
+        'extraTimeAwayScore',
+        match.extraTimeAwayScore,
+      ],
+      ['penaltyHomeScore', match.penaltyHomeScore, 'penaltyAwayScore', match.penaltyAwayScore],
+    ];
+    for (const [homeField, homeScore, awayField, awayScore] of pairs) {
+      if ((homeScore == null) !== (awayScore == null)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [homeScore == null ? homeField : awayField],
+          message: 'O par de placares deve estar completo.',
+        });
+      }
+    }
+    if ((match.tieId == null) !== (match.legNumber == null)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [match.tieId == null ? 'tieId' : 'legNumber'],
+        message: 'tieId e legNumber devem ser informados juntos.',
+      });
+    }
+    if (
+      (match.extraTimeHomeScore != null || match.penaltyHomeScore != null) &&
+      match.regulationHomeScore == null
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['regulationHomeScore'],
+        message: 'Prorrogação ou pênaltis exigem placar regulamentar.',
+      });
+    }
+  });
+
+export const tieDtoSchema = z
+  .object({
+    id: entityIdSchema,
+    seasonId: entityIdSchema,
+    stageId: entityIdSchema,
+    roundId: entityIdSchema,
+    key: z.string().trim().min(1).max(128),
+    order: z.number().int().positive(),
+    expectedLegs: z.union([z.literal(1), z.literal(2)]),
+    status: tieStatusSchema,
+    decisionMethod: tieDecisionMethodSchema.nullable(),
+    aggregateTeamAScore: z.number().int().nonnegative().nullable(),
+    aggregateTeamBScore: z.number().int().nonnegative().nullable(),
+    decidedAt: nullableDateTimeSchema,
+    lastRecomputedAt: nullableDateTimeSchema,
+    provenance: z.string().trim().min(1).max(200),
+    metadata: z.unknown().nullable(),
+    teamA: teamDtoSchema,
+    teamB: teamDtoSchema,
+    winnerTeam: teamDtoSchema.nullable(),
+    matches: z.array(matchDtoSchema).max(2),
   })
   .strict();
 
@@ -468,6 +558,10 @@ export const matchesResponseSchema = z
   .object({ matches: z.array(matchDtoSchema), pagination: paginationSchema })
   .strict();
 
+export const tiesResponseSchema = z
+  .object({ ties: z.array(tieDtoSchema), pagination: paginationSchema })
+  .strict();
+
 export const standingsResponseSchema = z
   .object({
     standingsByGroup: z.array(
@@ -519,6 +613,9 @@ export type SeasonDto = z.infer<typeof seasonDtoSchema>;
 export type StageDto = z.infer<typeof stageDtoSchema>;
 export type RoundDto = z.infer<typeof roundDtoSchema>;
 export type MatchDto = z.infer<typeof matchDtoSchema>;
+export type TieStatus = z.infer<typeof tieStatusSchema>;
+export type TieDecisionMethod = z.infer<typeof tieDecisionMethodSchema>;
+export type TieDto = z.infer<typeof tieDtoSchema>;
 export type TeamDto = z.infer<typeof teamDtoSchema>;
 export type OfficialSourceDto = z.infer<typeof officialSourceDtoSchema>;
 export type SeasonTeamSummaryDto = z.infer<typeof seasonTeamSummaryDtoSchema>;
@@ -539,6 +636,7 @@ export type CompetitionsResponse = z.infer<typeof competitionsResponseSchema>;
 export type CompetitionSeasonsResponse = z.infer<typeof competitionSeasonsResponseSchema>;
 export type RoundsResponse = z.infer<typeof roundsResponseSchema>;
 export type MatchesResponse = z.infer<typeof matchesResponseSchema>;
+export type TiesResponse = z.infer<typeof tiesResponseSchema>;
 export type StandingsResponse = z.infer<typeof standingsResponseSchema>;
 export type SeasonTeamsResponse = z.infer<typeof seasonTeamsResponseSchema>;
 export type TeamProfileResponse = z.infer<typeof teamProfileResponseSchema>;

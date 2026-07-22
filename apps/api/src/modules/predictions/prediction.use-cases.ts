@@ -26,6 +26,7 @@ import {
 import { competitionFeatureFlagsSchema } from '../competitions/competition-feature.service.js';
 import { isPoolMatchScoreable } from './scoreability.js';
 import { recomputePoolSeasonEngagement } from '../engagement/engagement.service.js';
+import { matchScoreForPrediction } from '../scoring/match-scoring-basis.js';
 
 function toPredictionDto(prediction: {
   id: string;
@@ -87,10 +88,10 @@ export async function listPublicMatchPredictions(
     );
   }
 
-  const actualHomeScore =
-    match.status === 'FINISHED' ? (match.finalHomeScore ?? match.homeScore) : match.homeScore;
-  const actualAwayScore =
-    match.status === 'FINISHED' ? (match.finalAwayScore ?? match.awayScore) : match.awayScore;
+  const { homeScore: actualHomeScore, awayScore: actualAwayScore } = matchScoreForPrediction(
+    match,
+    { fallbackToLiveScoreWhenFinalMissing: true },
+  );
   const records = await listPublicMatchPredictionRecords(context, match.id);
 
   return publicMatchPredictionsResponseSchema.parse({

@@ -45,6 +45,9 @@ export function findMatchForPublicPredictions(seasonId: string, matchId: string)
       awayScore: true,
       finalHomeScore: true,
       finalAwayScore: true,
+      tieId: true,
+      regulationHomeScore: true,
+      regulationAwayScore: true,
     },
   });
 }
