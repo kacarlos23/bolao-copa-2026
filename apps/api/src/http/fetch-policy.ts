@@ -5,7 +5,44 @@ export interface FetchTextPolicy {
   fetchImpl?: typeof fetch;
   sleep?: (milliseconds: number) => Promise<void>;
   random?: () => number;
+  cache?: ProviderResponseCache;
+  cacheTtlMs?: number;
 }
+
+export class ProviderResponseCache {
+  private readonly entries = new Map<string, { expiresAt: number; bytes: Buffer }>();
+
+  constructor(private readonly maxEntries = 100) {}
+
+  get(key: string, now = Date.now()) {
+    const entry = this.entries.get(key);
+    if (!entry) return null;
+    if (entry.expiresAt <= now) {
+      this.entries.delete(key);
+      return null;
+    }
+    this.entries.delete(key);
+    this.entries.set(key, entry);
+    return Buffer.from(entry.bytes);
+  }
+
+  set(key: string, bytes: Buffer, ttlMs: number, now = Date.now()) {
+    if (ttlMs <= 0) return;
+    this.entries.delete(key);
+    this.entries.set(key, { expiresAt: now + ttlMs, bytes: Buffer.from(bytes) });
+    while (this.entries.size > this.maxEntries) {
+      const oldest = this.entries.keys().next().value as string | undefined;
+      if (!oldest) break;
+      this.entries.delete(oldest);
+    }
+  }
+
+  clear() {
+    this.entries.clear();
+  }
+}
+
+export const sharedProviderResponseCache = new ProviderResponseCache();
 
 export class ResponseTooLargeError extends Error {
   constructor(maxBytes: number) {
@@ -59,12 +96,19 @@ async function responseBytesWithLimit(response: Response, maxBytes: number) {
   return Buffer.concat(chunks);
 }
 
-export async function fetchBytesWithPolicy(url: string, init: RequestInit, policy: FetchTextPolicy) {
+export async function fetchBytesWithPolicy(
+  url: string,
+  init: RequestInit,
+  policy: FetchTextPolicy,
+) {
   const fetchImpl = policy.fetchImpl ?? fetch;
   const sleep =
     policy.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
   const random = policy.random ?? Math.random;
   let lastError: unknown;
+  const cacheKey = `${init.method ?? 'GET'}:${url}:${JSON.stringify(init.headers ?? {})}`;
+  const cached = policy.cache?.get(cacheKey);
+  if (cached) return cached;
 
   for (let attempt = 0; attempt <= policy.retries; attempt += 1) {
     const controller = new AbortController();
@@ -80,7 +124,9 @@ export async function fetchBytesWithPolicy(url: string, init: RequestInit, polic
         throw new RetryableHttpError(response.status);
       }
       if (!response.ok) throw new Error(`Remote server returned ${response.status} for ${url}.`);
-      return await responseBytesWithLimit(response, policy.maxBytes);
+      const bytes = await responseBytesWithLimit(response, policy.maxBytes);
+      policy.cache?.set(cacheKey, bytes, policy.cacheTtlMs ?? 0);
+      return bytes;
     } catch (error) {
       lastError = error;
       if (attempt >= policy.retries || !isRetryable(error)) throw error;

@@ -14,6 +14,7 @@ const teamSelect = {
   code: true,
   flagUrl: true,
   crestUrl: true,
+  countryCode: true,
 } satisfies Prisma.TeamSelect;
 
 export const matchSelect = {
@@ -37,6 +38,9 @@ export const matchSelect = {
   extraTimeAwayScore: true,
   penaltyHomeScore: true,
   penaltyAwayScore: true,
+  venueName: true,
+  venueCity: true,
+  venueCountryCode: true,
   homeTeam: { select: teamSelect },
   awayTeam: { select: teamSelect },
 } satisfies Prisma.MatchSelect;

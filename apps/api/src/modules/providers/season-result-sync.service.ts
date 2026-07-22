@@ -22,11 +22,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
     timeout = setTimeout(
       () =>
         reject(
-          new AppError(
-            504,
-            'A fonte oficial demorou demais para responder.',
-            'PROVIDER_TIMEOUT',
-          ),
+          new AppError(504, 'A fonte oficial demorou demais para responder.', 'PROVIDER_TIMEOUT'),
         ),
       timeoutMs,
     );
@@ -64,10 +60,13 @@ function changedMatchIds(summary: ProviderSyncSummary) {
 async function configuredProviders(
   seasonId: string,
   requestedTypes: readonly ConfiguredProviderType[],
+  providerKeys?: readonly string[],
 ) {
   const runtime = await getSeasonRuntimeConfig(seasonId);
-  const providers = runtime.providers.filter((provider) =>
-    provider.types.some((type) => requestedTypes.includes(type)),
+  const providers = runtime.providers.filter(
+    (provider) =>
+      (!providerKeys || providerKeys.includes(provider.key)) &&
+      provider.types.some((type) => requestedTypes.includes(type)),
   );
   if (!providers.length) {
     throw new AppError(
@@ -170,7 +169,9 @@ async function runConfiguredProvider(input: {
   includeProfiles?: boolean;
 }): Promise<ProviderExecution> {
   const runtime = seasonProviderRegistry.create(input.config);
-  const types = input.config.types.filter((type) => input.requestedTypes.includes(type));
+  const types = (
+    ['TEAMS', 'STRUCTURE', 'TIES', 'SCHEDULE', 'RESULTS', 'STANDINGS'] as const
+  ).filter((type) => input.config.types.includes(type) && input.requestedTypes.includes(type));
   const runs: ProviderSyncSummary[] = [];
   for (const type of types) {
     runs.push(
@@ -195,9 +196,14 @@ async function runConfiguredSeasonSync(input: {
   userId?: string | null;
   idempotencyKey: string;
   requestedTypes: readonly ConfiguredProviderType[];
+  providerKeys?: readonly string[];
   includeProfiles?: boolean;
 }) {
-  const providers = await configuredProviders(input.seasonId, input.requestedTypes);
+  const providers = await configuredProviders(
+    input.seasonId,
+    input.requestedTypes,
+    input.providerKeys,
+  );
   for (const provider of providers) {
     await assertUserCooldown({
       seasonId: input.seasonId,
@@ -267,11 +273,12 @@ export async function syncOfficialSeasonResults(input: {
     });
   }
   const runs = executions.flatMap((execution) => execution.runs);
-  const lastSyncedAt = runs
-    .filter((run) => run.type === 'RESULTS')
-    .map((run) => run.finishedAt)
-    .sort()
-    .at(-1) ?? new Date().toISOString();
+  const lastSyncedAt =
+    runs
+      .filter((run) => run.type === 'RESULTS')
+      .map((run) => run.finishedAt)
+      .sort()
+      .at(-1) ?? new Date().toISOString();
   return {
     status: changedMatches > 0 ? ('UPDATED' as const) : ('UNCHANGED' as const),
     changedMatches,
@@ -285,6 +292,7 @@ export async function syncOfficialSeasonCompetitionData(input: {
   userId?: string | null;
   idempotencyKey: string;
   includeProfiles?: boolean;
+  providerKeys?: readonly string[];
 }) {
   const idempotencyKey = input.idempotencyKey.trim();
   if (!idempotencyKey) {
@@ -294,7 +302,7 @@ export async function syncOfficialSeasonCompetitionData(input: {
     runConfiguredSeasonSync({
       ...input,
       idempotencyKey,
-      requestedTypes: ['TEAMS', 'SCHEDULE', 'RESULTS', 'STANDINGS'],
+      requestedTypes: ['TEAMS', 'STRUCTURE', 'TIES', 'SCHEDULE', 'RESULTS', 'STANDINGS'],
     }),
     FULL_SYNC_TIMEOUT_MS,
   );
@@ -315,11 +323,12 @@ export async function syncOfficialSeasonCompetitionData(input: {
     (total, execution) => total + execution.profiles.length,
     0,
   );
-  const lastSyncedAt = runs
-    .filter((run) => run.type === 'RESULTS')
-    .map((run) => run.finishedAt)
-    .sort()
-    .at(-1) ?? new Date().toISOString();
+  const lastSyncedAt =
+    runs
+      .filter((run) => run.type === 'RESULTS')
+      .map((run) => run.finishedAt)
+      .sort()
+      .at(-1) ?? new Date().toISOString();
   return {
     status:
       changedMatches > 0 || runs.some((run) => changedCount(run) > 0) || updatedProfiles > 0
@@ -337,19 +346,42 @@ export async function runAutomaticSeasonSyncs() {
   if (!setting.enabled) return [];
   const targets = await listActiveSeasonRuntimeConfigs();
   const bucket = Math.floor(Date.now() / AUTOMATIC_SYNC_BUCKET_MS);
-  return Promise.all(
+  const dueTargets = await Promise.all(
     targets.map(async (target) => {
-      try {
-        const summary = await syncOfficialSeasonCompetitionData({
-          seasonId: target.seasonId,
-          userId: null,
-          idempotencyKey: `auto:${target.seasonId}:${bucket}`,
-          includeProfiles: false,
+      const dueProviders = [];
+      for (const provider of target.providers) {
+        const latest = await prisma.providerSyncRun.findFirst({
+          where: {
+            seasonId: target.seasonId,
+            provider: provider.key,
+            status: { not: 'RUNNING' },
+          },
+          orderBy: { startedAt: 'desc' },
+          select: { startedAt: true },
         });
-        return { seasonId: target.seasonId, ok: true as const, summary };
-      } catch (error) {
-        return { seasonId: target.seasonId, ok: false as const, error };
+        if (!latest || Date.now() - latest.startedAt.getTime() >= provider.cadenceSeconds * 1_000) {
+          dueProviders.push(provider.key);
+        }
       }
+      return { target, dueProviders };
     }),
+  );
+  return Promise.all(
+    dueTargets
+      .filter(({ dueProviders }) => dueProviders.length > 0)
+      .map(async ({ target, dueProviders }) => {
+        try {
+          const summary = await syncOfficialSeasonCompetitionData({
+            seasonId: target.seasonId,
+            userId: null,
+            idempotencyKey: `auto:${target.seasonId}:${bucket}`,
+            includeProfiles: false,
+            providerKeys: dueProviders,
+          });
+          return { seasonId: target.seasonId, ok: true as const, summary };
+        } catch (error) {
+          return { seasonId: target.seasonId, ok: false as const, error };
+        }
+      }),
   );
 }

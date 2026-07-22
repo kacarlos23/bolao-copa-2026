@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   fetchBytesWithPolicy,
   fetchTextWithPolicy,
+  sharedProviderResponseCache,
   type FetchTextPolicy,
 } from '../../../http/fetch-policy.js';
 import {
@@ -35,6 +36,8 @@ const CBF_POLICY = {
   timeoutMs: 10_000,
   maxBytes: 512 * 1024,
   retries: 2,
+  cache: sharedProviderResponseCache,
+  cacheTtlMs: 60_000,
 } as const;
 
 export interface CbfDocumentPin {
@@ -331,6 +334,7 @@ export function parseCbfSerieA2026Round(
       homeTeamName: game.home.name,
       awayTeamName: game.away.name,
       startsAt,
+      kickoffConfirmed: true,
       status: finished ? 'FINISHED' : 'SCHEDULED',
       stageExternalId: `stage:${CBF_SERIE_A_2026_PHASE_ID}`,
       roundExternalId: `round:${expectedRound}`,

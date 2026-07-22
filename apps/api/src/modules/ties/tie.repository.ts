@@ -14,6 +14,7 @@ const teamSelect = {
   code: true,
   flagUrl: true,
   crestUrl: true,
+  countryCode: true,
 } satisfies Prisma.TeamSelect;
 
 export const tieSelect = {

@@ -26,12 +26,18 @@ export async function listSeasonTies(seasonId: string, input: ListTiesInput) {
         ...tie,
         decidedAt: tie.decidedAt?.toISOString() ?? null,
         lastRecomputedAt: tie.lastRecomputedAt?.toISOString() ?? null,
-        matches: tie.matches.map((match) => ({
-          ...match,
-          seasonId: match.seasonId,
-          startsAt: match.startsAt.toISOString(),
-          predictionClosesAt: match.predictionClosesAt?.toISOString() ?? null,
-        })),
+        matches: tie.matches.map((match) => {
+          const { venueName, venueCity, venueCountryCode, ...values } = match;
+          return {
+            ...values,
+            seasonId: match.seasonId,
+            startsAt: match.startsAt.toISOString(),
+            predictionClosesAt: match.predictionClosesAt?.toISOString() ?? null,
+            venue: venueName
+              ? { name: venueName, city: venueCity, countryCode: venueCountryCode }
+              : null,
+          };
+        }),
       }),
     ),
     pagination: paginationMeta(input, total),

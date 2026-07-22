@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import { fetchTextWithPolicy, type FetchTextPolicy } from '../../../http/fetch-policy.js';
+import {
+  fetchTextWithPolicy,
+  sharedProviderResponseCache,
+  type FetchTextPolicy,
+} from '../../../http/fetch-policy.js';
 import {
   type CompetitionDataProvider,
   normalizeEntityName,
@@ -15,7 +19,13 @@ import {
 
 export const GE_COPA_URL = 'https://ge.globo.com/futebol/copa-do-mundo/';
 export const GE_PROVIDER_URLS = ['https://ge.globo.com/', GE_COPA_URL] as const;
-const GE_POLICY = { timeoutMs: 10_000, maxBytes: 5 * 1024 * 1024, retries: 2 } as const;
+const GE_POLICY = {
+  timeoutMs: 10_000,
+  maxBytes: 5 * 1024 * 1024,
+  retries: 2,
+  cache: sharedProviderResponseCache,
+  cacheTtlMs: 30_000,
+} as const;
 
 const projectedGeMatchSchema = z
   .object({
@@ -160,6 +170,7 @@ export function parseGeProviderHtml(html: string) {
       homeTeamName: match.homeTeam,
       awayTeamName: match.awayTeam,
       startsAt,
+      kickoffConfirmed: true,
       status: match.status as NormalizedMatch['status'],
     });
     if (match.homeScore !== null && match.homeScore !== undefined && match.awayScore != null) {

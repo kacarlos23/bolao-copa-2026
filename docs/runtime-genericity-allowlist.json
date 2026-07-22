@@ -19,7 +19,7 @@
     {
       "path": "apps/api/src/modules/brasileirao/brasileirao-2026.service.ts",
       "category": "seed",
-      "reason": "Prepara a temporada existente e grava sua configuração de provider em metadata."
+      "reason": "Prepara a temporada existente e grava sua configuração persistida de provider, mantendo metadata apenas como evidência legada."
     },
     {
       "path": "apps/api/src/scripts/load-brasileirao-2026.ts",

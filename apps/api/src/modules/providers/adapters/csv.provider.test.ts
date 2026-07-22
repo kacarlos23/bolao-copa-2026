@@ -27,4 +27,17 @@ describe('CSV contingency provider', () => {
       () => new CsvProvider('TEAMS', 'externalId,name\n1,A', 'https://evil.test/a.csv'),
     ).toThrow('remote URL');
   });
+
+  it('uses the identical knockout contracts for CSV and manual fallback', async () => {
+    const csv = [
+      'externalId,key,order,stageExternalId,roundExternalId,teamAExternalId,teamBExternalId,teamAName,teamBName,expectedLegs,status,decisionMethod,winnerTeamExternalId,provenance',
+      'tie:1,round-1-tie-1,1,stage:ko,round:1,club:a,club:b,Clube A,Clube B,1,DECIDED,PENALTIES,club:a,sanitized csv fixture',
+    ].join('\n');
+    const csvProvider = new CsvProvider('TIES', csv, 'fallback-ties-2026.csv');
+    const ties = await csvProvider.syncTies({ seasonId: 'season-1' });
+    const manual = await new ManualProvider({ ties }).syncTies({ seasonId: 'season-1' });
+
+    expect(ties).toEqual(manual);
+    expect(ties[0]).toMatchObject({ expectedLegs: 1, winnerTeamExternalId: 'club:a' });
+  });
 });

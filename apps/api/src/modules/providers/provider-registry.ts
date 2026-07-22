@@ -1,9 +1,14 @@
 import { AppError } from '../../http/errors.js';
-import {
-  refreshBrasileirao2026RoundWindows,
-} from '../brasileirao/brasileirao-2026.service.js';
+import { sharedProviderResponseCache } from '../../http/fetch-policy.js';
+import { z } from 'zod';
+import { refreshBrasileirao2026RoundWindows } from '../brasileirao/brasileirao-2026.service.js';
 import { importCbfSerieA2026TeamProfiles } from '../teams/team-profile.importer.js';
 import { CbfSerieA2026Provider } from './adapters/cbf-serie-a-2026.provider.js';
+import { GeProvider } from './adapters/ge.provider.js';
+import {
+  CbfCopaDoBrasilProvider,
+  ConmebolProvider,
+} from './adapters/snapshot-competition.provider.js';
 import type { CompetitionDataProvider } from './competition-data-provider.js';
 import type { SeasonProviderRuntimeConfig } from './season-runtime-config.js';
 
@@ -14,9 +19,7 @@ export interface ProviderRuntime {
   afterSync?: (seasonId: string) => Promise<void>;
 }
 
-export type ProviderRuntimeFactory = (
-  config: SeasonProviderRuntimeConfig,
-) => ProviderRuntime;
+export type ProviderRuntimeFactory = (config: SeasonProviderRuntimeConfig) => ProviderRuntime;
 
 export class ProviderRegistry {
   private readonly factories = new Map<string, ProviderRuntimeFactory>();
@@ -50,9 +53,24 @@ export class ProviderRegistry {
   }
 }
 
-export const seasonProviderRegistry = new ProviderRegistry().register(
-  'cbf-official',
-  (providerConfig) => {
+const snapshotSettingsSchema = z
+  .object({
+    fixtureName: z.string().trim().min(1).max(160),
+    competition: z.string().trim().min(1).max(120).optional(),
+  })
+  .passthrough();
+
+export const seasonProviderRegistry = new ProviderRegistry()
+  .register('ge', (providerConfig) => ({
+    provider: new GeProvider({
+      timeoutMs: providerConfig.timeoutMs,
+      maxBytes: 5 * 1024 * 1024,
+      retries: 2,
+      cache: sharedProviderResponseCache,
+      cacheTtlMs: 30_000,
+    }),
+  }))
+  .register('cbf-official', (providerConfig) => {
     const provider = new CbfSerieA2026Provider({
       timeoutMs: providerConfig.timeoutMs,
       maxBytes: 768 * 1024,
@@ -64,5 +82,20 @@ export const seasonProviderRegistry = new ProviderRegistry().register(
       importProfiles: importCbfSerieA2026TeamProfiles,
       afterSync: refreshBrasileirao2026RoundWindows,
     };
-  },
-);
+  })
+  .register('conmebol-official', (providerConfig) => {
+    const settings = snapshotSettingsSchema.parse(providerConfig.settings);
+    if (!settings.competition) throw new Error('CONMEBOL provider requires competition setting.');
+    return {
+      provider: new ConmebolProvider({
+        fixtureName: settings.fixtureName,
+        competition: settings.competition,
+      }),
+    };
+  })
+  .register('cbf-copa-do-brasil-official', (providerConfig) => {
+    const settings = snapshotSettingsSchema.parse(providerConfig.settings);
+    return {
+      provider: new CbfCopaDoBrasilProvider({ fixtureName: settings.fixtureName }),
+    };
+  });

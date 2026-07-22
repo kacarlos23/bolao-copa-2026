@@ -22,7 +22,7 @@ export async function listSeasonTeams(seasonId: string, query: PaginationQuery) 
     mappings.map((mapping) => [mapping.internalId, mapping.externalId]),
   );
   return {
-    teams: entries.map(({ team }) => {
+    teams: entries.map(({ team, groupName }) => {
       const snapshot = team.profileSnapshots[0];
       return seasonTeamSummaryDtoSchema.parse({
         team: {
@@ -31,9 +31,20 @@ export async function listSeasonTeams(seasonId: string, query: PaginationQuery) 
           code: team.code,
           flagUrl: team.flagUrl,
           crestUrl: team.crestUrl,
+          ...(team.countryCode ? { countryCode: team.countryCode } : {}),
         },
         externalId: snapshot?.externalTeamId ?? externalId(mappingByTeam.get(team.id) ?? team.id),
         state: snapshot?.state ?? null,
+        ...(snapshot?.countryCode || team.countryCode
+          ? { countryCode: snapshot?.countryCode ?? team.countryCode }
+          : {}),
+        ...(snapshot?.federation ? { federation: snapshot.federation } : {}),
+        ...(groupName ? { groupName } : {}),
+        ...(snapshot?.providerMetadata &&
+        typeof snapshot.providerMetadata === 'object' &&
+        !Array.isArray(snapshot.providerMetadata)
+          ? { providerMetadata: snapshot.providerMetadata }
+          : {}),
         profileAvailable: Boolean(snapshot),
         collectedAt: snapshot?.collectedAt.toISOString() ?? null,
       });
@@ -62,15 +73,28 @@ export async function getTeamProfile(seasonId: string, teamId: string) {
       code: entry.team.code,
       flagUrl: entry.team.flagUrl,
       crestUrl: entry.team.crestUrl,
+      ...(entry.team.countryCode ? { countryCode: entry.team.countryCode } : {}),
     },
     externalId: snapshot.externalTeamId,
     state: snapshot.state,
+    ...(snapshot.countryCode || entry.team.countryCode
+      ? { countryCode: snapshot.countryCode ?? entry.team.countryCode }
+      : {}),
+    ...(snapshot.federation ? { federation: snapshot.federation } : {}),
+    ...(snapshot.providerMetadata &&
+    typeof snapshot.providerMetadata === 'object' &&
+    !Array.isArray(snapshot.providerMetadata)
+      ? { providerMetadata: snapshot.providerMetadata }
+      : {}),
     athletes: snapshot.athletes,
     matches: snapshot.matches,
     statistics: snapshot.statistics,
     source: {
-      provider: 'CBF',
-      label: 'Confederação Brasileira de Futebol',
+      provider: snapshot.provider === 'cbf-official' ? 'CBF' : snapshot.provider,
+      label:
+        snapshot.provider === 'cbf-official'
+          ? 'Confederação Brasileira de Futebol'
+          : (snapshot.federation ?? snapshot.provider),
       url: snapshot.sourceUrl,
       collectedAt: snapshot.collectedAt.toISOString(),
       checksum: snapshot.checksum,

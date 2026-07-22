@@ -7,6 +7,7 @@ const migrationFiles = [
   'apps/api/prisma/migrations/20260715003000_add_session_version/migration.sql',
   'apps/api/prisma/migrations/20260715010000_complete_multi_competition_constraints/migration.sql',
   'apps/api/prisma/migrations/20260721010000_add_generic_ties/migration.sql',
+  'apps/api/prisma/migrations/20260722010000_add_configurable_cup_providers/migration.sql',
 ];
 
 test('expand/migrate SQL contains no destructive contract operation', async () => {
@@ -17,7 +18,7 @@ test('expand/migrate SQL contains no destructive contract operation', async () =
 });
 
 test('Tie migration is expand-only and preserves every legacy knockout row', async () => {
-  const sql = await readFile(migrationFiles.at(-1), 'utf8');
+  const sql = await readFile(migrationFiles[3], 'utf8');
   assert.doesNotMatch(
     sql,
     /^\s*(?:DROP|TRUNCATE|DELETE|UPDATE|ALTER\s+TABLE\s+"(?:KnockoutFixture|KnockoutPick|KnockoutPredictionScore)")\b/im,
@@ -29,6 +30,15 @@ test('Tie migration is expand-only and preserves every legacy knockout row', asy
   assert.match(sql, /Tie_decision_state_check/);
   assert.match(sql, /Tie_sport_winner_consistency_check/);
   assert.doesNotMatch(sql, /TiePrediction/);
+});
+
+test('provider configuration migration is additive, persisted and season-scoped', async () => {
+  const sql = await readFile(migrationFiles[4], 'utf8');
+  assert.match(sql, /CREATE TABLE "SeasonProviderConfig"/);
+  assert.match(sql, /prompt-1-metadata-migration/);
+  assert.match(sql, /ProviderEntityMapping_provider_scopeKey_entityType_externalId_key/);
+  assert.match(sql, /ALTER TYPE "ProviderSyncType" ADD VALUE 'TIES'/);
+  assert.doesNotMatch(sql, /DROP|TRUNCATE|DELETE\s+FROM/i);
 });
 
 test('multi-competition completion declares composite uniqueness and cross-scope guards', async () => {

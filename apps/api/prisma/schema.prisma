@@ -127,9 +127,18 @@ enum SyncStatus {
 
 enum ProviderSyncType {
   TEAMS
+  STRUCTURE
+  TIES
   SCHEDULE
   RESULTS
   STANDINGS
+}
+
+enum ProviderSyncMode {
+  DRY_RUN
+  DIFF
+  APPLY
+  VERIFY
 }
 
 enum ProviderSyncRunStatus {
@@ -138,12 +147,19 @@ enum ProviderSyncRunStatus {
   PARTIAL
   FAILED
   DRY_RUN
+  VERIFIED
 }
 
 enum SyncQuarantineReason {
   INVALID_PAYLOAD
   DUPLICATE_EXTERNAL_ID
   AMBIGUOUS_NAME
+  AMBIGUOUS_TEAM
+  AMBIGUOUS_STAGE
+  AMBIGUOUS_ROUND
+  AMBIGUOUS_TIE
+  AMBIGUOUS_KICKOFF
+  AMBIGUOUS_QUALIFIER
   MISSING_MAPPING
   INVALID_REFERENCE
   CONFLICT
@@ -168,6 +184,7 @@ enum AuditAction {
   JOB_QUEUED
   JOB_PAUSED
   JOB_RETRIED
+  SEASON_PROVIDER_CONFIG_CHANGED
 }
 
 enum AdminOperationStatus {
@@ -263,6 +280,7 @@ model CompetitionSeason {
   achievementDefinitions AchievementDefinition[]
   providerSyncRuns       ProviderSyncRun[]
   providerSyncLocks      ProviderSyncLock[]
+  providerConfigs        SeasonProviderConfig[]
   syncQuarantines        SyncQuarantine[]
   teamProfileSnapshots   TeamProfileSnapshot[]
 
@@ -323,6 +341,7 @@ model Team {
   flagUrl               String?
   type                  TeamType?
   crestUrl              String?
+  countryCode           String?
   metadata              Json?
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
@@ -364,22 +383,25 @@ model SeasonTeam {
 }
 
 model TeamProfileSnapshot {
-  id             String            @id @default(cuid())
-  seasonId       String
-  teamId         String
-  provider       String
-  externalTeamId String
-  state          String?
-  sourceUrl      String
-  collectedAt    DateTime
-  checksum       String
-  statistics     Json
-  athletes       Json
-  matches        Json
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
-  season         CompetitionSeason @relation(fields: [seasonId], references: [id], onDelete: Cascade)
-  team           Team              @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  id               String            @id @default(cuid())
+  seasonId         String
+  teamId           String
+  provider         String
+  externalTeamId   String
+  state            String?
+  countryCode      String?
+  federation       String?
+  providerMetadata Json?
+  sourceUrl        String
+  collectedAt      DateTime
+  checksum         String
+  statistics       Json
+  athletes         Json
+  matches          Json
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  season           CompetitionSeason @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  team             Team              @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@unique([seasonId, teamId, provider])
   @@unique([seasonId, provider, externalTeamId])
@@ -520,6 +542,7 @@ model TieBreakerRuleSet {
 model ProviderEntityMapping {
   id          String             @id @default(cuid())
   provider    String
+  scopeKey    String             @default("legacy")
   entityType  ProviderEntityType
   externalId  String
   internalId  String
@@ -533,6 +556,7 @@ model ProviderEntityMapping {
   season      CompetitionSeason? @relation(fields: [seasonId], references: [id], onDelete: SetNull)
 
   @@unique([provider, entityType, externalId])
+  @@unique([provider, scopeKey, entityType, externalId])
   @@index([seasonId, entityType])
   @@index([entityType, internalId])
 }
@@ -580,6 +604,9 @@ model Match {
   extraTimeAwayScore  Int?
   penaltyHomeScore    Int?
   penaltyAwayScore    Int?
+  venueName           String?
+  venueCity           String?
+  venueCountryCode    String?
   rawPayload          Json?
   lastSyncedAt        DateTime?
   createdAt           DateTime                       @default(now())
@@ -1054,10 +1081,12 @@ model ProviderSyncRun {
   provider         String
   seasonId         String
   type             ProviderSyncType
+  mode             ProviderSyncMode      @default(APPLY)
   idempotencyKey   String
   dryRun           Boolean               @default(false)
   status           ProviderSyncRunStatus @default(RUNNING)
   source           String
+  collectedAt      DateTime?
   checksum         String?
   fetchedCount     Int                   @default(0)
   insertedCount    Int                   @default(0)
@@ -1076,6 +1105,27 @@ model ProviderSyncRun {
   @@unique([provider, seasonId, type, idempotencyKey])
   @@index([seasonId, type, startedAt])
   @@index([provider, status, startedAt])
+}
+
+model SeasonProviderConfig {
+  id              String             @id @default(cuid())
+  seasonId        String
+  providerKey     String
+  priority        Int                @default(1)
+  enabledTypes    ProviderSyncType[]
+  cadenceSeconds  Int                @default(300)
+  timeoutMs       Int                @default(10000)
+  active          Boolean            @default(true)
+  includeProfiles Boolean            @default(false)
+  source          String
+  provenance      String
+  settings        Json?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  season          CompetitionSeason  @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  @@unique([seasonId, providerKey])
+  @@index([active, priority, seasonId])
 }
 
 model ProviderSyncLock {

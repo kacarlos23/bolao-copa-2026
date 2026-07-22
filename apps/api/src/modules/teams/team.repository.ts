@@ -6,6 +6,7 @@ export const teamSummarySelect = {
   code: true,
   flagUrl: true,
   crestUrl: true,
+  countryCode: true,
 } as const;
 
 export async function listSeasonTeamProfiles(
@@ -18,6 +19,7 @@ export async function listSeasonTeamProfiles(
       orderBy: { team: { name: 'asc' } },
       ...pagination,
       select: {
+        groupName: true,
         team: {
           select: {
             ...teamSummarySelect,
@@ -25,7 +27,15 @@ export async function listSeasonTeamProfiles(
               where: { seasonId },
               orderBy: { collectedAt: 'desc' },
               take: 1,
-              select: { externalTeamId: true, state: true, collectedAt: true },
+              select: {
+                externalTeamId: true,
+                state: true,
+                countryCode: true,
+                federation: true,
+                providerMetadata: true,
+                provider: true,
+                collectedAt: true,
+              },
             },
           },
         },

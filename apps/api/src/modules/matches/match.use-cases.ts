@@ -21,20 +21,20 @@ export async function listSeasonMatches(seasonId: string, input: ListMatchesInpu
     from: input.from ? new Date(input.from) : undefined,
     to: input.to ? new Date(input.to) : undefined,
   };
-  const [matches, total] = await listSeasonMatchRecords(
-    seasonId,
-    filters,
-    paginationArgs(input),
-  );
+  const [matches, total] = await listSeasonMatchRecords(seasonId, filters, paginationArgs(input));
   return {
-    matches: matches.map((match) =>
-      matchDtoSchema.parse({
-        ...match,
+    matches: matches.map((match) => {
+      const { venueName, venueCity, venueCountryCode, ...values } = match;
+      return matchDtoSchema.parse({
+        ...values,
         seasonId: match.seasonId,
         startsAt: match.startsAt.toISOString(),
         predictionClosesAt: match.predictionClosesAt?.toISOString() ?? null,
-      }),
-    ),
+        venue: venueName
+          ? { name: venueName, city: venueCity, countryCode: venueCountryCode }
+          : null,
+      });
+    }),
     pagination: paginationMeta(input, total),
   };
 }

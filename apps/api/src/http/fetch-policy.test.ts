@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchTextWithPolicy, ResponseTooLargeError } from './fetch-policy.js';
+import {
+  fetchTextWithPolicy,
+  ProviderResponseCache,
+  ResponseTooLargeError,
+} from './fetch-policy.js';
 
 const basePolicy = { timeoutMs: 1_000, maxBytes: 32, retries: 0 };
 
@@ -99,5 +103,19 @@ describe('bounded HTTP fetch', () => {
       'https://provider.example/fixed-feed',
       expect.objectContaining({ redirect: 'error', signal: expect.any(AbortSignal) }),
     );
+  });
+
+  it('reuses a bounded successful response cache without another network request', async () => {
+    const fetchImpl = vi.fn(async () => new Response('cached')) as unknown as typeof fetch;
+    const cache = new ProviderResponseCache(2);
+    const policy = { ...basePolicy, fetchImpl, cache, cacheTtlMs: 60_000 };
+
+    await expect(fetchTextWithPolicy('https://provider.example/cache', {}, policy)).resolves.toBe(
+      'cached',
+    );
+    await expect(fetchTextWithPolicy('https://provider.example/cache', {}, policy)).resolves.toBe(
+      'cached',
+    );
+    expect(fetchImpl).toHaveBeenCalledOnce();
   });
 });

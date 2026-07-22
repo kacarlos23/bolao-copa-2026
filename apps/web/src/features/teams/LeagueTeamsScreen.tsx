@@ -467,7 +467,12 @@ export function TeamProfileScreen({
             <View style={styles.profileHeader}>
               <TeamBadge team={profile.team} kind="crest" size={82} />
               <View style={styles.profileIdentity}>
-                <Text style={styles.eyebrow}>PERFIL DO CLUBE · {profile.state ?? 'BR'}</Text>
+                <Text style={styles.eyebrow}>
+                  PERFIL DO CLUBE
+                  {profile.state || profile.countryCode
+                    ? ` · ${profile.state ?? profile.countryCode}`
+                    : ''}
+                </Text>
                 <Text accessibilityRole="header" style={styles.profileName}>
                   {profile.team.name}
                 </Text>

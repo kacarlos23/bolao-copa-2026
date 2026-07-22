@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "provider": "conmebol-official",
+  "competition": "conmebol-libertadores",
+  "season": "fixture-2026",
+  "source": "https://fixture.invalid/conmebol/libertadores/official-snapshot",
+  "collectedAt": "2026-07-21T18:00:00-03:00",
+  "snapshotChecksum": "1ad33e7be970a76fd24be39184ad075ec0024b2fd02cb2501bd94216d2373e90",
+  "artifacts": [
+    {
+      "kind": "PAGE",
+      "source": "https://fixture.invalid/conmebol/libertadores/page",
+      "contentType": "text/html",
+      "bodyBase64": "c2FuaXRpemVkIG9mZmljaWFsIHBhZ2U=",
+      "checksum": "c0f4de3d0fb8e1ae701fe0ea570fce0f1d811048b5f5e429f1fd3729fe9c1821",
+      "byteLength": 23
+    },
+    {
+      "kind": "PDF",
+      "source": "https://fixture.invalid/conmebol/libertadores/manual.pdf",
+      "contentType": "application/pdf",
+      "bodyBase64": "JVBERi0xLjQgc2FuaXRpemVkIGZpeHR1cmU=",
+      "checksum": "ab2fdf96e2e4ca735c4e064237efdf2425ea8df123e7a75a7ae011df9e36351b",
+      "byteLength": 26
+    },
+    {
+      "kind": "RESPONSE",
+      "source": "https://fixture.invalid/conmebol/libertadores/response.json",
+      "contentType": "application/json",
+      "bodyBase64": "eyJzYW5pdGl6ZWQiOnRydWV9",
+      "checksum": "ea1fa14b6cc138e7490e462dcbc1f77b535c0479ef2b23233a64b8ac0aa96567",
+      "byteLength": 18
+    }
+  ],
+  "data": {
+    "teams": [
+      { "externalId": "club:a", "name": "Clube Andino", "code": "AND", "type": "CLUB", "groupName": "A", "countryCode": "ARG", "federation": "AFA" },
+      { "externalId": "club:b", "name": "Clube Boreal", "code": "BOR", "type": "CLUB", "groupName": "A", "countryCode": "BRA", "federation": "CBF" },
+      { "externalId": "club:c", "name": "Clube Costeiro", "code": "COS", "type": "CLUB", "groupName": "A", "countryCode": "URY", "federation": "AUF" },
+      { "externalId": "club:d", "name": "Clube do Delta", "code": "DEL", "type": "CLUB", "groupName": "A", "countryCode": "PAR", "federation": "APF" }
+    ],
+    "structure": [
+      { "kind": "STAGE", "externalId": "stage:groups", "slug": "grupos", "name": "Fase de grupos", "type": "GROUP", "order": 1 },
+      { "kind": "STAGE", "externalId": "stage:knockout", "slug": "mata-mata", "name": "Fase final", "type": "KNOCKOUT", "order": 2 },
+      { "kind": "ROUND", "externalId": "round:group-1", "stageExternalId": "stage:groups", "name": "Rodada 1", "order": 1, "status": "FINISHED", "startsAt": "2026-04-07T19:00:00-03:00", "endsAt": "2026-04-09T23:00:00-03:00" },
+      { "kind": "ROUND", "externalId": "round:semifinal", "stageExternalId": "stage:knockout", "name": "Semifinal", "order": 1, "status": "FINISHED", "startsAt": "2026-07-14T20:30:00-03:00", "endsAt": "2026-07-21T23:00:00-03:00" }
+    ],
+    "ties": [
+      {
+        "externalId": "tie:semifinal-1",
+        "key": "semifinal-1",
+        "order": 1,
+        "stageExternalId": "stage:knockout",
+        "roundExternalId": "round:semifinal",
+        "teamAExternalId": "club:a",
+        "teamBExternalId": "club:b",
+        "teamAName": "Clube Andino",
+        "teamBName": "Clube Boreal",
+        "expectedLegs": 2,
+        "status": "DECIDED",
+        "decisionMethod": "PENALTIES",
+        "winnerTeamExternalId": "club:a",
+        "provenance": "sanitized CONMEBOL fixture"
+      }
+    ],
+    "schedule": [
+      {
+        "externalId": "match:group-1",
+        "homeTeamExternalId": "club:c",
+        "awayTeamExternalId": "club:d",
+        "homeTeamName": "Clube Costeiro",
+        "awayTeamName": "Clube do Delta",
+        "startsAt": "2026-04-07T19:00:00-04:00",
+        "status": "FINISHED",
+        "stageExternalId": "stage:groups",
+        "roundExternalId": "round:group-1",
+        "groupName": "A",
+        "venue": { "name": "Estadio Sanitizado", "city": "Cidade Exemplo", "countryCode": "CHL" }
+      },
+      {
+        "externalId": "match:semifinal-leg-1",
+        "homeTeamExternalId": "club:a",
+        "awayTeamExternalId": "club:b",
+        "homeTeamName": "Clube Andino",
+        "awayTeamName": "Clube Boreal",
+        "startsAt": "2026-07-14T20:30:00-03:00",
+        "status": "FINISHED",
+        "stageExternalId": "stage:knockout",
+        "roundExternalId": "round:semifinal",
+        "tieExternalId": "tie:semifinal-1",
+        "legNumber": 1,
+        "venue": { "name": "Estadio Ida", "city": "Cidade A", "countryCode": "ARG" }
+      },
+      {
+        "externalId": "match:semifinal-leg-2",
+        "homeTeamExternalId": "club:b",
+        "awayTeamExternalId": "club:a",
+        "homeTeamName": "Clube Boreal",
+        "awayTeamName": "Clube Andino",
+        "startsAt": "2026-07-21T21:30:00-03:00",
+        "status": "FINISHED",
+        "stageExternalId": "stage:knockout",
+        "roundExternalId": "round:semifinal",
+        "tieExternalId": "tie:semifinal-1",
+        "legNumber": 2,
+        "venue": { "name": "Estadio Volta", "city": "Cidade B", "countryCode": "BRA" }
+      }
+    ],
+    "results": [
+      { "externalId": "result:group-1", "matchExternalId": "match:group-1", "homeTeamExternalId": "club:c", "awayTeamExternalId": "club:d", "homeTeamName": "Clube Costeiro", "awayTeamName": "Clube do Delta", "startsAt": "2026-04-07T19:00:00-04:00", "homeScore": 2, "awayScore": 1, "status": "FINISHED" },
+      { "externalId": "result:semifinal-leg-1", "matchExternalId": "match:semifinal-leg-1", "homeTeamExternalId": "club:a", "awayTeamExternalId": "club:b", "homeTeamName": "Clube Andino", "awayTeamName": "Clube Boreal", "startsAt": "2026-07-14T20:30:00-03:00", "homeScore": 1, "awayScore": 0, "regulationHomeScore": 1, "regulationAwayScore": 0, "status": "FINISHED" },
+      { "externalId": "result:semifinal-leg-2", "matchExternalId": "match:semifinal-leg-2", "homeTeamExternalId": "club:b", "awayTeamExternalId": "club:a", "homeTeamName": "Clube Boreal", "awayTeamName": "Clube Andino", "startsAt": "2026-07-21T21:30:00-03:00", "homeScore": 1, "awayScore": 0, "regulationHomeScore": 1, "regulationAwayScore": 0, "penaltyHomeScore": 3, "penaltyAwayScore": 4, "status": "FINISHED" }
+    ],
+    "standings": [
+      { "externalId": "standing:a", "teamExternalId": "club:a", "teamName": "Clube Andino", "groupName": "A", "position": 1, "played": 6, "won": 4, "drawn": 1, "lost": 1, "goalsFor": 10, "goalsAgainst": 4, "points": 13, "qualification": "QUALIFIED" },
+      { "externalId": "standing:b", "teamExternalId": "club:b", "teamName": "Clube Boreal", "groupName": "A", "position": 2, "played": 6, "won": 3, "drawn": 2, "lost": 1, "goalsFor": 8, "goalsAgainst": 5, "points": 11, "qualification": "QUALIFIED" },
+      { "externalId": "standing:c", "teamExternalId": "club:c", "teamName": "Clube Costeiro", "groupName": "A", "position": 3, "played": 6, "won": 2, "drawn": 1, "lost": 3, "goalsFor": 6, "goalsAgainst": 8, "points": 7, "qualification": "TRANSFERRED" },
+      { "externalId": "standing:d", "teamExternalId": "club:d", "teamName": "Clube do Delta", "groupName": "A", "position": 4, "played": 6, "won": 0, "drawn": 0, "lost": 6, "goalsFor": 2, "goalsAgainst": 9, "points": 0, "qualification": "ELIMINATED" }
+    ]
+  }
+}

@@ -1,22 +1,38 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ findMany: vi.fn() }));
+const mocks = vi.hoisted(() => ({ findUnique: vi.fn(), findMany: vi.fn() }));
 
 vi.mock('../../prisma.js', () => ({
-  prisma: { competitionSeason: { findMany: mocks.findMany } },
+  prisma: {
+    competitionSeason: { findUnique: mocks.findUnique, findMany: mocks.findMany },
+  },
 }));
 
 import {
+  getSeasonRuntimeConfig,
   listActiveSeasonRuntimeConfigs,
-  parseSeasonRuntimeConfig,
+  parseLegacySeasonProviderMetadataForMigration,
 } from './season-runtime-config.js';
 
-describe('metadata transitória de provider', () => {
+const persistedConfig = {
+  providerKey: 'fixture-provider',
+  priority: 2,
+  enabledTypes: ['RESULTS'],
+  active: true,
+  cadenceSeconds: 300,
+  timeoutMs: 8_000,
+  includeProfiles: false,
+  source: 'fixture://provider',
+  provenance: 'test',
+  settings: {},
+};
+
+describe('configuracao persistida de provider', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('valida configuração explícita sem consultar slug', () => {
+  it('mantem um leitor explicito somente para a migration da metadata do Prompt 1', () => {
     expect(
-      parseSeasonRuntimeConfig({
+      parseLegacySeasonProviderMetadataForMigration({
         providers: [
           {
             key: 'fixture-provider',
@@ -28,41 +44,43 @@ describe('metadata transitória de provider', () => {
           },
         ],
       }),
-    ).toMatchObject({
-      providers: [{ key: 'fixture-provider', types: ['RESULTS'] }],
-      standingsRule: 'LEGACY',
-    });
+    ).toMatchObject([{ key: 'fixture-provider', types: ['RESULTS'] }]);
   });
 
-  it('lê a metadata oficial legada existente e ignora metadata desconhecida', () => {
-    const legacy = parseSeasonRuntimeConfig({
-      source: {
-        source: 'https://www.cbf.com.br/futebol-brasileiro/competicoes/campeonato-brasileiro-serie-a/2026',
-        timezone: 'America/Sao_Paulo',
-        roundsFetched: 38,
-        standings: 20,
+  it('seleciona exclusivamente SeasonProviderConfig e nao a metadata de provider', async () => {
+    mocks.findUnique.mockResolvedValue({
+      id: 'season-active',
+      status: 'ACTIVE',
+      metadata: {
+        providers: [{ key: 'metadata-must-not-win', types: ['RESULTS'] }],
+        tieBreakRule: 'cbf-rec-2026-art-15-v1',
       },
-      tieBreakRule: 'cbf-rec-2026-art-15-v1',
+      providerConfigs: [persistedConfig],
     });
-    expect(legacy.providers[0]?.key).toBe('cbf-official');
-    expect(legacy.standingsRule).toBe('CBF_SERIE_A_2026');
-    expect(parseSeasonRuntimeConfig({ unrelated: true }).providers).toEqual([]);
+
+    await expect(getSeasonRuntimeConfig('season-active')).resolves.toMatchObject({
+      providers: [{ key: 'fixture-provider', types: ['RESULTS'] }],
+      standingsRule: 'CBF_SERIE_A_2026',
+    });
   });
 
-  it('lista somente temporadas ativas com provider configurado', async () => {
+  it('lista somente temporadas ativas que possuem configuracao persistida ativa', async () => {
     mocks.findMany.mockResolvedValue([
       {
         id: 'season-active',
         status: 'ACTIVE',
-        metadata: { providers: [{ key: 'fixture', types: ['RESULTS'] }] },
+        metadata: {},
+        providerConfigs: [persistedConfig],
       },
     ]);
 
     await expect(listActiveSeasonRuntimeConfigs()).resolves.toMatchObject([
-      { seasonId: 'season-active', providers: [{ key: 'fixture' }] },
+      { seasonId: 'season-active', providers: [{ key: 'fixture-provider' }] },
     ]);
     expect(mocks.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { status: 'ACTIVE' } }),
+      expect.objectContaining({
+        where: { status: 'ACTIVE', providerConfigs: { some: { active: true } } },
+      }),
     );
   });
 });

@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../http/async-handler.js';
-import { AppError } from '../http/errors.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { adminQueryRouter } from '../modules/admin/admin-query.routes.js';
 import { adminResourceRouter } from '../modules/admin/admin-resource.routes.js';
@@ -28,11 +27,10 @@ import { CsvProvider, MAX_CSV_BYTES } from '../modules/providers/adapters/csv.pr
 import { ManualProvider } from '../modules/providers/adapters/manual.provider.js';
 import { CbfProvider } from '../modules/providers/adapters/cbf.provider.js';
 import type { CbfSerieA2026Evidence } from '../modules/providers/adapters/cbf-serie-a-2026.provider.js';
-import { GeProvider } from '../modules/providers/adapters/ge.provider.js';
 import { runProviderSync } from '../modules/providers/provider-sync.service.js';
 import { seasonProviderRegistry } from '../modules/providers/provider-registry.js';
 import {
-  getSeasonRuntimeConfig,
+  assertConfiguredProvider,
   seasonProviderRuntimeConfigSchema,
 } from '../modules/providers/season-runtime-config.js';
 import {
@@ -72,7 +70,8 @@ adminRouter.use((req, res, next) => {
     error: {
       status: 410,
       code: 'LEGACY_ADMIN_MUTATION_DISABLED',
-      message: 'A mutação legada foi desativada. Use o fluxo administrativo com preview, justificativa e auditoria.',
+      message:
+        'A mutação legada foi desativada. Use o fluxo administrativo com preview, justificativa e auditoria.',
       issues: [],
       requestId: String(res.locals.requestId ?? 'unavailable'),
     },
@@ -182,37 +181,48 @@ adminRouter.get(
 
 const providerSyncBaseSchema = z.object({
   seasonId: z.string().trim().min(1).max(200),
-  type: z.enum(['TEAMS', 'SCHEDULE', 'RESULTS', 'STANDINGS']),
+  type: z.enum(['TEAMS', 'STRUCTURE', 'TIES', 'SCHEDULE', 'RESULTS', 'STANDINGS']),
+  mode: z.enum(['DRY_RUN', 'DIFF', 'APPLY', 'VERIFY']).optional(),
   dryRun: z.boolean().default(true),
   justification: justificationSchema,
   previewId: z.string().trim().min(1).max(200).optional(),
   confirmation: z.string().trim().min(12).max(200).optional(),
 });
 
-const providerSyncRequestSchema = z.discriminatedUnion('provider', [
-  providerSyncBaseSchema.extend({ provider: z.literal('ge') }).strict(),
-  providerSyncBaseSchema
-    .extend({
-      provider: z.literal('csv'),
-      sourceDocument: z.string().trim().min(1).max(200),
-      csv: z.string().min(1).max(MAX_CSV_BYTES),
-    })
-    .strict(),
-  providerSyncBaseSchema
-    .extend({ provider: z.literal('manual'), items: z.array(z.unknown()).max(50_000) })
-    .strict(),
-  providerSyncBaseSchema
-    .extend({ provider: z.literal('cbf-official'), items: z.array(z.unknown()).max(50_000) })
-    .strict(),
-  providerSyncBaseSchema.extend({ provider: z.literal('cbf-serie-a-2026') }).strict(),
-]).superRefine((body, context) => {
-  if (!body.dryRun && (!body.previewId || !body.confirmation)) {
-    context.addIssue({ code: z.ZodIssueCode.custom, message: 'Apply exige previewId e confirmação reforçada.' });
-  }
-});
+const providerSyncRequestSchema = z
+  .discriminatedUnion('provider', [
+    providerSyncBaseSchema.extend({ provider: z.literal('ge') }).strict(),
+    providerSyncBaseSchema
+      .extend({
+        provider: z.literal('csv'),
+        sourceDocument: z.string().trim().min(1).max(200),
+        csv: z.string().min(1).max(MAX_CSV_BYTES),
+      })
+      .strict(),
+    providerSyncBaseSchema
+      .extend({ provider: z.literal('manual'), items: z.array(z.unknown()).max(50_000) })
+      .strict(),
+    providerSyncBaseSchema
+      .extend({ provider: z.literal('cbf-official'), items: z.array(z.unknown()).max(50_000) })
+      .strict(),
+    providerSyncBaseSchema.extend({ provider: z.literal('cbf-serie-a-2026') }).strict(),
+    providerSyncBaseSchema.extend({ provider: z.literal('conmebol-official') }).strict(),
+    providerSyncBaseSchema.extend({ provider: z.literal('cbf-copa-do-brasil-official') }).strict(),
+  ])
+  .superRefine((body, context) => {
+    const applies = body.mode ? body.mode === 'APPLY' : !body.dryRun;
+    if (applies && (!body.previewId || !body.confirmation)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Apply exige previewId e confirmação reforçada.',
+      });
+    }
+  });
 
 function normalizedPayload(type: z.infer<typeof providerSyncBaseSchema>['type'], items: unknown[]) {
   if (type === 'TEAMS') return { teams: items };
+  if (type === 'STRUCTURE') return { structure: items };
+  if (type === 'TIES') return { ties: items };
   if (type === 'SCHEDULE') return { schedule: items };
   if (type === 'RESULTS') return { results: items };
   return { standings: items };
@@ -220,8 +230,10 @@ function normalizedPayload(type: z.infer<typeof providerSyncBaseSchema>['type'],
 
 function providerAuthorizationRequest(body: z.infer<typeof providerSyncRequestSchema>) {
   const base = { provider: body.provider, seasonId: body.seasonId, type: body.type };
-  if (body.provider === 'csv') return { ...base, sourceDocument: body.sourceDocument, csv: body.csv };
-  if (body.provider === 'manual' || body.provider === 'cbf-official') return { ...base, items: body.items };
+  if (body.provider === 'csv')
+    return { ...base, sourceDocument: body.sourceDocument, csv: body.csv };
+  if (body.provider === 'manual' || body.provider === 'cbf-official')
+    return { ...base, items: body.items };
   return base;
 }
 
@@ -235,31 +247,45 @@ adminRouter.post(
     let configuredRuntime: ReturnType<typeof seasonProviderRegistry.create> | null = null;
     let provider;
     if (body.provider === 'cbf-serie-a-2026') {
-      const season = await getSeasonRuntimeConfig(body.seasonId);
-      const providerConfig = season.providers.find((item) => item.types.includes(body.type));
-      if (!providerConfig) {
-        throw new AppError(
-          400,
-          'A temporada não configurou um provider para este tipo de sincronização.',
-          'SEASON_PROVIDER_NOT_CONFIGURED',
-        );
-      }
+      const providerConfig = await assertConfiguredProvider(
+        body.seasonId,
+        'cbf-official',
+        body.type,
+      );
       configuredRuntime = seasonProviderRegistry.create(providerConfig);
       provider = configuredRuntime.provider;
     } else if (body.provider === 'ge') {
-      provider = new GeProvider();
+      const providerConfig = await assertConfiguredProvider(body.seasonId, 'ge', body.type);
+      configuredRuntime = seasonProviderRegistry.create(providerConfig);
+      provider = configuredRuntime.provider;
     } else if (body.provider === 'csv') {
+      await assertConfiguredProvider(body.seasonId, 'csv', body.type);
       provider = new CsvProvider(body.type, body.csv, body.sourceDocument);
     } else if (body.provider === 'cbf-official') {
+      await assertConfiguredProvider(body.seasonId, 'cbf-official', body.type);
       provider = new CbfProvider(normalizedPayload(body.type, body.items));
-    } else {
+    } else if (body.provider === 'manual') {
+      await assertConfiguredProvider(body.seasonId, 'manual', body.type);
       provider = new ManualProvider(normalizedPayload(body.type, body.items));
+    } else {
+      const providerConfig = await assertConfiguredProvider(
+        body.seasonId,
+        body.provider,
+        body.type,
+      );
+      configuredRuntime = seasonProviderRegistry.create(providerConfig);
+      provider = configuredRuntime.provider;
     }
-    if (!body.dryRun) {
+    const mode = body.mode ?? (body.dryRun ? 'DRY_RUN' : 'APPLY');
+    if (mode === 'APPLY') {
       await authorizeAdminPreview({
         context: adminContext,
         action: 'PROVIDER_SYNC_APPLY',
-        scope: { targetType: 'ProviderSync', targetId: `${body.provider}:${body.type}`, seasonId: body.seasonId },
+        scope: {
+          targetType: 'ProviderSync',
+          targetId: `${body.provider}:${body.type}`,
+          seasonId: body.seasonId,
+        },
         confirmation: { previewId: body.previewId!, confirmation: body.confirmation! },
         request: authorizationRequest,
       });
@@ -267,15 +293,19 @@ adminRouter.post(
     const result = await runProviderSync(provider, {
       type: body.type,
       seasonId: body.seasonId,
-      dryRun: body.dryRun,
+      mode,
       idempotencyKey: adminContext.idempotencyKey,
       requestedById: req.session.user!.id,
     });
-    if (body.dryRun) {
+    if (mode !== 'APPLY') {
       const authorization = await createAdminPreview({
         context: adminContext,
         action: 'PROVIDER_SYNC_APPLY',
-        scope: { targetType: 'ProviderSync', targetId: `${body.provider}:${body.type}`, seasonId: body.seasonId },
+        scope: {
+          targetType: 'ProviderSync',
+          targetId: `${body.provider}:${body.type}`,
+          seasonId: body.seasonId,
+        },
         justification: body.justification,
         request: authorizationRequest,
         preview: result,
@@ -286,7 +316,7 @@ adminRouter.post(
     }
     if (
       body.provider === 'cbf-serie-a-2026' &&
-      !body.dryRun &&
+      mode === 'APPLY' &&
       ['SCHEDULE', 'RESULTS'].includes(body.type)
     ) {
       await configuredRuntime?.afterSync?.(body.seasonId);
@@ -304,7 +334,9 @@ adminRouter.post(
         origin: adminContext.origin,
         before: { previewId: body.previewId!, checksum: result.checksum },
         after: JSON.parse(JSON.stringify(result)),
-        details: { affectedCount: result.counts.inserted + result.counts.updated + result.counts.quarantined },
+        details: {
+          affectedCount: result.counts.inserted + result.counts.updated + result.counts.quarantined,
+        },
       },
     });
     res.status(202).json(result);

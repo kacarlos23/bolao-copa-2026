@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "provider": "cbf-copa-do-brasil-official",
+  "competition": "copa-do-brasil",
+  "season": "fixture-2026",
+  "source": "https://fixture.invalid/cbf/copa-do-brasil/official-snapshot",
+  "collectedAt": "2026-07-21T19:00:00-03:00",
+  "snapshotChecksum": "9d5a7f2efc5b70c269a6e65c2b409d5624105441a11dfa4f8f35e906af49ae24",
+  "artifacts": [
+    {
+      "kind": "PDF",
+      "source": "https://fixture.invalid/cbf/copa-do-brasil/table.pdf",
+      "contentType": "application/pdf",
+      "bodyBase64": "JVBERi0xLjQgc2FuaXRpemVkIGZpeHR1cmU=",
+      "checksum": "ab2fdf96e2e4ca735c4e064237efdf2425ea8df123e7a75a7ae011df9e36351b",
+      "byteLength": 26
+    },
+    {
+      "kind": "RESPONSE",
+      "source": "https://fixture.invalid/cbf/copa-do-brasil/response.json",
+      "contentType": "application/json",
+      "bodyBase64": "eyJzYW5pdGl6ZWQiOnRydWV9",
+      "checksum": "ea1fa14b6cc138e7490e462dcbc1f77b535c0479ef2b23233a64b8ac0aa96567",
+      "byteLength": 18
+    }
+  ],
+  "data": {
+    "teams": [
+      { "externalId": "club:e", "name": "Clube Esmeralda", "code": "ESM", "type": "CLUB", "countryCode": "BRA", "federation": "CBF" },
+      { "externalId": "club:f", "name": "Clube Federal", "code": "FED", "type": "CLUB", "countryCode": "BRA", "federation": "CBF" }
+    ],
+    "structure": [
+      { "kind": "STAGE", "externalId": "stage:knockout", "slug": "mata-mata", "name": "Fases eliminatorias", "type": "KNOCKOUT", "order": 1 },
+      { "kind": "ROUND", "externalId": "round:single", "stageExternalId": "stage:knockout", "name": "Fase de jogo unico", "order": 1, "status": "FINISHED", "startsAt": "2026-03-04T19:00:00-03:00", "endsAt": "2026-03-04T23:30:00-03:00" }
+    ],
+    "ties": [
+      { "externalId": "tie:single-1", "key": "single-1", "order": 1, "stageExternalId": "stage:knockout", "roundExternalId": "round:single", "teamAExternalId": "club:e", "teamBExternalId": "club:f", "teamAName": "Clube Esmeralda", "teamBName": "Clube Federal", "expectedLegs": 1, "status": "DECIDED", "decisionMethod": "PENALTIES", "winnerTeamExternalId": "club:e", "provenance": "sanitized CBF fixture" }
+    ],
+    "schedule": [
+      { "externalId": "match:single-1", "homeTeamExternalId": "club:e", "awayTeamExternalId": "club:f", "homeTeamName": "Clube Esmeralda", "awayTeamName": "Clube Federal", "startsAt": "2026-03-04T20:30:00-03:00", "status": "FINISHED", "stageExternalId": "stage:knockout", "roundExternalId": "round:single", "tieExternalId": "tie:single-1", "legNumber": 1, "venue": { "name": "Arena Sanitizada", "city": "Cidade E", "countryCode": "BRA" } }
+    ],
+    "results": [
+      { "externalId": "result:single-1", "matchExternalId": "match:single-1", "homeTeamExternalId": "club:e", "awayTeamExternalId": "club:f", "homeTeamName": "Clube Esmeralda", "awayTeamName": "Clube Federal", "startsAt": "2026-03-04T20:30:00-03:00", "homeScore": 2, "awayScore": 2, "regulationHomeScore": 2, "regulationAwayScore": 2, "penaltyHomeScore": 4, "penaltyAwayScore": 3, "status": "FINISHED" }
+    ],
+    "standings": []
+  }
+}

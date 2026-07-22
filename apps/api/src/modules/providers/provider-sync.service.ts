@@ -3,6 +3,7 @@ import {
   MatchStatus,
   Prisma,
   type ProviderEntityType,
+  type ProviderSyncMode,
   type ProviderSyncType,
   type SyncQuarantineReason,
 } from '@prisma/client';
@@ -20,11 +21,15 @@ import {
   type NormalizedMatch,
   type NormalizedResult,
   type NormalizedStanding,
+  type NormalizedStructureEntity,
   type NormalizedTeam,
+  type NormalizedTie,
   normalizedMatchArraySchema,
   normalizedResultArraySchema,
   normalizedStandingArraySchema,
+  normalizedStructureArraySchema,
   normalizedTeamArraySchema,
+  normalizedTieArraySchema,
 } from './competition-data-provider.js';
 import {
   chooseMatchIdentity,
@@ -34,6 +39,7 @@ import {
   valuesAfterManualOverride,
 } from './provider-sync.logic.js';
 import { checksum, redactProviderError } from './provider-utils.js';
+import { recomputeTie } from '../ties/tie-recomputation.service.js';
 
 const LOCK_TTL_MS = 2 * 60_000;
 
@@ -41,13 +47,15 @@ export interface ProviderSyncOptions {
   type: ProviderSyncType;
   seasonId: string;
   dryRun?: boolean;
+  mode?: ProviderSyncMode;
+  expectedChecksum?: string;
   idempotencyKey: string;
   requestedById?: string | null;
 }
 
 export interface ProviderSyncDiff {
   action: 'INSERT' | 'UPDATE' | 'MAP' | 'UNCHANGED' | 'QUARANTINE' | 'OVERRIDE_PRESERVED';
-  entity: 'TEAM' | 'MATCH' | 'RESULT' | 'STANDING';
+  entity: 'TEAM' | 'STAGE' | 'ROUND' | 'TIE' | 'MATCH' | 'RESULT' | 'STANDING';
   externalId: string;
   internalId?: string;
   before?: unknown;
@@ -61,8 +69,10 @@ export interface ProviderSyncSummary {
   seasonId: string;
   type: ProviderSyncType;
   dryRun: boolean;
-  status: 'SUCCESS' | 'PARTIAL' | 'DRY_RUN';
+  mode: ProviderSyncMode;
+  status: 'SUCCESS' | 'PARTIAL' | 'DRY_RUN' | 'VERIFIED';
   source: string;
+  collectedAt: string;
   checksum: string;
   startedAt: string;
   finishedAt: string;
@@ -84,7 +94,13 @@ interface QuarantineInput {
   payload: unknown;
 }
 
-type ProviderItem = NormalizedTeam | NormalizedMatch | NormalizedResult | NormalizedStanding;
+type ProviderItem =
+  | NormalizedTeam
+  | NormalizedStructureEntity
+  | NormalizedTie
+  | NormalizedMatch
+  | NormalizedResult
+  | NormalizedStanding;
 
 const activeRuns = new Map<
   string,
@@ -110,6 +126,12 @@ async function providerItems(
     case 'STANDINGS':
       if (!provider.syncStandings) return [];
       return normalizedStandingArraySchema.parse(await provider.syncStandings(context));
+    case 'STRUCTURE':
+      if (!provider.syncStructure) return [];
+      return normalizedStructureArraySchema.parse(await provider.syncStructure(context));
+    case 'TIES':
+      if (!provider.syncTies) return [];
+      return normalizedTieArraySchema.parse(await provider.syncTies(context));
   }
 }
 
@@ -119,8 +141,10 @@ function summaryFromRun(run: {
   seasonId: string;
   type: ProviderSyncType;
   dryRun: boolean;
+  mode: ProviderSyncMode;
   status: string;
   source: string;
+  collectedAt: Date | null;
   checksum: string | null;
   startedAt: Date;
   finishedAt: Date | null;
@@ -136,8 +160,17 @@ function summaryFromRun(run: {
     seasonId: run.seasonId,
     type: run.type,
     dryRun: run.dryRun,
-    status: run.status === 'DRY_RUN' ? 'DRY_RUN' : run.status === 'PARTIAL' ? 'PARTIAL' : 'SUCCESS',
+    mode: run.mode,
+    status:
+      run.status === 'DRY_RUN'
+        ? 'DRY_RUN'
+        : run.status === 'VERIFIED'
+          ? 'VERIFIED'
+          : run.status === 'PARTIAL'
+            ? 'PARTIAL'
+            : 'SUCCESS',
     source: run.source,
+    collectedAt: (run.collectedAt ?? run.startedAt).toISOString(),
     checksum: run.checksum ?? '',
     startedAt: run.startedAt.toISOString(),
     finishedAt: (run.finishedAt ?? run.startedAt).toISOString(),
@@ -211,6 +244,48 @@ function civilDayKey(value: Date, timezone: string) {
   return new Date(Date.UTC(Number(values.year), Number(values.month) - 1, Number(values.day)));
 }
 
+function syncMode(options: ProviderSyncOptions): ProviderSyncMode {
+  return options.mode ?? (options.dryRun ? 'DRY_RUN' : 'APPLY');
+}
+
+function isReadOnlySync(options: ProviderSyncOptions) {
+  return syncMode(options) !== 'APPLY';
+}
+
+function mappingScope(seasonId: string) {
+  return `season:${seasonId}`;
+}
+
+function scopedExternalId(seasonId: string, externalId: string) {
+  return `${mappingScope(seasonId)}:${externalId}`;
+}
+
+function providerJson(value: unknown): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+async function findProviderMapping(
+  provider: string,
+  seasonId: string,
+  entityType: ProviderEntityType,
+  rawExternalId: string,
+) {
+  return prisma.providerEntityMapping.findFirst({
+    where: {
+      provider,
+      entityType,
+      OR: [
+        {
+          scopeKey: mappingScope(seasonId),
+          externalId: scopedExternalId(seasonId, rawExternalId),
+        },
+        { seasonId, externalId: rawExternalId },
+      ],
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+}
+
 async function ensureMatchDay(tx: Prisma.TransactionClient, seasonId: string, startsAt: Date) {
   const season = await tx.competitionSeason.findUnique({
     where: { id: seasonId },
@@ -255,13 +330,15 @@ function mappingData(
 ) {
   return {
     provider: provider.name,
+    scopeKey: mappingScope(options.seasonId),
     entityType,
-    externalId,
+    externalId: scopedExternalId(options.seasonId, externalId),
     internalId,
     seasonId: options.seasonId,
     sourceUrl: provider.source,
     collectedAt: new Date(),
     checksum: itemChecksum,
+    metadata: { rawExternalId: externalId },
   } satisfies Prisma.ProviderEntityMappingUncheckedCreateInput;
 }
 
@@ -272,11 +349,7 @@ async function resolveTeam(
   name: string,
 ) {
   if (externalId) {
-    const mapping = await prisma.providerEntityMapping.findUnique({
-      where: {
-        provider_entityType_externalId: { provider: providerName, entityType: 'TEAM', externalId },
-      },
-    });
+    const mapping = await findProviderMapping(providerName, seasonId, 'TEAM', externalId);
     if (mapping) return { id: mapping.internalId, ambiguous: false };
   }
   const teams = await prisma.seasonTeam.findMany({
@@ -299,18 +372,15 @@ async function processTeam(
   team: NormalizedTeam,
 ): Promise<{ diff: ProviderSyncDiff; quarantine?: QuarantineInput; eventId?: string }> {
   const itemChecksum = checksum(team);
-  const mapping = await prisma.providerEntityMapping.findUnique({
-    where: {
-      provider_entityType_externalId: {
-        provider: provider.name,
-        entityType: 'TEAM',
-        externalId: team.externalId,
-      },
-    },
-  });
+  const mapping = await findProviderMapping(
+    provider.name,
+    options.seasonId,
+    'TEAM',
+    team.externalId,
+  );
   const seasonTeams = await prisma.seasonTeam.findMany({
     where: { seasonId: options.seasonId },
-    select: { team: true },
+    select: { groupName: true, metadata: true, team: true },
   });
   let internal = mapping
     ? seasonTeams.find((entry) => entry.team.id === mapping.internalId)?.team
@@ -343,19 +413,26 @@ async function processTeam(
 
   if (!internal) {
     let eventId: string | undefined;
-    if (!options.dryRun) {
+    if (!isReadOnlySync(options)) {
       const created = await prisma.$transaction(async (tx) => {
         const saved = await tx.team.create({
           data: {
-            externalId: `${provider.name}:team:${team.externalId}`,
+            externalId: `${provider.name}:${options.seasonId}:team:${team.externalId}`,
             name: team.name,
             code: team.code,
             type: team.type,
             crestUrl: team.crestUrl,
+            countryCode: team.countryCode,
+            metadata: team.providerMetadata ? providerJson(team.providerMetadata) : undefined,
           },
         });
         await tx.seasonTeam.create({
-          data: { seasonId: options.seasonId, teamId: saved.id, groupName: team.groupName },
+          data: {
+            seasonId: options.seasonId,
+            teamId: saved.id,
+            groupName: team.groupName,
+            metadata: team.federation ? { federation: team.federation } : undefined,
+          },
         });
         await tx.providerEntityMapping.create({
           data: mappingData(provider, options, 'TEAM', team.externalId, saved.id, itemChecksum),
@@ -384,7 +461,7 @@ async function processTeam(
   }
 
   if (!mapping) {
-    if (!options.dryRun) {
+    if (!isReadOnlySync(options)) {
       await prisma.providerEntityMapping.create({
         data: mappingData(provider, options, 'TEAM', team.externalId, internal.id, itemChecksum),
       });
@@ -404,13 +481,30 @@ async function processTeam(
     internal.name !== team.name ||
     (team.code !== undefined && internal.code !== team.code) ||
     (team.type !== undefined && internal.type !== team.type) ||
-    (team.crestUrl !== undefined && internal.crestUrl !== team.crestUrl);
+    (team.crestUrl !== undefined && internal.crestUrl !== team.crestUrl) ||
+    (team.countryCode !== undefined && internal.countryCode !== team.countryCode) ||
+    seasonTeams.find((entry) => entry.team.id === internal!.id)?.groupName !==
+      (team.groupName ?? null);
   let eventId: string | undefined;
-  if (changed && !options.dryRun) {
+  if (changed && !isReadOnlySync(options)) {
     eventId = await prisma.$transaction(async (tx) => {
       await tx.team.update({
         where: { id: internal!.id },
-        data: { name: team.name, code: team.code, type: team.type, crestUrl: team.crestUrl },
+        data: {
+          name: team.name,
+          code: team.code,
+          type: team.type,
+          crestUrl: team.crestUrl,
+          countryCode: team.countryCode,
+          metadata: team.providerMetadata ? providerJson(team.providerMetadata) : undefined,
+        },
+      });
+      await tx.seasonTeam.update({
+        where: { seasonId_teamId: { seasonId: options.seasonId, teamId: internal!.id } },
+        data: {
+          groupName: team.groupName ?? null,
+          metadata: team.federation ? { federation: team.federation } : undefined,
+        },
       });
       await tx.providerEntityMapping.update({
         where: { id: mapping.id },
@@ -439,6 +533,615 @@ async function processTeam(
   };
 }
 
+type PreviewStructureMapping = { internalId: string; stageType?: 'LEAGUE' | 'GROUP' | 'KNOCKOUT' };
+
+async function processStructure(
+  provider: CompetitionDataProvider,
+  options: ProviderSyncOptions,
+  incoming: NormalizedStructureEntity,
+  previewMappings: Map<string, PreviewStructureMapping>,
+): Promise<{ diff: ProviderSyncDiff; quarantine?: QuarantineInput; eventId?: string }> {
+  const entityType = incoming.kind === 'STAGE' ? ('STAGE' as const) : ('ROUND' as const);
+  const itemChecksum = checksum(incoming);
+  const mapping = await findProviderMapping(
+    provider.name,
+    options.seasonId,
+    entityType,
+    incoming.externalId,
+  );
+
+  if (incoming.kind === 'STAGE') {
+    const mapped = mapping
+      ? await prisma.stage.findFirst({
+          where: { id: mapping.internalId, seasonId: options.seasonId },
+        })
+      : null;
+    if (mapping && !mapped) {
+      const quarantine = {
+        externalId: incoming.externalId,
+        reason: 'INVALID_REFERENCE' as const,
+        message: 'Stage mapping points outside the selected season.',
+        payload: incoming,
+      };
+      return { diff: quarantineDiff('STAGE', quarantine), quarantine };
+    }
+    const candidates = mapping
+      ? []
+      : await prisma.stage.findMany({
+          where: {
+            seasonId: options.seasonId,
+            OR: [{ slug: incoming.slug }, { order: incoming.order }],
+          },
+        });
+    if (!mapping && candidates.length > 1) {
+      const quarantine = {
+        externalId: incoming.externalId,
+        reason: 'AMBIGUOUS_STAGE' as const,
+        message: 'Stage identity matched more than one season stage.',
+        payload: incoming,
+      };
+      return { diff: quarantineDiff('STAGE', quarantine), quarantine };
+    }
+    const current = mapped ?? candidates[0] ?? null;
+    const changed =
+      Boolean(current) &&
+      (current!.slug !== incoming.slug ||
+        current!.name !== incoming.name ||
+        current!.type !== incoming.type ||
+        current!.order !== incoming.order ||
+        checksum(current!.metadata ?? null) !== checksum(incoming.metadata ?? null));
+    let internalId = current?.id;
+    let eventId: string | undefined;
+    if (!current && !isReadOnlySync(options)) {
+      const created = await prisma.$transaction(async (tx) => {
+        const stage = await tx.stage.create({
+          data: {
+            seasonId: options.seasonId,
+            slug: incoming.slug,
+            name: incoming.name,
+            type: incoming.type,
+            order: incoming.order,
+            metadata: incoming.metadata as Prisma.InputJsonValue | undefined,
+          },
+        });
+        await tx.providerEntityMapping.create({
+          data: mappingData(
+            provider,
+            options,
+            'STAGE',
+            incoming.externalId,
+            stage.id,
+            itemChecksum,
+          ),
+        });
+        const event = await enqueueOutboxEvent(tx, {
+          type: 'competition.structure.updated',
+          seasonId: options.seasonId,
+          poolSeasonId: null,
+          payload: { stageId: stage.id, provider: provider.name },
+        });
+        return { stage, eventId: event.id };
+      });
+      internalId = created.stage.id;
+      eventId = created.eventId;
+    } else if (current && changed && !isReadOnlySync(options)) {
+      eventId = await prisma.$transaction(async (tx) => {
+        await tx.stage.update({
+          where: { id: current.id },
+          data: {
+            slug: incoming.slug,
+            name: incoming.name,
+            type: incoming.type,
+            order: incoming.order,
+            metadata: incoming.metadata as Prisma.InputJsonValue | undefined,
+          },
+        });
+        if (mapping) {
+          await tx.providerEntityMapping.update({
+            where: { id: mapping.id },
+            data: { checksum: itemChecksum, sourceUrl: provider.source, collectedAt: new Date() },
+          });
+        } else {
+          await tx.providerEntityMapping.create({
+            data: mappingData(
+              provider,
+              options,
+              'STAGE',
+              incoming.externalId,
+              current.id,
+              itemChecksum,
+            ),
+          });
+        }
+        return (
+          await enqueueOutboxEvent(tx, {
+            type: 'competition.structure.updated',
+            seasonId: options.seasonId,
+            poolSeasonId: null,
+            payload: { stageId: current.id, provider: provider.name },
+          })
+        ).id;
+      });
+    } else if (current && !mapping && !isReadOnlySync(options)) {
+      await prisma.providerEntityMapping.create({
+        data: mappingData(
+          provider,
+          options,
+          'STAGE',
+          incoming.externalId,
+          current.id,
+          itemChecksum,
+        ),
+      });
+    }
+    previewMappings.set(incoming.externalId, {
+      internalId: internalId ?? `preview:stage:${incoming.externalId}`,
+      stageType: incoming.type,
+    });
+    return {
+      diff: {
+        action: !current ? 'INSERT' : changed ? 'UPDATE' : mapping ? 'UNCHANGED' : 'MAP',
+        entity: 'STAGE',
+        externalId: incoming.externalId,
+        internalId,
+        before: changed ? current : undefined,
+        after: !current || changed ? incoming : undefined,
+      },
+      eventId,
+    };
+  }
+
+  const stageMapping = previewMappings.get(incoming.stageExternalId);
+  const resolvedStage =
+    stageMapping ??
+    (await findProviderMapping(
+      provider.name,
+      options.seasonId,
+      'STAGE',
+      incoming.stageExternalId,
+    ).then((entry) =>
+      entry ? ({ internalId: entry.internalId } satisfies PreviewStructureMapping) : null,
+    ));
+  if (!resolvedStage) {
+    const quarantine = {
+      externalId: incoming.externalId,
+      reason: 'AMBIGUOUS_STAGE' as const,
+      message: 'Round stage has no unambiguous provider mapping.',
+      payload: incoming,
+    };
+    return { diff: quarantineDiff('ROUND', quarantine), quarantine };
+  }
+  const mapped = mapping
+    ? await prisma.round.findFirst({
+        where: { id: mapping.internalId, seasonId: options.seasonId },
+      })
+    : null;
+  if (mapping && !mapped) {
+    const quarantine = {
+      externalId: incoming.externalId,
+      reason: 'INVALID_REFERENCE' as const,
+      message: 'Round mapping points outside the selected season.',
+      payload: incoming,
+    };
+    return { diff: quarantineDiff('ROUND', quarantine), quarantine };
+  }
+  const candidates = mapping
+    ? []
+    : await prisma.round.findMany({
+        where: {
+          seasonId: options.seasonId,
+          stageId: resolvedStage.internalId,
+          OR: [{ order: incoming.order }, { name: incoming.name }],
+        },
+      });
+  if (!mapping && candidates.length > 1) {
+    const quarantine = {
+      externalId: incoming.externalId,
+      reason: 'AMBIGUOUS_ROUND' as const,
+      message: 'Round identity matched more than one stage round.',
+      payload: incoming,
+    };
+    return { diff: quarantineDiff('ROUND', quarantine), quarantine };
+  }
+  const current = mapped ?? candidates[0] ?? null;
+  const changed =
+    Boolean(current) &&
+    (current!.stageId !== resolvedStage.internalId ||
+      current!.name !== incoming.name ||
+      current!.order !== incoming.order ||
+      current!.status !== incoming.status ||
+      (current!.startsAt?.getTime() ?? null) !==
+        (incoming.startsAt ? new Date(incoming.startsAt).getTime() : null) ||
+      (current!.endsAt?.getTime() ?? null) !==
+        (incoming.endsAt ? new Date(incoming.endsAt).getTime() : null) ||
+      checksum(current!.metadata ?? null) !== checksum(incoming.metadata ?? null));
+  let internalId = current?.id;
+  let eventId: string | undefined;
+  if (!current && !isReadOnlySync(options)) {
+    const created = await prisma.$transaction(async (tx) => {
+      const round = await tx.round.create({
+        data: {
+          seasonId: options.seasonId,
+          stageId: resolvedStage.internalId,
+          name: incoming.name,
+          order: incoming.order,
+          status: incoming.status,
+          startsAt: incoming.startsAt ? new Date(incoming.startsAt) : null,
+          endsAt: incoming.endsAt ? new Date(incoming.endsAt) : null,
+          metadata: incoming.metadata as Prisma.InputJsonValue | undefined,
+        },
+      });
+      await tx.providerEntityMapping.create({
+        data: mappingData(provider, options, 'ROUND', incoming.externalId, round.id, itemChecksum),
+      });
+      const event = await enqueueOutboxEvent(tx, {
+        type: 'competition.structure.updated',
+        seasonId: options.seasonId,
+        poolSeasonId: null,
+        payload: { roundId: round.id, provider: provider.name },
+      });
+      return { round, eventId: event.id };
+    });
+    internalId = created.round.id;
+    eventId = created.eventId;
+  } else if (current && changed && !isReadOnlySync(options)) {
+    eventId = await prisma.$transaction(async (tx) => {
+      await tx.round.update({
+        where: { id: current.id },
+        data: {
+          stageId: resolvedStage.internalId,
+          name: incoming.name,
+          order: incoming.order,
+          status: incoming.status,
+          startsAt: incoming.startsAt ? new Date(incoming.startsAt) : null,
+          endsAt: incoming.endsAt ? new Date(incoming.endsAt) : null,
+          metadata: incoming.metadata as Prisma.InputJsonValue | undefined,
+        },
+      });
+      if (mapping) {
+        await tx.providerEntityMapping.update({
+          where: { id: mapping.id },
+          data: { checksum: itemChecksum, sourceUrl: provider.source, collectedAt: new Date() },
+        });
+      } else {
+        await tx.providerEntityMapping.create({
+          data: mappingData(
+            provider,
+            options,
+            'ROUND',
+            incoming.externalId,
+            current.id,
+            itemChecksum,
+          ),
+        });
+      }
+      return (
+        await enqueueOutboxEvent(tx, {
+          type: 'competition.structure.updated',
+          seasonId: options.seasonId,
+          poolSeasonId: null,
+          payload: { roundId: current.id, provider: provider.name },
+        })
+      ).id;
+    });
+  } else if (current && !mapping && !isReadOnlySync(options)) {
+    await prisma.providerEntityMapping.create({
+      data: mappingData(provider, options, 'ROUND', incoming.externalId, current.id, itemChecksum),
+    });
+  }
+  previewMappings.set(incoming.externalId, {
+    internalId: internalId ?? `preview:round:${incoming.externalId}`,
+  });
+  return {
+    diff: {
+      action: !current ? 'INSERT' : changed ? 'UPDATE' : mapping ? 'UNCHANGED' : 'MAP',
+      entity: 'ROUND',
+      externalId: incoming.externalId,
+      internalId,
+      before: changed ? current : undefined,
+      after: !current || changed ? incoming : undefined,
+    },
+    eventId,
+  };
+}
+
+async function processTie(
+  provider: CompetitionDataProvider,
+  options: ProviderSyncOptions,
+  incoming: NormalizedTie,
+): Promise<{ diff: ProviderSyncDiff; quarantine?: QuarantineInput; eventId?: string }> {
+  const [teamA, teamB, stage, round] = await Promise.all([
+    resolveTeam(provider.name, options.seasonId, incoming.teamAExternalId, incoming.teamAName),
+    resolveTeam(provider.name, options.seasonId, incoming.teamBExternalId, incoming.teamBName),
+    resolveOptionalScheduleMapping(
+      provider.name,
+      options.seasonId,
+      'STAGE',
+      incoming.stageExternalId,
+    ),
+    resolveOptionalScheduleMapping(
+      provider.name,
+      options.seasonId,
+      'ROUND',
+      incoming.roundExternalId,
+    ),
+  ]);
+  if (!teamA.id || !teamB.id || teamA.id === teamB.id) {
+    const quarantine = {
+      externalId: incoming.externalId,
+      reason: 'AMBIGUOUS_TEAM' as const,
+      message: 'Tie participants do not resolve to two unambiguous season teams.',
+      payload: incoming,
+    };
+    return { diff: quarantineDiff('TIE', quarantine), quarantine };
+  }
+  if (!stage.internalId || stage.missing) {
+    const quarantine = {
+      externalId: incoming.externalId,
+      reason: 'AMBIGUOUS_STAGE' as const,
+      message: 'Tie stage has no unambiguous provider mapping.',
+      payload: incoming,
+    };
+    return { diff: quarantineDiff('TIE', quarantine), quarantine };
+  }
+  if (!round.internalId || round.missing) {
+    const quarantine = {
+      externalId: incoming.externalId,
+      reason: 'AMBIGUOUS_ROUND' as const,
+      message: 'Tie round has no unambiguous provider mapping.',
+      payload: incoming,
+    };
+    return { diff: quarantineDiff('TIE', quarantine), quarantine };
+  }
+  const stageRecord = await prisma.stage.findFirst({
+    where: { id: stage.internalId, seasonId: options.seasonId, type: 'KNOCKOUT' },
+    select: { id: true },
+  });
+  const roundRecord = await prisma.round.findFirst({
+    where: { id: round.internalId, seasonId: options.seasonId, stageId: stage.internalId },
+    select: { id: true },
+  });
+  if (!stageRecord || !roundRecord) {
+    const quarantine = {
+      externalId: incoming.externalId,
+      reason: !stageRecord ? ('AMBIGUOUS_STAGE' as const) : ('AMBIGUOUS_ROUND' as const),
+      message: !stageRecord
+        ? 'Tie stage is not a knockout stage in this season.'
+        : 'Tie round does not belong to the selected knockout stage.',
+      payload: incoming,
+    };
+    return { diff: quarantineDiff('TIE', quarantine), quarantine };
+  }
+
+  let providerWinnerTeamId: string | null = null;
+  if (incoming.status === 'DECIDED') {
+    const winner = await resolveTeam(
+      provider.name,
+      options.seasonId,
+      incoming.winnerTeamExternalId,
+      incoming.winnerTeamExternalId === incoming.teamAExternalId
+        ? incoming.teamAName
+        : incoming.winnerTeamExternalId === incoming.teamBExternalId
+          ? incoming.teamBName
+          : '__unresolved_qualifier__',
+    );
+    if (!winner.id || ![teamA.id, teamB.id].includes(winner.id)) {
+      const quarantine = {
+        externalId: incoming.externalId,
+        reason: 'AMBIGUOUS_QUALIFIER' as const,
+        message: 'Declared qualifier has no unambiguous participant mapping.',
+        payload: incoming,
+      };
+      return { diff: quarantineDiff('TIE', quarantine), quarantine };
+    }
+    providerWinnerTeamId = winner.id;
+  }
+
+  const mapping = await findProviderMapping(
+    provider.name,
+    options.seasonId,
+    'TIE',
+    incoming.externalId,
+  );
+  const mapped = mapping
+    ? await prisma.tie.findFirst({ where: { id: mapping.internalId, seasonId: options.seasonId } })
+    : null;
+  if (mapping && !mapped) {
+    const quarantine = {
+      externalId: incoming.externalId,
+      reason: 'INVALID_REFERENCE' as const,
+      message: 'Tie mapping points outside the selected season.',
+      payload: incoming,
+    };
+    return { diff: quarantineDiff('TIE', quarantine), quarantine };
+  }
+  const candidates = mapping
+    ? []
+    : await prisma.tie.findMany({
+        where: {
+          seasonId: options.seasonId,
+          roundId: round.internalId,
+          OR: [
+            { teamAId: teamA.id, teamBId: teamB.id },
+            { teamAId: teamB.id, teamBId: teamA.id },
+          ],
+        },
+      });
+  if (!mapping && candidates.length > 1) {
+    const quarantine = {
+      externalId: incoming.externalId,
+      reason: 'AMBIGUOUS_TIE' as const,
+      message: 'Participant fallback matched more than one tie.',
+      payload: incoming,
+    };
+    return { diff: quarantineDiff('TIE', quarantine), quarantine };
+  }
+  const current = mapped ?? candidates[0] ?? null;
+  if (
+    current?.status === 'DECIDED' &&
+    providerWinnerTeamId &&
+    current.winnerTeamId !== providerWinnerTeamId
+  ) {
+    const quarantine = {
+      externalId: incoming.externalId,
+      reason: 'CONFLICT' as const,
+      message: 'Provider qualifier conflicts with the currently recomputed tie winner.',
+      payload: incoming,
+    };
+    return { diff: quarantineDiff('TIE', quarantine), quarantine };
+  }
+  const manualDecision =
+    incoming.status === 'DECIDED' &&
+    providerWinnerTeamId &&
+    (incoming.decisionMethod === 'WALKOVER' || incoming.decisionMethod === 'ADMINISTRATIVE');
+  const automaticDecisionEvidence =
+    incoming.status === 'DECIDED' && !manualDecision
+      ? {
+          providerWinnerTeamId,
+          providerDecisionMethod: incoming.decisionMethod,
+          requiresResultVerification: true,
+        }
+      : {};
+  const desiredStatus =
+    current?.status === 'DECIDED'
+      ? current.status
+      : manualDecision
+        ? 'DECIDED'
+        : incoming.status === 'CANCELLED'
+          ? 'CANCELLED'
+          : (current?.status ?? 'SCHEDULED');
+  const desiredWinner = manualDecision ? providerWinnerTeamId : (current?.winnerTeamId ?? null);
+  const desiredMethod = manualDecision
+    ? incoming.decisionMethod!
+    : (current?.decisionMethod ?? null);
+  const desiredDecidedAt = manualDecision ? (current?.decidedAt ?? new Date()) : current?.decidedAt;
+  const desiredMetadata = {
+    ...(current?.metadata &&
+    typeof current.metadata === 'object' &&
+    !Array.isArray(current.metadata)
+      ? (current.metadata as Record<string, unknown>)
+      : {}),
+    ...(incoming.metadata ?? {}),
+    ...automaticDecisionEvidence,
+  };
+  const changed =
+    Boolean(current) &&
+    (current!.stageId !== stage.internalId ||
+      current!.roundId !== round.internalId ||
+      current!.key !== incoming.key ||
+      current!.order !== incoming.order ||
+      current!.expectedLegs !== incoming.expectedLegs ||
+      current!.status !== desiredStatus ||
+      current!.winnerTeamId !== desiredWinner ||
+      current!.decisionMethod !== desiredMethod ||
+      current!.provenance !== incoming.provenance ||
+      checksum(current!.metadata ?? null) !== checksum(desiredMetadata));
+  const itemChecksum = checksum(incoming);
+  let internalId = current?.id;
+  let eventId: string | undefined;
+  if (!current && !isReadOnlySync(options)) {
+    const created = await prisma.$transaction(async (tx) => {
+      const tie = await tx.tie.create({
+        data: {
+          seasonId: options.seasonId,
+          stageId: stage.internalId!,
+          roundId: round.internalId!,
+          key: incoming.key,
+          order: incoming.order,
+          teamAId: teamA.id!,
+          teamBId: teamB.id!,
+          expectedLegs: incoming.expectedLegs,
+          status: manualDecision
+            ? 'DECIDED'
+            : incoming.status === 'CANCELLED'
+              ? 'CANCELLED'
+              : 'SCHEDULED',
+          decisionMethod: manualDecision ? incoming.decisionMethod : null,
+          winnerTeamId: manualDecision ? providerWinnerTeamId : null,
+          decidedAt: manualDecision ? new Date() : null,
+          provenance: incoming.provenance,
+          metadata: desiredMetadata,
+        },
+      });
+      await tx.providerEntityMapping.create({
+        data: mappingData(provider, options, 'TIE', incoming.externalId, tie.id, itemChecksum),
+      });
+      const event = await enqueueOutboxEvent(tx, {
+        type: 'tie.updated',
+        seasonId: options.seasonId,
+        poolSeasonId: null,
+        payload: { tieId: tie.id, provider: provider.name },
+      });
+      return { tie, eventId: event.id };
+    });
+    internalId = created.tie.id;
+    eventId = created.eventId;
+  } else if (current && changed && !isReadOnlySync(options)) {
+    eventId = await prisma.$transaction(async (tx) => {
+      await tx.tie.update({
+        where: { id: current.id },
+        data: {
+          stageId: stage.internalId!,
+          roundId: round.internalId!,
+          key: incoming.key,
+          order: incoming.order,
+          expectedLegs: incoming.expectedLegs,
+          status: desiredStatus,
+          decisionMethod: desiredMethod,
+          winnerTeamId: desiredWinner,
+          decidedAt: desiredDecidedAt,
+          provenance: incoming.provenance,
+          metadata: desiredMetadata,
+        },
+      });
+      if (mapping) {
+        await tx.providerEntityMapping.update({
+          where: { id: mapping.id },
+          data: { checksum: itemChecksum, sourceUrl: provider.source, collectedAt: new Date() },
+        });
+      } else {
+        await tx.providerEntityMapping.create({
+          data: mappingData(
+            provider,
+            options,
+            'TIE',
+            incoming.externalId,
+            current.id,
+            itemChecksum,
+          ),
+        });
+      }
+      return (
+        await enqueueOutboxEvent(tx, {
+          type: 'tie.updated',
+          seasonId: options.seasonId,
+          poolSeasonId: null,
+          payload: { tieId: current.id, provider: provider.name },
+        })
+      ).id;
+    });
+  } else if (current && !mapping && !isReadOnlySync(options)) {
+    await prisma.providerEntityMapping.create({
+      data: mappingData(provider, options, 'TIE', incoming.externalId, current.id, itemChecksum),
+    });
+  }
+  return {
+    diff: {
+      action: !current ? 'INSERT' : changed ? 'UPDATE' : mapping ? 'UNCHANGED' : 'MAP',
+      entity: 'TIE',
+      externalId: incoming.externalId,
+      internalId,
+      before: changed ? current : undefined,
+      after: !current || changed ? incoming : undefined,
+      reason:
+        incoming.status === 'DECIDED' && !manualDecision
+          ? 'Sporting qualifier is evidence only until match results recompute the tie.'
+          : undefined,
+    },
+    eventId,
+  };
+}
+
 async function resolveScheduleTeams(
   provider: CompetitionDataProvider,
   options: ProviderSyncOptions,
@@ -458,9 +1161,7 @@ async function resolveOptionalScheduleMapping(
   externalId: string | undefined,
 ) {
   if (!externalId) return { internalId: null, missing: false };
-  const mapping = await prisma.providerEntityMapping.findUnique({
-    where: { provider_entityType_externalId: { provider: providerName, entityType, externalId } },
-  });
+  const mapping = await findProviderMapping(providerName, seasonId, entityType, externalId);
   if (!mapping || (mapping.seasonId && mapping.seasonId !== seasonId)) {
     return { internalId: null, missing: true };
   }
@@ -482,6 +1183,15 @@ async function processSchedule(
   options: ProviderSyncOptions,
   incoming: NormalizedMatch,
 ): Promise<{ diff: ProviderSyncDiff; quarantine?: QuarantineInput; eventId?: string }> {
+  if (!incoming.kickoffConfirmed) {
+    const quarantine = {
+      externalId: incoming.externalId,
+      reason: 'AMBIGUOUS_KICKOFF' as const,
+      message: 'Schedule kickoff is not officially confirmed.',
+      payload: incoming,
+    };
+    return { diff: quarantineDiff('MATCH', quarantine), quarantine };
+  }
   const teams = await resolveScheduleTeams(provider, options, incoming);
   if (!teams.home.id || !teams.away.id || teams.home.id === teams.away.id) {
     const ambiguous = teams.home.ambiguous || teams.away.ambiguous;
@@ -518,22 +1228,52 @@ async function processSchedule(
     };
     return { diff: quarantineDiff('MATCH', quarantine), quarantine };
   }
-  const mapping = await prisma.providerEntityMapping.findUnique({
-    where: {
-      provider_entityType_externalId: {
-        provider: provider.name,
-        entityType: 'MATCH',
-        externalId: incoming.externalId,
-      },
-    },
-  });
+  const tieMapping = incoming.tieExternalId
+    ? await findProviderMapping(provider.name, options.seasonId, 'TIE', incoming.tieExternalId)
+    : null;
+  const tie = tieMapping
+    ? await prisma.tie.findFirst({
+        where: { id: tieMapping.internalId, seasonId: options.seasonId },
+      })
+    : null;
+  if (incoming.tieExternalId && (!tie || !incoming.legNumber)) {
+    const quarantine = {
+      externalId: incoming.externalId,
+      reason: 'AMBIGUOUS_TIE' as const,
+      message: 'Schedule tie or leg has no unambiguous season mapping.',
+      payload: incoming,
+    };
+    return { diff: quarantineDiff('MATCH', quarantine), quarantine };
+  }
+  if (
+    tie &&
+    (tie.stageId !== stage.internalId ||
+      tie.roundId !== round.internalId ||
+      ![tie.teamAId, tie.teamBId].includes(teams.home.id!) ||
+      ![tie.teamAId, tie.teamBId].includes(teams.away.id!))
+  ) {
+    const quarantine = {
+      externalId: incoming.externalId,
+      reason: 'CONFLICT' as const,
+      message: 'Schedule leg conflicts with its tie context.',
+      payload: incoming,
+    };
+    return { diff: quarantineDiff('MATCH', quarantine), quarantine };
+  }
+  const mapping = await findProviderMapping(
+    provider.name,
+    options.seasonId,
+    'MATCH',
+    incoming.externalId,
+  );
   const fallbackCandidates = mapping
     ? []
     : await prisma.match.findMany({
         where: {
           seasonId: options.seasonId,
-          homeTeamId: teams.home.id,
-          awayTeamId: teams.away.id,
+          ...(tie
+            ? { tieId: tie.id, legNumber: incoming.legNumber }
+            : { homeTeamId: teams.home.id, awayTeamId: teams.away.id }),
         },
         include: { manualOverride: true },
       });
@@ -579,26 +1319,32 @@ async function processSchedule(
   if (!current) {
     let internalId: string | undefined;
     let eventId: string | undefined;
-    if (!options.dryRun) {
+    if (!isReadOnlySync(options)) {
       const created = await prisma.$transaction(async (tx) => {
         const matchDay = await ensureMatchDay(tx, options.seasonId, startsAt);
         const saved = await tx.match.create({
           data: {
-            externalId: `${provider.name}:match:${incoming.externalId}`,
+            externalId: `${provider.name}:${options.seasonId}:match:${incoming.externalId}`,
             matchDayId: matchDay.id,
             seasonId: options.seasonId,
             stageId: stage.internalId,
             roundId: round.internalId,
+            tieId: tie?.id,
+            legNumber: incoming.legNumber,
             homeTeamId: teams.home.id!,
             awayTeamId: teams.away.id!,
             startsAt,
             predictionClosesAt: new Date(startsAt.getTime() - 5 * 60_000),
-            status: incoming.status,
-            rawPayload: {
+            status: tie && incoming.status === 'FINISHED' ? 'SCHEDULED' : incoming.status,
+            venueName: incoming.venue?.name,
+            venueCity: incoming.venue?.city,
+            venueCountryCode: incoming.venue?.countryCode,
+            rawPayload: providerJson({
               providerSchedule: incoming,
               source: provider.source,
               checksum: itemChecksum,
-            },
+              ...(incoming.groupName ? { group: incoming.groupName } : {}),
+            }),
             lastSyncedAt: new Date(),
           },
         });
@@ -644,11 +1390,21 @@ async function processSchedule(
       : null;
   const synchronized = {
     startsAt,
-    status: resultUpdateAllowed(current.status, incoming.status) ? incoming.status : current.status,
+    status:
+      tie && incoming.status === 'FINISHED' && current.regulationHomeScore == null
+        ? current.status
+        : resultUpdateAllowed(current.status, incoming.status)
+          ? incoming.status
+          : current.status,
     homeTeamId: teams.home.id,
     awayTeamId: teams.away.id,
     stageId: stage.internalId,
     roundId: round.internalId,
+    tieId: tie?.id ?? null,
+    legNumber: incoming.legNumber ?? null,
+    venueName: incoming.venue?.name ?? null,
+    venueCity: incoming.venue?.city ?? null,
+    venueCountryCode: incoming.venue?.countryCode ?? null,
   };
   const effective = valuesAfterManualOverride(synchronized, overrideValues);
   const effectiveStartsAt =
@@ -660,9 +1416,14 @@ async function processSchedule(
     current.homeTeamId !== effective.homeTeamId ||
     current.awayTeamId !== effective.awayTeamId ||
     current.stageId !== effective.stageId ||
-    current.roundId !== effective.roundId;
+    current.roundId !== effective.roundId ||
+    current.tieId !== effective.tieId ||
+    current.legNumber !== effective.legNumber ||
+    current.venueName !== effective.venueName ||
+    current.venueCity !== effective.venueCity ||
+    current.venueCountryCode !== effective.venueCountryCode;
   let eventId: string | undefined;
-  if (changed && !options.dryRun) {
+  if (changed && !isReadOnlySync(options)) {
     eventId = await prisma.$transaction(async (tx) => {
       const matchDay = await ensureMatchDay(tx, options.seasonId, effectiveStartsAt);
       await tx.match.update({
@@ -676,7 +1437,12 @@ async function processSchedule(
           awayTeamId: String(effective.awayTeamId),
           stageId: effective.stageId ? String(effective.stageId) : null,
           roundId: effective.roundId ? String(effective.roundId) : null,
-          rawPayload: {
+          tieId: effective.tieId ? String(effective.tieId) : null,
+          legNumber: effective.legNumber ? Number(effective.legNumber) : null,
+          venueName: effective.venueName ? String(effective.venueName) : null,
+          venueCity: effective.venueCity ? String(effective.venueCity) : null,
+          venueCountryCode: effective.venueCountryCode ? String(effective.venueCountryCode) : null,
+          rawPayload: providerJson({
             ...(current!.rawPayload &&
             typeof current!.rawPayload === 'object' &&
             !Array.isArray(current!.rawPayload)
@@ -685,35 +1451,35 @@ async function processSchedule(
             providerSchedule: incoming,
             source: provider.source,
             scheduleChecksum: itemChecksum,
+            ...(incoming.groupName ? { group: incoming.groupName } : {}),
             manualOverrideApplied: Boolean(overrideValues),
-          },
+          }),
           lastSyncedAt: new Date(),
         },
       });
-      await tx.providerEntityMapping.upsert({
-        where: {
-          provider_entityType_externalId: {
-            provider: provider.name,
-            entityType: 'MATCH',
-            externalId: incoming.externalId,
+      if (mapping) {
+        await tx.providerEntityMapping.update({
+          where: { id: mapping.id },
+          data: {
+            internalId: current!.id,
+            seasonId: options.seasonId,
+            sourceUrl: provider.source,
+            checksum: itemChecksum,
+            collectedAt: new Date(),
           },
-        },
-        create: mappingData(
-          provider,
-          options,
-          'MATCH',
-          incoming.externalId,
-          current!.id,
-          itemChecksum,
-        ),
-        update: {
-          internalId: current!.id,
-          seasonId: options.seasonId,
-          sourceUrl: provider.source,
-          checksum: itemChecksum,
-          collectedAt: new Date(),
-        },
-      });
+        });
+      } else {
+        await tx.providerEntityMapping.create({
+          data: mappingData(
+            provider,
+            options,
+            'MATCH',
+            incoming.externalId,
+            current!.id,
+            itemChecksum,
+          ),
+        });
+      }
       return (
         await enqueueOutboxEvent(tx, {
           type: 'match.schedule.updated',
@@ -723,7 +1489,7 @@ async function processSchedule(
         })
       ).id;
     });
-  } else if (!mapping && !options.dryRun) {
+  } else if (!mapping && !isReadOnlySync(options)) {
     await prisma.providerEntityMapping.create({
       data: mappingData(provider, options, 'MATCH', incoming.externalId, current.id, itemChecksum),
     });
@@ -754,15 +1520,12 @@ async function resolveResultMatch(
   result: NormalizedResult,
 ) {
   const matchExternalId = result.matchExternalId ?? result.externalId;
-  const mapping = await prisma.providerEntityMapping.findUnique({
-    where: {
-      provider_entityType_externalId: {
-        provider: provider.name,
-        entityType: 'MATCH',
-        externalId: matchExternalId,
-      },
-    },
-  });
+  const mapping = await findProviderMapping(
+    provider.name,
+    options.seasonId,
+    'MATCH',
+    matchExternalId,
+  );
   if (mapping) {
     const match = await prisma.match.findFirst({
       where: { id: mapping.internalId, seasonId: options.seasonId },
@@ -803,6 +1566,7 @@ async function processResult(
   quarantine?: QuarantineInput;
   eventId?: string;
   scoreMatchId?: string;
+  tieId?: string;
 }> {
   const resolution = await resolveResultMatch(provider, options, incoming);
   if (!resolution.match) {
@@ -844,8 +1608,22 @@ async function processResult(
     status: incoming.status,
     homeScore: incoming.status === 'SCHEDULED' ? null : incoming.homeScore,
     awayScore: incoming.status === 'SCHEDULED' ? null : incoming.awayScore,
-    finalHomeScore: incoming.status === 'FINISHED' ? incoming.homeScore : current.finalHomeScore,
-    finalAwayScore: incoming.status === 'FINISHED' ? incoming.awayScore : current.finalAwayScore,
+    finalHomeScore:
+      incoming.status === 'FINISHED'
+        ? (incoming.regulationHomeScore ?? incoming.homeScore)
+        : current.finalHomeScore,
+    finalAwayScore:
+      incoming.status === 'FINISHED'
+        ? (incoming.regulationAwayScore ?? incoming.awayScore)
+        : current.finalAwayScore,
+    regulationHomeScore:
+      incoming.status === 'SCHEDULED' ? null : (incoming.regulationHomeScore ?? incoming.homeScore),
+    regulationAwayScore:
+      incoming.status === 'SCHEDULED' ? null : (incoming.regulationAwayScore ?? incoming.awayScore),
+    extraTimeHomeScore: incoming.extraTimeHomeScore ?? null,
+    extraTimeAwayScore: incoming.extraTimeAwayScore ?? null,
+    penaltyHomeScore: incoming.penaltyHomeScore ?? null,
+    penaltyAwayScore: incoming.penaltyAwayScore ?? null,
   };
   const effective = valuesAfterManualOverride(synchronized, overrideValues);
   const changed =
@@ -853,9 +1631,15 @@ async function processResult(
     current.homeScore !== effective.homeScore ||
     current.awayScore !== effective.awayScore ||
     current.finalHomeScore !== effective.finalHomeScore ||
-    current.finalAwayScore !== effective.finalAwayScore;
+    current.finalAwayScore !== effective.finalAwayScore ||
+    current.regulationHomeScore !== effective.regulationHomeScore ||
+    current.regulationAwayScore !== effective.regulationAwayScore ||
+    current.extraTimeHomeScore !== effective.extraTimeHomeScore ||
+    current.extraTimeAwayScore !== effective.extraTimeAwayScore ||
+    current.penaltyHomeScore !== effective.penaltyHomeScore ||
+    current.penaltyAwayScore !== effective.penaltyAwayScore;
   let eventId: string | undefined;
-  if (changed && !options.dryRun) {
+  if (changed && !isReadOnlySync(options)) {
     eventId = await prisma.$transaction(async (tx) => {
       await tx.match.update({
         where: { id: current.id },
@@ -865,8 +1649,14 @@ async function processResult(
           awayScore: effective.awayScore as number | null,
           finalHomeScore: effective.finalHomeScore as number | null,
           finalAwayScore: effective.finalAwayScore as number | null,
+          regulationHomeScore: effective.regulationHomeScore as number | null,
+          regulationAwayScore: effective.regulationAwayScore as number | null,
+          extraTimeHomeScore: effective.extraTimeHomeScore as number | null,
+          extraTimeAwayScore: effective.extraTimeAwayScore as number | null,
+          penaltyHomeScore: effective.penaltyHomeScore as number | null,
+          penaltyAwayScore: effective.penaltyAwayScore as number | null,
           lastSyncedAt: new Date(),
-          rawPayload: {
+          rawPayload: providerJson({
             ...(current.rawPayload &&
             typeof current.rawPayload === 'object' &&
             !Array.isArray(current.rawPayload)
@@ -876,7 +1666,7 @@ async function processResult(
             source: provider.source,
             resultChecksum: checksum(incoming),
             manualOverrideApplied: Boolean(overrideValues),
-          },
+          }),
         },
       });
       return (
@@ -906,13 +1696,20 @@ async function processResult(
             awayScore: current.awayScore,
             finalHomeScore: current.finalHomeScore,
             finalAwayScore: current.finalAwayScore,
+            regulationHomeScore: current.regulationHomeScore,
+            regulationAwayScore: current.regulationAwayScore,
+            extraTimeHomeScore: current.extraTimeHomeScore,
+            extraTimeAwayScore: current.extraTimeAwayScore,
+            penaltyHomeScore: current.penaltyHomeScore,
+            penaltyAwayScore: current.penaltyAwayScore,
           }
         : undefined,
       after: changed ? effective : undefined,
       reason: overrideValues ? 'Active manual override has precedence.' : undefined,
     },
     eventId,
-    scoreMatchId: changed && !options.dryRun ? current.id : undefined,
+    scoreMatchId: changed && !isReadOnlySync(options) ? current.id : undefined,
+    tieId: changed && !isReadOnlySync(options) ? (current.tieId ?? undefined) : undefined,
   };
 }
 
@@ -948,9 +1745,14 @@ async function processStanding(
   };
   const changed = checksum(previous?.value ?? null) !== checksum(value);
   let eventId: string | undefined;
-  if (changed && !options.dryRun) {
+  if (changed && !isReadOnlySync(options)) {
     eventId = await prisma.$transaction(async (tx) => {
-      await tx.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+      const storedValue = providerJson(value);
+      await tx.appSetting.upsert({
+        where: { key },
+        create: { key, value: storedValue },
+        update: { value: storedValue },
+      });
       return (
         await enqueueOutboxEvent(tx, {
           type: 'standings.updated',
@@ -975,6 +1777,7 @@ async function processStanding(
 }
 
 async function runCore(provider: CompetitionDataProvider, options: ProviderSyncOptions) {
+  const mode = syncMode(options);
   const existing = await prisma.providerSyncRun.findUnique({
     where: {
       provider_seasonId_type_idempotencyKey: {
@@ -999,8 +1802,9 @@ async function runCore(provider: CompetitionDataProvider, options: ProviderSyncO
           provider: provider.name,
           seasonId: options.seasonId,
           type: options.type,
+          mode,
           idempotencyKey: options.idempotencyKey,
-          dryRun: options.dryRun ?? false,
+          dryRun: isReadOnlySync(options),
           source: provider.source,
           requestedById: options.requestedById,
         },
@@ -1008,6 +1812,22 @@ async function runCore(provider: CompetitionDataProvider, options: ProviderSyncO
     runId = run.id;
     const fetched = await providerItems(provider, options);
     const batchChecksum = checksum(fetched);
+    if (options.expectedChecksum && options.expectedChecksum !== batchChecksum) {
+      throw new AppError(
+        409,
+        'Provider payload checksum differs from the pinned verification checksum.',
+        'PROVIDER_CHECKSUM_MISMATCH',
+      );
+    }
+    const evidence = await provider.snapshotEvidence?.();
+    if (evidence && evidence.provider !== provider.name) {
+      throw new AppError(
+        422,
+        'Provider snapshot evidence belongs to another provider.',
+        'PROVIDER_SNAPSHOT_SCOPE_MISMATCH',
+      );
+    }
+    const collectedAt = evidence ? new Date(evidence.collectedAt) : new Date();
     const partitioned = partitionDuplicateExternalIds(fetched);
     const quarantines: QuarantineInput[] = partitioned.duplicates.map((item) => ({
       externalId: item.externalId,
@@ -1019,37 +1839,62 @@ async function runCore(provider: CompetitionDataProvider, options: ProviderSyncO
       quarantineDiff(
         options.type === 'TEAMS'
           ? 'TEAM'
-          : options.type === 'SCHEDULE'
-            ? 'MATCH'
-            : options.type === 'RESULTS'
-              ? 'RESULT'
-              : 'STANDING',
+          : options.type === 'STRUCTURE'
+            ? 'STAGE'
+            : options.type === 'TIES'
+              ? 'TIE'
+              : options.type === 'SCHEDULE'
+                ? 'MATCH'
+                : options.type === 'RESULTS'
+                  ? 'RESULT'
+                  : 'STANDING',
         item,
       ),
     );
     const eventIds: string[] = [];
     const scoreMatchIds = new Set<string>();
+    const tieIds = new Set<string>();
+    const previewStructureMappings = new Map<string, PreviewStructureMapping>();
+    const accepted =
+      options.type === 'STRUCTURE'
+        ? [...partitioned.accepted].sort((left, right) => {
+            const leftKind = (left as NormalizedStructureEntity).kind;
+            const rightKind = (right as NormalizedStructureEntity).kind;
+            return leftKind === rightKind ? 0 : leftKind === 'STAGE' ? -1 : 1;
+          })
+        : partitioned.accepted;
 
-    for (const item of partitioned.accepted) {
+    for (const item of accepted) {
       const processed: {
         diff: ProviderSyncDiff;
         quarantine?: QuarantineInput;
         eventId?: string;
         scoreMatchId?: string;
+        tieId?: string;
       } =
         options.type === 'TEAMS'
           ? await processTeam(provider, options, item as NormalizedTeam)
-          : options.type === 'SCHEDULE'
-            ? await processSchedule(provider, options, item as NormalizedMatch)
-            : options.type === 'RESULTS'
-              ? await processResult(provider, options, item as NormalizedResult)
-              : await processStanding(provider, options, item as NormalizedStanding);
+          : options.type === 'STRUCTURE'
+            ? await processStructure(
+                provider,
+                options,
+                item as NormalizedStructureEntity,
+                previewStructureMappings,
+              )
+            : options.type === 'TIES'
+              ? await processTie(provider, options, item as NormalizedTie)
+              : options.type === 'SCHEDULE'
+                ? await processSchedule(provider, options, item as NormalizedMatch)
+                : options.type === 'RESULTS'
+                  ? await processResult(provider, options, item as NormalizedResult)
+                  : await processStanding(provider, options, item as NormalizedStanding);
       diff.push(processed.diff);
       if (processed.quarantine) quarantines.push(processed.quarantine);
       if ('eventId' in processed && processed.eventId) eventIds.push(processed.eventId);
       if ('scoreMatchId' in processed && processed.scoreMatchId) {
         scoreMatchIds.add(processed.scoreMatchId);
       }
+      if ('tieId' in processed && processed.tieId) tieIds.add(processed.tieId);
     }
 
     if (quarantines.length > 0) {
@@ -1076,12 +1921,32 @@ async function runCore(provider: CompetitionDataProvider, options: ProviderSyncO
         .length,
       quarantined: quarantines.length,
     };
-    const status = options.dryRun ? 'DRY_RUN' : quarantines.length > 0 ? 'PARTIAL' : 'SUCCESS';
+    if (
+      mode === 'VERIFY' &&
+      (quarantines.length > 0 ||
+        diff.some((item) => ['INSERT', 'UPDATE', 'MAP'].includes(item.action)))
+    ) {
+      throw new AppError(
+        409,
+        'Provider verification found unapplied differences or quarantined data.',
+        'PROVIDER_VERIFY_FAILED',
+      );
+    }
+    const status =
+      mode === 'VERIFY'
+        ? 'VERIFIED'
+        : isReadOnlySync(options)
+          ? 'DRY_RUN'
+          : quarantines.length > 0
+            ? 'PARTIAL'
+            : 'SUCCESS';
     const finishedAt = new Date();
     await prisma.providerSyncRun.update({
       where: { id: run.id },
       data: {
         status,
+        mode,
+        collectedAt,
         checksum: batchChecksum,
         fetchedCount: counts.fetched,
         insertedCount: counts.inserted,
@@ -1091,6 +1956,7 @@ async function runCore(provider: CompetitionDataProvider, options: ProviderSyncO
         finishedAt,
       },
     });
+    for (const tieId of tieIds) await recomputeTie(tieId);
     for (const matchId of scoreMatchIds) {
       await recalculateScoresForMatch(matchId, { refreshRanking: false });
     }
@@ -1114,9 +1980,11 @@ async function runCore(provider: CompetitionDataProvider, options: ProviderSyncO
       provider: provider.name,
       seasonId: options.seasonId,
       type: options.type,
-      dryRun: options.dryRun ?? false,
+      mode,
+      dryRun: isReadOnlySync(options),
       status,
       source: provider.source,
+      collectedAt: collectedAt.toISOString(),
       checksum: batchChecksum,
       startedAt: run.startedAt.toISOString(),
       finishedAt: finishedAt.toISOString(),

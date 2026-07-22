@@ -81,6 +81,7 @@ function mapping(input: {
 }) {
   return {
     provider: 'cbf-official',
+    scopeKey: input.seasonId ? `season:${input.seasonId}` : 'global',
     entityType: input.entityType,
     externalId: input.externalId,
     internalId: input.internalId,
@@ -185,6 +186,43 @@ export async function prepareBrasileirao2026(input: {
               includeProfiles: true,
             },
           ],
+        },
+      },
+    });
+    await tx.seasonProviderConfig.upsert({
+      where: {
+        seasonId_providerKey: { seasonId: season.id, providerKey: 'cbf-official' },
+      },
+      create: {
+        seasonId: season.id,
+        providerKey: 'cbf-official',
+        priority: 1,
+        enabledTypes: ['TEAMS', 'SCHEDULE', 'RESULTS', 'STANDINGS'],
+        cadenceSeconds: 300,
+        timeoutMs: 10_000,
+        active: true,
+        includeProfiles: true,
+        source: CBF_SERIE_A_2026_TABLE_URL,
+        provenance: 'brasileirao-2026-preparation',
+        settings: {
+          competition: 'SERIE_A',
+          year: 2026,
+          fallbackProviders: ['csv', 'manual'],
+        },
+      },
+      update: {
+        priority: 1,
+        enabledTypes: ['TEAMS', 'SCHEDULE', 'RESULTS', 'STANDINGS'],
+        cadenceSeconds: 300,
+        timeoutMs: 10_000,
+        active: true,
+        includeProfiles: true,
+        source: CBF_SERIE_A_2026_TABLE_URL,
+        provenance: 'brasileirao-2026-preparation',
+        settings: {
+          competition: 'SERIE_A',
+          year: 2026,
+          fallbackProviders: ['csv', 'manual'],
         },
       },
     });

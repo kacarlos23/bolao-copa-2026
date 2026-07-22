@@ -6,6 +6,7 @@ const teamSelect = {
   code: true,
   flagUrl: true,
   crestUrl: true,
+  countryCode: true,
 } as const;
 
 export async function loadSeasonStandingsData(seasonId: string) {

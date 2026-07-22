@@ -53,6 +53,20 @@ const mocks = vi.hoisted(() => {
     }),
   };
   prisma.providerEntityMapping = {
+    findFirst: vi.fn(
+      async ({ where }: any) =>
+        state.mappings.find(
+          (mapping) =>
+            mapping.provider === where.provider &&
+            mapping.entityType === where.entityType &&
+            where.OR.some(
+              (candidate: any) =>
+                mapping.externalId === candidate.externalId &&
+                (candidate.scopeKey === undefined || mapping.scopeKey === candidate.scopeKey) &&
+                (candidate.seasonId === undefined || mapping.seasonId === candidate.seasonId),
+            ),
+        ) ?? null,
+    ),
     findUnique: vi.fn(async ({ where }: any) => {
       const key = where.provider_entityType_externalId;
       return (
@@ -79,7 +93,11 @@ const mocks = vi.hoisted(() => {
     findMany: vi.fn(async ({ where }: any) =>
       state.seasonTeams
         .filter((entry) => entry.seasonId === where.seasonId)
-        .map((entry) => ({ team: state.teams.find((team) => team.id === entry.teamId)! })),
+        .map((entry: any) => ({
+          groupName: entry.groupName ?? null,
+          metadata: entry.metadata ?? null,
+          team: state.teams.find((team) => team.id === entry.teamId)!,
+        })),
     ),
     create: vi.fn(async ({ data }: any) => {
       state.seasonTeams.push(data);
@@ -93,6 +111,7 @@ const mocks = vi.hoisted(() => {
         code: null,
         type: null,
         crestUrl: null,
+        countryCode: null,
         ...data,
       };
       state.teams.push(team);

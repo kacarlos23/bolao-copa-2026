@@ -217,12 +217,13 @@ export const teamDtoSchema = z
     code: z.string().nullable(),
     flagUrl: z.string().nullable(),
     crestUrl: z.string().nullable(),
+    countryCode: z.string().trim().min(2).max(3).nullable().optional(),
   })
   .strict();
 
 export const officialSourceDtoSchema = z
   .object({
-    provider: z.literal('CBF'),
+    provider: z.string().trim().min(1).max(80),
     label: z.string().trim().min(1).max(120),
     url: z.string().url(),
     collectedAt: z.string().datetime(),
@@ -233,8 +234,12 @@ export const officialSourceDtoSchema = z
 export const seasonTeamSummaryDtoSchema = z
   .object({
     team: teamDtoSchema,
-    externalId: z.string().trim().min(1).max(40),
-    state: z.string().trim().length(2).nullable(),
+    externalId: z.string().trim().min(1).max(240),
+    state: z.string().trim().length(2).nullable().optional(),
+    countryCode: z.string().trim().min(2).max(3).nullable().optional(),
+    federation: z.string().trim().min(1).max(120).nullable().optional(),
+    groupName: z.string().trim().min(1).max(40).nullable().optional(),
+    providerMetadata: z.record(z.unknown()).optional(),
     profileAvailable: z.boolean(),
     collectedAt: nullableDateTimeSchema,
   })
@@ -242,14 +247,15 @@ export const seasonTeamSummaryDtoSchema = z
 
 export const teamAthleteDtoSchema = z
   .object({
-    externalId: z.string().trim().min(1).max(40),
+    externalId: z.string().trim().min(1).max(240),
     fullName: z.string().trim().min(1).max(180),
     nickname: z.string().trim().min(1).max(120).nullable(),
     currentClub: z
       .object({
-        externalId: z.string().trim().min(1).max(40).nullable(),
+        externalId: z.string().trim().min(1).max(240).nullable(),
         name: z.string().trim().min(1).max(180),
-        state: z.string().trim().length(2).nullable(),
+        state: z.string().trim().length(2).nullable().optional(),
+        countryCode: z.string().trim().min(2).max(3).nullable().optional(),
       })
       .strict(),
   })
@@ -257,7 +263,7 @@ export const teamAthleteDtoSchema = z
 
 const teamMatchSideDtoSchema = z
   .object({
-    externalId: z.string().trim().min(1).max(40),
+    externalId: z.string().trim().min(1).max(240),
     name: z.string().trim().min(1).max(180),
     score: z.number().int().min(0).max(99),
   })
@@ -265,13 +271,16 @@ const teamMatchSideDtoSchema = z
 
 export const teamMatchHistoryDtoSchema = z
   .object({
-    externalId: z.string().trim().min(1).max(40),
-    reference: z.string().trim().min(1).max(40),
-    round: z.number().int().min(1).max(38),
+    externalId: z.string().trim().min(1).max(240),
+    reference: z.string().trim().min(1).max(120),
+    round: z
+      .union([z.number().int().positive(), z.string().trim().min(1).max(160)])
+      .nullable()
+      .optional(),
     startsAt: z.string().datetime(),
     home: teamMatchSideDtoSchema,
     away: teamMatchSideDtoSchema,
-    venue: z.string().trim().min(1).max(220),
+    venue: z.string().trim().min(1).max(220).nullable(),
     result: z.enum(['WIN', 'DRAW', 'LOSS']),
   })
   .strict();
@@ -294,8 +303,11 @@ export const teamProfileDtoSchema = z
   .object({
     seasonId: entityIdSchema,
     team: teamDtoSchema,
-    externalId: z.string().trim().min(1).max(40),
-    state: z.string().trim().length(2).nullable(),
+    externalId: z.string().trim().min(1).max(240),
+    state: z.string().trim().length(2).nullable().optional(),
+    countryCode: z.string().trim().min(2).max(3).nullable().optional(),
+    federation: z.string().trim().min(1).max(120).nullable().optional(),
+    providerMetadata: z.record(z.unknown()).optional(),
     athletes: z.array(teamAthleteDtoSchema).max(150),
     matches: z.array(teamMatchHistoryDtoSchema).max(38),
     statistics: teamStatisticsDtoSchema,
@@ -325,6 +337,15 @@ export const matchDtoSchema = z
     extraTimeAwayScore: z.number().int().nonnegative().nullable().default(null),
     penaltyHomeScore: z.number().int().nonnegative().nullable().default(null),
     penaltyAwayScore: z.number().int().nonnegative().nullable().default(null),
+    venue: z
+      .object({
+        name: z.string().trim().min(1).max(220),
+        city: z.string().trim().min(1).max(160).nullable(),
+        countryCode: z.string().trim().min(2).max(3).nullable(),
+      })
+      .strict()
+      .nullable()
+      .optional(),
     homeTeam: teamDtoSchema,
     awayTeam: teamDtoSchema,
   })
