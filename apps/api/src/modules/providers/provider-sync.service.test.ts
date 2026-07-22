@@ -53,8 +53,19 @@ const mocks = vi.hoisted(() => {
     }),
   };
   prisma.providerEntityMapping = {
-    findFirst: vi.fn(
-      async ({ where }: any) =>
+    findFirst: vi.fn(async ({ where }: any) => {
+      if (!where.OR) {
+        return (
+          state.mappings.find(
+            (mapping) =>
+              mapping.provider === where.provider &&
+              mapping.entityType === where.entityType &&
+              mapping.seasonId !== where.seasonId?.not &&
+              mapping.metadata?.rawExternalId === where.metadata?.equals,
+          ) ?? null
+        );
+      }
+      return (
         state.mappings.find(
           (mapping) =>
             mapping.provider === where.provider &&
@@ -65,8 +76,9 @@ const mocks = vi.hoisted(() => {
                 (candidate.scopeKey === undefined || mapping.scopeKey === candidate.scopeKey) &&
                 (candidate.seasonId === undefined || mapping.seasonId === candidate.seasonId),
             ),
-        ) ?? null,
-    ),
+        ) ?? null
+      );
+    }),
     findUnique: vi.fn(async ({ where }: any) => {
       const key = where.provider_entityType_externalId;
       return (
@@ -105,6 +117,10 @@ const mocks = vi.hoisted(() => {
     }),
   };
   prisma.team = {
+    findMany: vi.fn(async () => state.teams),
+    findUnique: vi.fn(
+      async ({ where }: any) => state.teams.find((team) => team.id === where.id) ?? null,
+    ),
     create: vi.fn(async ({ data }: any) => {
       const team = {
         id: `team-${state.nextId++}`,
@@ -185,6 +201,61 @@ describe('auditable provider pipeline', () => {
     expect(second.counts).toMatchObject({ inserted: 0, updated: 0, unchanged: 1 });
     expect(mocks.prisma.team.create).toHaveBeenCalledOnce();
     expect(mocks.prisma.providerEntityMapping.create).toHaveBeenCalledOnce();
+  });
+
+  it('reuses the global Team when a Libertadores club transfers to Sudamericana', async () => {
+    mocks.state.teams.push({
+      id: 'global-santos',
+      externalId: 'fixture:libertadores-2026:team:club-santos',
+      name: 'Santos FC',
+      code: 'SAN',
+      type: 'CLUB',
+      crestUrl: null,
+      countryCode: 'BRA',
+    });
+    mocks.state.mappings.push({
+      id: 'mapping-libertadores-santos',
+      provider: 'fixture',
+      entityType: 'TEAM',
+      externalId: 'season:libertadores-2026:club-santos',
+      scopeKey: 'season:libertadores-2026',
+      seasonId: 'libertadores-2026',
+      internalId: 'global-santos',
+      metadata: { rawExternalId: 'club-santos' },
+    });
+    const provider = {
+      ...teamProvider(),
+      syncTeams: vi.fn(async () => [
+        {
+          externalId: 'club-santos',
+          name: 'Santos FC',
+          code: 'SAN',
+          type: 'CLUB' as const,
+          countryCode: 'BRA',
+        },
+      ]),
+    };
+
+    const result = await runProviderSync(provider, {
+      type: 'TEAMS',
+      seasonId: 'sudamericana-2026',
+      idempotencyKey: 'libertadores-transfer-santos',
+    });
+
+    expect(result.counts).toMatchObject({ inserted: 0, updated: 1, quarantined: 0 });
+    expect(mocks.state.teams).toHaveLength(1);
+    expect(mocks.prisma.team.create).not.toHaveBeenCalled();
+    expect(mocks.state.seasonTeams).toContainEqual({
+      seasonId: 'sudamericana-2026',
+      teamId: 'global-santos',
+      groupName: undefined,
+      metadata: undefined,
+    });
+    expect(mocks.state.mappings.at(-1)).toMatchObject({
+      seasonId: 'sudamericana-2026',
+      internalId: 'global-santos',
+      metadata: { rawExternalId: 'club-santos' },
+    });
   });
 
   it('reuses a completed idempotency key without fetching or writing again', async () => {

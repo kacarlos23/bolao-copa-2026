@@ -3,6 +3,7 @@ import {
   chooseMatchIdentity,
   partitionDuplicateExternalIds,
   resultUpdateAllowed,
+  uniqueGlobalClubCandidate,
   uniqueNameCandidate,
   valuesAfterManualOverride,
 } from './provider-sync.logic.js';
@@ -25,6 +26,21 @@ describe('provider reconciliation invariants', () => {
     ]);
     expect(resolution.candidate).toBeNull();
     expect(resolution.matches).toHaveLength(2);
+  });
+
+  it('reuses a unique global club for a Libertadores-to-Sudamericana transfer', () => {
+    const existingLibertadoresTeam = {
+      id: 'global-team-santos',
+      name: 'Santos FC',
+      countryCode: 'BRA',
+    };
+    const resolution = uniqueGlobalClubCandidate('Santos FC', 'BRA', [
+      existingLibertadoresTeam,
+      { id: 'club-from-another-country', name: 'Santos FC', countryCode: 'BOL' },
+    ]);
+
+    expect(resolution.candidate).toEqual(existingLibertadoresTeam);
+    expect(resolution.matches).toHaveLength(1);
   });
 
   it('allows a corrected FINISHED score but blocks automatic status regression', () => {

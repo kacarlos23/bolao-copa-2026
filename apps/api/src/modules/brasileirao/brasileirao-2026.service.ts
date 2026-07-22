@@ -372,6 +372,7 @@ export async function prepareBrasileirao2026(input: {
           readEnabled: false,
           writeEnabled: false,
           uiEnabled: false,
+          syncEnabled: false,
           reason: 'Canário administrativo inicial',
           updatedAt: new Date().toISOString(),
           updatedById: input.actorId ?? null,

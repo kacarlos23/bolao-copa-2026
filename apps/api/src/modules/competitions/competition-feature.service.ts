@@ -9,6 +9,9 @@ export const competitionFeatureFlagsSchema = z
     readEnabled: z.boolean(),
     writeEnabled: z.boolean(),
     uiEnabled: z.boolean(),
+    // Persisted records from before Prompt 4 retain scheduler compatibility.
+    // New seasons must always store this field explicitly and start disabled.
+    syncEnabled: z.boolean().default(true),
     reason: z.string().trim().min(10).max(500),
     updatedAt: z.string().datetime(),
     updatedById: z.string().nullable(),
@@ -16,12 +19,13 @@ export const competitionFeatureFlagsSchema = z
   .strict();
 
 export type CompetitionFeatureFlags = z.infer<typeof competitionFeatureFlagsSchema>;
-export type CompetitionFeature = 'read' | 'write' | 'ui';
+export type CompetitionFeature = 'read' | 'write' | 'ui' | 'sync';
 
 export const COMPETITION_FEATURES_FAIL_CLOSED_DEFAULTS: CompetitionFeatureFlags = {
   readEnabled: false,
   writeEnabled: false,
   uiEnabled: false,
+  syncEnabled: false,
   reason: 'Registro de feature flags ausente; exposição bloqueada por segurança.',
   updatedAt: new Date(0).toISOString(),
   updatedById: null,
@@ -45,12 +49,12 @@ export async function assertCompetitionFeature(
 ) {
   if (role === 'ADMIN' || seasonId === WORLD_CUP_CONTEXT.seasonId) return;
   const flags = await getCompetitionFeatureFlags(seasonId);
-  const enabled =
-    feature === 'read'
-      ? flags.readEnabled
-      : feature === 'write'
-        ? flags.writeEnabled
-        : flags.uiEnabled;
+  const enabled = {
+    read: flags.readEnabled,
+    write: flags.writeEnabled,
+    ui: flags.uiEnabled,
+    sync: flags.syncEnabled,
+  }[feature];
   if (!enabled) {
     throw new AppError(
       404,
@@ -66,6 +70,7 @@ export async function updateCompetitionFeatureFlags(input: {
   readEnabled: boolean;
   writeEnabled: boolean;
   uiEnabled: boolean;
+  syncEnabled: boolean;
   reason: string;
 }) {
   const season = await prisma.competitionSeason.findUnique({
@@ -78,6 +83,7 @@ export async function updateCompetitionFeatureFlags(input: {
     readEnabled: input.readEnabled,
     writeEnabled: input.writeEnabled,
     uiEnabled: input.uiEnabled,
+    syncEnabled: input.syncEnabled,
     reason: input.reason,
     updatedAt: new Date().toISOString(),
     updatedById: input.actorId,

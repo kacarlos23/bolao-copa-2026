@@ -256,6 +256,8 @@ export interface ProviderSnapshotEvidence {
   season: string;
   source: string;
   collectedAt: string;
+  collectionTimezone?: string;
+  sourceOffset?: string;
   checksum: string;
   byteLength: number;
   artifacts: Array<{

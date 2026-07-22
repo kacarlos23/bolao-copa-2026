@@ -22,7 +22,12 @@ describe('competition feature flags', () => {
     prismaMock.appSetting.findUnique.mockResolvedValue(null);
 
     await expect(getCompetitionFeatureFlags('season-without-flags')).resolves.toEqual(
-      expect.objectContaining({ readEnabled: false, writeEnabled: false, uiEnabled: false }),
+      expect.objectContaining({
+        readEnabled: false,
+        writeEnabled: false,
+        uiEnabled: false,
+        syncEnabled: false,
+      }),
     );
     expect(COMPETITION_FEATURES_FAIL_CLOSED_DEFAULTS.reason).toMatch(/bloqueada/i);
   });
@@ -32,6 +37,7 @@ describe('competition feature flags', () => {
       readEnabled: true,
       writeEnabled: false,
       uiEnabled: false,
+      syncEnabled: false,
       reason: 'Canário de leitura aprovado pelo responsável.',
       updatedAt: '2026-07-15T12:00:00.000Z',
       updatedById: 'admin-1',
@@ -39,5 +45,22 @@ describe('competition feature flags', () => {
     prismaMock.appSetting.findUnique.mockResolvedValue({ value });
 
     await expect(getCompetitionFeatureFlags('season-1')).resolves.toEqual(value);
+  });
+
+  it('keeps automatic sync compatible for persisted legacy flag records', async () => {
+    prismaMock.appSetting.findUnique.mockResolvedValue({
+      value: {
+        readEnabled: true,
+        writeEnabled: true,
+        uiEnabled: true,
+        reason: 'Registro legado anterior ao controle separado de sincronizacao.',
+        updatedAt: '2026-07-15T12:00:00.000Z',
+        updatedById: 'admin-1',
+      },
+    });
+
+    await expect(getCompetitionFeatureFlags('legacy-season')).resolves.toMatchObject({
+      syncEnabled: true,
+    });
   });
 });

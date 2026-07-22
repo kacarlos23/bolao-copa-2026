@@ -2,6 +2,7 @@ import { AppError } from '../../http/errors.js';
 import { prisma } from '../../prisma.js';
 import { getScoreSyncSetting } from '../../services/score-sync-settings.service.js';
 import { dispatchOutboxEvent, enqueueOutboxEvent } from '../events/outbox.js';
+import { getCompetitionFeatureFlags } from '../competitions/competition-feature.service.js';
 import { seasonProviderRegistry, type ProviderRuntime } from './provider-registry.js';
 import { runProviderSync, type ProviderSyncSummary } from './provider-sync.service.js';
 import {
@@ -344,7 +345,16 @@ export async function syncOfficialSeasonCompetitionData(input: {
 export async function runAutomaticSeasonSyncs() {
   const setting = await getScoreSyncSetting();
   if (!setting.enabled) return [];
-  const targets = await listActiveSeasonRuntimeConfigs();
+  const configuredTargets = await listActiveSeasonRuntimeConfigs();
+  const flagsByTarget = await Promise.all(
+    configuredTargets.map(async (target) => ({
+      target,
+      flags: await getCompetitionFeatureFlags(target.seasonId),
+    })),
+  );
+  const targets = flagsByTarget
+    .filter(({ flags }) => flags.syncEnabled)
+    .map(({ target }) => target);
   const bucket = Math.floor(Date.now() / AUTOMATIC_SYNC_BUCKET_MS);
   const dueTargets = await Promise.all(
     targets.map(async (target) => {

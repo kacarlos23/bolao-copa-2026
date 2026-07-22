@@ -14,7 +14,7 @@ import {
 } from './competition-data-provider.js';
 import { checksum } from './provider-utils.js';
 
-const artifactSchema = z
+const embeddedArtifactSchema = z
   .object({
     kind: z.enum(['PAGE', 'PDF', 'RESPONSE']),
     source: z.string().trim().min(1).max(500),
@@ -25,14 +25,33 @@ const artifactSchema = z
   })
   .strict();
 
+const checksumOnlyArtifactSchema = z
+  .object({
+    kind: z.enum(['PAGE', 'PDF', 'RESPONSE']),
+    source: z.string().trim().min(1).max(500),
+    contentType: z.string().trim().min(1).max(120),
+    retention: z.literal('CHECKSUM_ONLY'),
+    checksum: z.string().regex(/^[a-f0-9]{64}$/),
+    byteLength: z.number().int().nonnegative(),
+  })
+  .strict();
+
+const artifactSchema = z.union([embeddedArtifactSchema, checksumOnlyArtifactSchema]);
+
 const snapshotSchema = z
   .object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.union([z.literal(1), z.literal(2)]),
     provider: z.string().trim().min(1).max(80),
     competition: z.string().trim().min(1).max(120),
     season: z.string().trim().min(1).max(80),
     source: z.string().trim().min(1).max(500),
     collectedAt: z.string().datetime({ offset: true }),
+    collectionTimezone: z.string().trim().min(1).max(80).optional(),
+    sourceOffset: z
+      .string()
+      .regex(/^[+-]\d{2}:\d{2}$/)
+      .optional(),
+    metadata: z.record(z.unknown()).optional(),
     snapshotChecksum: z.string().regex(/^[a-f0-9]{64}$/),
     artifacts: z.array(artifactSchema).min(1).max(20),
     data: z
@@ -86,6 +105,7 @@ export function parseOfficialSourceSnapshot(
     );
   }
   for (const artifact of snapshot.artifacts) {
+    if (!('bodyBase64' in artifact)) continue;
     const bytes = Buffer.from(artifact.bodyBase64, 'base64');
     if (bytes.byteLength !== artifact.byteLength || sha256(bytes) !== artifact.checksum) {
       throw new Error(
@@ -117,6 +137,8 @@ export function snapshotEvidence(snapshot: OfficialSourceSnapshot): ProviderSnap
     season: snapshot.season,
     source: snapshot.source,
     collectedAt: snapshot.collectedAt,
+    collectionTimezone: snapshot.collectionTimezone,
+    sourceOffset: snapshot.sourceOffset,
     checksum: snapshot.snapshotChecksum,
     byteLength: Buffer.byteLength(JSON.stringify(snapshot), 'utf8'),
     artifacts: snapshot.artifacts.map((artifact) => ({

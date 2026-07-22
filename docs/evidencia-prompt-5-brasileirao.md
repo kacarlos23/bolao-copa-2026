@@ -1,6 +1,7 @@
 # Evidência — Prompt 5, Brasileirão 2026
 
-A temporada é preparada como `DRAFT`; as três flags persistidas começam
+A temporada é preparada como `DRAFT`; as quatro flags persistidas (`read`,
+`write`, `UI` e `sync`) começam
 desligadas e a ausência do registro também falha fechada. O loader exige 20
 clubes, 38 rodadas, 380 referências oficiais, 20 standings e dez partidas com
 horário oficial na rodada 20 antes de escrever.

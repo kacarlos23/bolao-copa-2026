@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   enqueue: vi.fn(),
   dispatch: vi.fn(),
   afterSync: vi.fn(),
+  competitionFlags: vi.fn(),
 }));
 
 vi.mock('../../prisma.js', () => ({
@@ -34,6 +35,9 @@ vi.mock('../../services/score-sync-settings.service.js', () => ({
 vi.mock('../events/outbox.js', () => ({
   enqueueOutboxEvent: mocks.enqueue,
   dispatchOutboxEvent: mocks.dispatch,
+}));
+vi.mock('../competitions/competition-feature.service.js', () => ({
+  getCompetitionFeatureFlags: mocks.competitionFlags,
 }));
 
 import {
@@ -100,6 +104,7 @@ describe('sincronização configurada por temporada', () => {
     mocks.transaction.mockImplementation((callback: (tx: object) => unknown) => callback({}));
     mocks.scoreSyncSetting.mockResolvedValue({ enabled: true });
     mocks.listRuntime.mockResolvedValue([]);
+    mocks.competitionFlags.mockResolvedValue({ syncEnabled: true });
   });
 
   it('usa somente o provider registrado na metadata da temporada fictícia', async () => {
@@ -148,10 +153,12 @@ describe('sincronização configurada por temporada', () => {
       standingsRule: 'LEGACY',
     }));
     mocks.runProviderSync.mockReset();
-    mocks.runProviderSync.mockImplementation(async (_provider: unknown, input: { seasonId: string; type: 'RESULTS' | 'STANDINGS' }) => {
-      if (input.seasonId === 'season-a' && input.type === 'RESULTS') throw new Error('offline');
-      return summary(input.type, 0, input.seasonId);
-    });
+    mocks.runProviderSync.mockImplementation(
+      async (_provider: unknown, input: { seasonId: string; type: 'RESULTS' | 'STANDINGS' }) => {
+        if (input.seasonId === 'season-a' && input.type === 'RESULTS') throw new Error('offline');
+        return summary(input.type, 0, input.seasonId);
+      },
+    );
     mocks.enqueue.mockResolvedValue({ id: 'event' });
 
     const results = await runAutomaticSeasonSyncs();

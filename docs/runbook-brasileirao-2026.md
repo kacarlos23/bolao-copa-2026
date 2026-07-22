@@ -3,7 +3,8 @@
 ## Estado de exposição
 
 A temporada nasce como `DRAFT` e canário administrativo. As flags persistidas
-`readEnabled`, `writeEnabled` e `uiEnabled` começam desligadas. A UI também exige
+`readEnabled`, `writeEnabled`, `uiEnabled` e `syncEnabled` começam desligadas em
+novas preparações. A UI também exige
 `EXPO_PUBLIC_BRASILEIRAO_UI=1`; portanto uma publicação do bundle, isoladamente,
 não expõe a competição.
 
@@ -120,12 +121,13 @@ atualizar uma partida já mapeada.
 Libere nesta ordem, com justificativa auditada:
 
 1. `readEnabled=true` para canário autenticado;
-2. `writeEnabled=true` depois do smoke de fechamento;
-3. `uiEnabled=true` e deploy com `EXPO_PUBLIC_BRASILEIRAO_UI=1` somente após os
+2. `syncEnabled=true` depois da validação do provider;
+3. `writeEnabled=true` depois do smoke de fechamento;
+4. `uiEnabled=true` e deploy com `EXPO_PUBLIC_BRASILEIRAO_UI=1` somente após os
    gates.
 
-Rollback operacional: desligue primeiro `writeEnabled`, depois `uiEnabled` e
-`readEnabled`. Isso não apaga dados nem IDs. Para restaurar serviço sem provider,
+Rollback operacional: desligue primeiro `writeEnabled`, depois `syncEnabled`,
+`uiEnabled` e `readEnabled`. Isso não apaga dados nem IDs. Para restaurar serviço sem provider,
 use CSV/manual. Não faça rollback destrutivo de migrations.
 
 ## Verificação final

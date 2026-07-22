@@ -5,12 +5,38 @@ export interface NamedCandidate {
   name: string;
 }
 
+export interface ClubCandidate extends NamedCandidate {
+  countryCode?: string | null;
+}
+
+function normalizeClubIdentity(value: string) {
+  return normalizeEntityName(value)
+    .replace(/\b(futebol clube|football club|fc|saf|sa)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function uniqueNameCandidate<T extends NamedCandidate>(name: string, candidates: T[]) {
   const normalized = normalizeEntityName(name);
   const matches = candidates.filter(
     (candidate) => normalizeEntityName(candidate.name) === normalized,
   );
   return { candidate: matches.length === 1 ? matches[0] : null, matches };
+}
+
+export function uniqueGlobalClubCandidate<T extends ClubCandidate>(
+  name: string,
+  countryCode: string | undefined,
+  candidates: T[],
+) {
+  const normalized = normalizeClubIdentity(name);
+  const named = candidates.filter(
+    (candidate) => normalizeClubIdentity(candidate.name) === normalized,
+  );
+  const compatible = named.filter(
+    (candidate) => !countryCode || !candidate.countryCode || candidate.countryCode === countryCode,
+  );
+  return { candidate: compatible.length === 1 ? compatible[0] : null, matches: compatible };
 }
 
 export function partitionDuplicateExternalIds<T extends { externalId: string }>(items: T[]) {

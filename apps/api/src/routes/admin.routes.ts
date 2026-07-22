@@ -398,6 +398,7 @@ adminRouter.put(
         readEnabled: z.boolean(),
         writeEnabled: z.boolean(),
         uiEnabled: z.boolean(),
+        syncEnabled: z.boolean(),
         reason: z.string().trim().min(10).max(500),
       })
       .strict()

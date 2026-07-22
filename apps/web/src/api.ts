@@ -437,6 +437,7 @@ export interface CompetitionFeatureFlags {
   readEnabled: boolean;
   writeEnabled: boolean;
   uiEnabled: boolean;
+  syncEnabled: boolean;
   reason: string;
   updatedAt: string;
   updatedById: string | null;
@@ -493,7 +494,10 @@ export const api = {
     request<{ flags: CompetitionFeatureFlags }>(`/api/admin/seasons/${seasonId}/features`),
   updateCompetitionFeatures: (
     seasonId: string,
-    input: Pick<CompetitionFeatureFlags, 'readEnabled' | 'writeEnabled' | 'uiEnabled' | 'reason'>,
+    input: Pick<
+      CompetitionFeatureFlags,
+      'readEnabled' | 'writeEnabled' | 'uiEnabled' | 'syncEnabled' | 'reason'
+    >,
   ) =>
     request<{ flags: CompetitionFeatureFlags }>(`/api/admin/seasons/${seasonId}/features`, {
       method: 'PUT',

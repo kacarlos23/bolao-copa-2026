@@ -7,6 +7,7 @@ const emptyFlags: CompetitionFeatureFlags = {
   readEnabled: false,
   writeEnabled: false,
   uiEnabled: false,
+  syncEnabled: false,
   reason: 'Canário administrativo inicial',
   updatedAt: new Date(0).toISOString(),
   updatedById: null,
@@ -73,6 +74,7 @@ export function BrasileiraoCanaryAdmin() {
         readEnabled: flags.readEnabled,
         writeEnabled: flags.writeEnabled,
         uiEnabled: flags.uiEnabled,
+        syncEnabled: flags.syncEnabled,
         reason: 'Ensaio administrativo e rollback independente das flags',
       });
       setFlags(result.flags);
@@ -94,7 +96,8 @@ export function BrasileiraoCanaryAdmin() {
         {loading ? <ActivityIndicator color="#34d17b" /> : null}
       </View>
       <Text style={styles.copy}>
-        A preparação consulta a CBF antes de escrever. Leitura, palpites e UI são liberados de forma independente.
+        A preparação consulta a CBF antes de escrever. Leitura, palpites e UI são liberados de forma
+        independente.
       </Text>
       {!seasonId ? (
         <Pressable
@@ -113,6 +116,7 @@ export function BrasileiraoCanaryAdmin() {
                 ['readEnabled', 'Leitura'],
                 ['writeEnabled', 'Palpites'],
                 ['uiEnabled', 'UI pública'],
+                ['syncEnabled', 'Sincronização'],
               ] as const
             ).map(([key, label]) => (
               <Pressable
@@ -122,7 +126,9 @@ export function BrasileiraoCanaryAdmin() {
                 onPress={() => setFlags((current) => ({ ...current, [key]: !current[key] }))}
                 style={[styles.flag, flags[key] && styles.flagEnabled]}
               >
-                <Text style={[styles.flagLabel, flags[key] && styles.flagLabelEnabled]}>{label}</Text>
+                <Text style={[styles.flagLabel, flags[key] && styles.flagLabelEnabled]}>
+                  {label}
+                </Text>
                 <Text style={[styles.flagState, flags[key] && styles.flagLabelEnabled]}>
                   {flags[key] ? 'ON' : 'OFF'}
                 </Text>
@@ -146,6 +152,7 @@ export function BrasileiraoCanaryAdmin() {
                   readEnabled: false,
                   writeEnabled: false,
                   uiEnabled: false,
+                  syncEnabled: false,
                 }));
               }}
               style={styles.rollbackButton}
@@ -162,21 +169,51 @@ export function BrasileiraoCanaryAdmin() {
 }
 
 const styles = StyleSheet.create({
-  panel: { backgroundColor: 'rgba(2, 36, 76, 0.78)', borderColor: 'rgba(83, 142, 195, 0.4)', borderRadius: 18, borderWidth: 1, gap: 14, padding: 18 },
+  panel: {
+    backgroundColor: 'rgba(2, 36, 76, 0.78)',
+    borderColor: 'rgba(83, 142, 195, 0.4)',
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 14,
+    padding: 18,
+  },
   header: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   kicker: { color: '#58e09a', fontSize: 10, fontWeight: '900', letterSpacing: 1.2 },
   title: { color: '#f5f9ff', fontSize: 20, fontWeight: '900', marginTop: 3 },
   copy: { color: '#b5c5d9', lineHeight: 20 },
   flags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  flag: { backgroundColor: '#102d51', borderColor: '#3d6289', borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 18, justifyContent: 'space-between', minWidth: 130, padding: 11 },
+  flag: {
+    backgroundColor: '#102d51',
+    borderColor: '#3d6289',
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 18,
+    justifyContent: 'space-between',
+    minWidth: 130,
+    padding: 11,
+  },
   flagEnabled: { backgroundColor: 'rgba(52, 209, 123, 0.14)', borderColor: '#34d17b' },
   flagLabel: { color: '#b5c5d9', fontWeight: '800' },
   flagState: { color: '#8198b4', fontSize: 11, fontWeight: '900' },
   flagLabelEnabled: { color: '#69e7a4' },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  primaryButton: { alignItems: 'center', backgroundColor: '#34d17b', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11 },
+  primaryButton: {
+    alignItems: 'center',
+    backgroundColor: '#34d17b',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
   primaryText: { color: '#031c27', fontWeight: '900' },
-  rollbackButton: { alignItems: 'center', borderColor: '#f0ba55', borderRadius: 10, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 11 },
+  rollbackButton: {
+    alignItems: 'center',
+    borderColor: '#f0ba55',
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
   rollbackText: { color: '#f0c773', fontWeight: '900' },
   success: { color: '#69e7a4', fontWeight: '700' },
   error: { color: '#ff8878', fontWeight: '700' },

@@ -71,6 +71,7 @@ function sha256Rows(rows) {
 }
 
 const EXPAND_ONLY_CONTENT_COLUMNS = {
+  Team: ['countryCode'],
   Match: [
     'tieId',
     'legNumber',
@@ -80,6 +81,9 @@ const EXPAND_ONLY_CONTENT_COLUMNS = {
     'extraTimeAwayScore',
     'penaltyHomeScore',
     'penaltyAwayScore',
+    'venueName',
+    'venueCity',
+    'venueCountryCode',
   ],
 };
 
@@ -151,7 +155,7 @@ async function createContentHashes(client, hasPoolSeason) {
 
 const BUSINESS_HASH_TABLES = {
   User: ['sessionVersion'],
-  Team: ['type', 'crestUrl', 'updatedAt'],
+  Team: ['type', 'crestUrl', 'countryCode', 'updatedAt'],
   MatchDay: ['seasonId', 'updatedAt'],
   Match: [
     'seasonId',
@@ -172,13 +176,39 @@ const BUSINESS_HASH_TABLES = {
   RankingSnapshot: ['seasonId', 'poolSeasonId', 'roundId'],
 };
 
+// Expansion prompts add legitimate rows for new competitions. Preservation hashes
+// intentionally remain scoped to the two already-homologated seasons so those
+// inserts do not hide an accidental mutation of Copa/Brasileirao business data.
+const PRESERVED_SEASON_FILTERS = {
+  Team: `WHERE source_row."id" IN (
+    SELECT "teamId" FROM "SeasonTeam"
+    WHERE "seasonId" IN (
+      SELECT "id" FROM "CompetitionSeason"
+      WHERE "slug" IN ('world-cup-2026', 'brasileirao-serie-a-2026')
+    )
+  )`,
+  MatchDay: `WHERE source_row."seasonId" IN (
+    SELECT "id" FROM "CompetitionSeason"
+    WHERE "slug" IN ('world-cup-2026', 'brasileirao-serie-a-2026')
+  )`,
+  Match: `WHERE source_row."seasonId" IN (
+    SELECT "id" FROM "CompetitionSeason"
+    WHERE "slug" IN ('world-cup-2026', 'brasileirao-serie-a-2026')
+  )`,
+  RankingSnapshot: `WHERE source_row."seasonId" IN (
+    SELECT "id" FROM "CompetitionSeason"
+    WHERE "slug" IN ('world-cup-2026', 'brasileirao-serie-a-2026')
+  )`,
+};
+
 async function createBusinessContentHashes(client) {
   const hashes = {};
   for (const [tableName, ignoredColumns] of Object.entries(BUSINESS_HASH_TABLES)) {
     const identifier = tableName.replaceAll('"', '""');
+    const where = PRESERVED_SEASON_FILTERS[tableName] ?? '';
     const rows = await client.query(
       `SELECT (to_jsonb(source_row) - $1::text[])::text AS row
-       FROM public."${identifier}" source_row`,
+       FROM public."${identifier}" source_row ${where}`,
       [ignoredColumns],
     );
     hashes[tableName] = sha256Rows(rows.rows);

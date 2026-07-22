@@ -35,6 +35,7 @@ import {
   chooseMatchIdentity,
   partitionDuplicateExternalIds,
   resultUpdateAllowed,
+  uniqueGlobalClubCandidate,
   uniqueNameCandidate,
   valuesAfterManualOverride,
 } from './provider-sync.logic.js';
@@ -286,6 +287,18 @@ async function findProviderMapping(
   });
 }
 
+async function findGlobalTeamMapping(provider: string, seasonId: string, rawExternalId: string) {
+  return prisma.providerEntityMapping.findFirst({
+    where: {
+      provider,
+      entityType: 'TEAM',
+      seasonId: { not: seasonId },
+      metadata: { path: ['rawExternalId'], equals: rawExternalId },
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+}
+
 async function ensureMatchDay(tx: Prisma.TransactionClient, seasonId: string, startsAt: Date) {
   const season = await tx.competitionSeason.findUnique({
     where: { id: seasonId },
@@ -411,6 +424,39 @@ async function processTeam(
     internal = resolution.candidate ?? undefined;
   }
 
+  let reusedAcrossSeasons = false;
+  if (!internal && !mapping) {
+    const globalMapping = await findGlobalTeamMapping(
+      provider.name,
+      options.seasonId,
+      team.externalId,
+    );
+    internal = globalMapping
+      ? ((await prisma.team.findUnique({ where: { id: globalMapping.internalId } })) ?? undefined)
+      : undefined;
+
+    if (!internal) {
+      const globalCandidates = await prisma.team.findMany({
+        where: { type: 'CLUB' },
+        select: { id: true, name: true, countryCode: true },
+      });
+      const resolution = uniqueGlobalClubCandidate(team.name, team.countryCode, globalCandidates);
+      if (resolution.matches.length > 1) {
+        const quarantine = {
+          externalId: team.externalId,
+          reason: 'AMBIGUOUS_NAME' as const,
+          message: 'Normalized club name matched more than one compatible global team.',
+          payload: team,
+        };
+        return { diff: quarantineDiff('TEAM', quarantine), quarantine };
+      }
+      internal = resolution.candidate
+        ? ((await prisma.team.findUnique({ where: { id: resolution.candidate.id } })) ?? undefined)
+        : undefined;
+    }
+    reusedAcrossSeasons = Boolean(internal);
+  }
+
   if (!internal) {
     let eventId: string | undefined;
     if (!isReadOnlySync(options)) {
@@ -462,8 +508,26 @@ async function processTeam(
 
   if (!mapping) {
     if (!isReadOnlySync(options)) {
-      await prisma.providerEntityMapping.create({
-        data: mappingData(provider, options, 'TEAM', team.externalId, internal.id, itemChecksum),
+      await prisma.$transaction(async (tx) => {
+        if (reusedAcrossSeasons) {
+          await tx.seasonTeam.create({
+            data: {
+              seasonId: options.seasonId,
+              teamId: internal!.id,
+              groupName: team.groupName,
+              metadata: team.federation ? { federation: team.federation } : undefined,
+            },
+          });
+          if (!internal!.countryCode && team.countryCode) {
+            await tx.team.update({
+              where: { id: internal!.id },
+              data: { countryCode: team.countryCode },
+            });
+          }
+        }
+        await tx.providerEntityMapping.create({
+          data: mappingData(provider, options, 'TEAM', team.externalId, internal!.id, itemChecksum),
+        });
       });
     }
     return {
@@ -477,28 +541,33 @@ async function processTeam(
     };
   }
 
+  const providerOwnedExternalId = `${provider.name}:${options.seasonId}:team:${team.externalId}`;
+  const preserveGlobalIdentity = internal.externalId !== providerOwnedExternalId;
   const changed =
-    internal.name !== team.name ||
-    (team.code !== undefined && internal.code !== team.code) ||
-    (team.type !== undefined && internal.type !== team.type) ||
-    (team.crestUrl !== undefined && internal.crestUrl !== team.crestUrl) ||
-    (team.countryCode !== undefined && internal.countryCode !== team.countryCode) ||
+    (!preserveGlobalIdentity &&
+      (internal.name !== team.name ||
+        (team.code !== undefined && internal.code !== team.code) ||
+        (team.type !== undefined && internal.type !== team.type) ||
+        (team.crestUrl !== undefined && internal.crestUrl !== team.crestUrl) ||
+        (team.countryCode !== undefined && internal.countryCode !== team.countryCode))) ||
     seasonTeams.find((entry) => entry.team.id === internal!.id)?.groupName !==
       (team.groupName ?? null);
   let eventId: string | undefined;
   if (changed && !isReadOnlySync(options)) {
     eventId = await prisma.$transaction(async (tx) => {
-      await tx.team.update({
-        where: { id: internal!.id },
-        data: {
-          name: team.name,
-          code: team.code,
-          type: team.type,
-          crestUrl: team.crestUrl,
-          countryCode: team.countryCode,
-          metadata: team.providerMetadata ? providerJson(team.providerMetadata) : undefined,
-        },
-      });
+      if (!preserveGlobalIdentity) {
+        await tx.team.update({
+          where: { id: internal!.id },
+          data: {
+            name: team.name,
+            code: team.code,
+            type: team.type,
+            crestUrl: team.crestUrl,
+            countryCode: team.countryCode,
+            metadata: team.providerMetadata ? providerJson(team.providerMetadata) : undefined,
+          },
+        });
+      }
       await tx.seasonTeam.update({
         where: { seasonId_teamId: { seasonId: options.seasonId, teamId: internal!.id } },
         data: {
