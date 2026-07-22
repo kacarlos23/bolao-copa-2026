@@ -9,6 +9,7 @@ import {
   snapshotEvidence,
   type OfficialSourceSnapshot,
 } from '../official-source-snapshot.js';
+export { CbfCopaDoBrasilProvider } from './cbf-copa-do-brasil-2026.provider.js';
 
 export interface SnapshotProviderOptions {
   fixtureName?: string;
@@ -82,13 +83,5 @@ export class ConmebolProvider extends SnapshotCompetitionProvider {
       throw new Error('The shared CONMEBOL provider only accepts Libertadores or Sudamericana.');
     }
     super('conmebol-official', options);
-  }
-}
-
-export class CbfCopaDoBrasilProvider extends SnapshotCompetitionProvider {
-  readonly name = 'cbf-copa-do-brasil-official';
-
-  constructor(options: Omit<SnapshotProviderOptions, 'competition'>) {
-    super('cbf-copa-do-brasil-official', { ...options, competition: 'copa-do-brasil' });
   }
 }

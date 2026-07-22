@@ -265,6 +265,14 @@ function providerJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
+function seasonTeamMetadata(team: NormalizedTeam) {
+  const metadata = {
+    ...(team.providerMetadata ?? {}),
+    ...(team.federation ? { federation: team.federation } : {}),
+  };
+  return Object.keys(metadata).length > 0 ? providerJson(metadata) : undefined;
+}
+
 async function findProviderMapping(
   provider: string,
   seasonId: string,
@@ -385,6 +393,7 @@ async function processTeam(
   team: NormalizedTeam,
 ): Promise<{ diff: ProviderSyncDiff; quarantine?: QuarantineInput; eventId?: string }> {
   const itemChecksum = checksum(team);
+  const strictExternalIdentity = team.providerMetadata?.identityMode === 'CBF_EXTERNAL_ID';
   const mapping = await findProviderMapping(
     provider.name,
     options.seasonId,
@@ -398,7 +407,21 @@ async function processTeam(
   let internal = mapping
     ? seasonTeams.find((entry) => entry.team.id === mapping.internalId)?.team
     : undefined;
-  if (mapping && !internal) {
+  if (mapping && internal && strictExternalIdentity) {
+    const currentMetadata =
+      internal.metadata &&
+      typeof internal.metadata === 'object' &&
+      !Array.isArray(internal.metadata)
+        ? (internal.metadata as Record<string, unknown>)
+        : {};
+    if (
+      team.providerMetadata?.cbfTeamId !== undefined &&
+      currentMetadata.cbfTeamId !== team.providerMetadata.cbfTeamId
+    ) {
+      internal = undefined;
+    }
+  }
+  if (mapping && !internal && !strictExternalIdentity) {
     const quarantine = {
       externalId: team.externalId,
       reason: 'INVALID_REFERENCE' as const,
@@ -407,7 +430,7 @@ async function processTeam(
     };
     return { diff: quarantineDiff('TEAM', quarantine), quarantine };
   }
-  if (!internal) {
+  if (!internal && !strictExternalIdentity) {
     const codeMatches = team.code
       ? seasonTeams
           .map((entry) => entry.team)
@@ -449,7 +472,7 @@ async function processTeam(
   }
 
   let reusedAcrossSeasons = false;
-  if (!internal && !mapping) {
+  if (!internal && !mapping && !strictExternalIdentity) {
     const globalMapping = await findGlobalTeamMapping(
       provider.name,
       options.seasonId,
@@ -520,12 +543,25 @@ async function processTeam(
             seasonId: options.seasonId,
             teamId: saved.id,
             groupName: team.groupName,
-            metadata: team.federation ? { federation: team.federation } : undefined,
+            metadata: seasonTeamMetadata(team),
           },
         });
-        await tx.providerEntityMapping.create({
-          data: mappingData(provider, options, 'TEAM', team.externalId, saved.id, itemChecksum),
-        });
+        if (mapping) {
+          await tx.providerEntityMapping.update({
+            where: { id: mapping.id },
+            data: {
+              internalId: saved.id,
+              checksum: itemChecksum,
+              sourceUrl: provider.source,
+              collectedAt: new Date(),
+              metadata: { rawExternalId: team.externalId },
+            },
+          });
+        } else {
+          await tx.providerEntityMapping.create({
+            data: mappingData(provider, options, 'TEAM', team.externalId, saved.id, itemChecksum),
+          });
+        }
         const event = await enqueueOutboxEvent(tx, {
           type: 'team.updated',
           seasonId: options.seasonId,
@@ -558,7 +594,7 @@ async function processTeam(
               seasonId: options.seasonId,
               teamId: internal!.id,
               groupName: team.groupName,
-              metadata: team.federation ? { federation: team.federation } : undefined,
+              metadata: seasonTeamMetadata(team),
             },
           });
           if (!internal!.countryCode && team.countryCode) {
@@ -594,7 +630,9 @@ async function processTeam(
         (team.crestUrl !== undefined && internal.crestUrl !== team.crestUrl) ||
         (team.countryCode !== undefined && internal.countryCode !== team.countryCode))) ||
     seasonTeams.find((entry) => entry.team.id === internal!.id)?.groupName !==
-      (team.groupName ?? null);
+      (team.groupName ?? null) ||
+    checksum(seasonTeams.find((entry) => entry.team.id === internal!.id)?.metadata ?? null) !==
+      checksum(seasonTeamMetadata(team) ?? null);
   let eventId: string | undefined;
   if (changed && !isReadOnlySync(options)) {
     eventId = await prisma.$transaction(async (tx) => {
@@ -615,7 +653,7 @@ async function processTeam(
         where: { seasonId_teamId: { seasonId: options.seasonId, teamId: internal!.id } },
         data: {
           groupName: team.groupName ?? null,
-          metadata: team.federation ? { federation: team.federation } : undefined,
+          metadata: seasonTeamMetadata(team),
         },
       });
       await tx.providerEntityMapping.update({
@@ -1092,7 +1130,8 @@ async function processTie(
   if (
     current?.status === 'DECIDED' &&
     providerWinnerTeamId &&
-    current.winnerTeamId !== providerWinnerTeamId
+    current.winnerTeamId !== providerWinnerTeamId &&
+    [current.teamAId, current.teamBId].sort().join(':') === [teamA.id, teamB.id].sort().join(':')
   ) {
     const quarantine = {
       externalId: incoming.externalId,
@@ -1122,7 +1161,13 @@ async function processTie(
         : incoming.status === 'CANCELLED'
           ? 'CANCELLED'
           : (current?.status ?? 'SCHEDULED');
-  const desiredWinner = manualDecision ? providerWinnerTeamId : (current?.winnerTeamId ?? null);
+  const desiredWinner = manualDecision
+    ? providerWinnerTeamId
+    : incoming.status === 'DECIDED' && providerWinnerTeamId
+      ? providerWinnerTeamId
+      : current?.winnerTeamId && [teamA.id, teamB.id].includes(current.winnerTeamId)
+        ? current.winnerTeamId
+        : null;
   const desiredMethod = manualDecision
     ? incoming.decisionMethod!
     : (current?.decisionMethod ?? null);
@@ -1142,6 +1187,8 @@ async function processTie(
       current!.roundId !== round.internalId ||
       current!.key !== incoming.key ||
       current!.order !== incoming.order ||
+      current!.teamAId !== teamA.id ||
+      current!.teamBId !== teamB.id ||
       current!.expectedLegs !== incoming.expectedLegs ||
       current!.status !== desiredStatus ||
       current!.winnerTeamId !== desiredWinner ||
@@ -1190,6 +1237,39 @@ async function processTie(
     eventId = created.eventId;
   } else if (current && changed && !isReadOnlySync(options)) {
     eventId = await prisma.$transaction(async (tx) => {
+      const attachedMatches =
+        current.teamAId !== teamA.id || current.teamBId !== teamB.id
+          ? await tx.match.findMany({
+              where: { tieId: current.id },
+              select: { id: true, legNumber: true, homeTeamId: true, awayTeamId: true },
+            })
+          : [];
+      for (const attachedMatch of attachedMatches) {
+        const homeIsTeamA =
+          attachedMatch.homeTeamId === current.teamAId &&
+          attachedMatch.awayTeamId === current.teamBId;
+        const homeIsTeamB =
+          attachedMatch.homeTeamId === current.teamBId &&
+          attachedMatch.awayTeamId === current.teamAId;
+        if (!homeIsTeamA && !homeIsTeamB) {
+          throw new AppError(
+            409,
+            'Attached match participants do not match the current tie identity.',
+            'TIE_MATCH_IDENTITY_CONFLICT',
+          );
+        }
+        await tx.match.update({
+          where: { id: attachedMatch.id },
+          data: { tieId: null, legNumber: null },
+        });
+        await tx.match.update({
+          where: { id: attachedMatch.id },
+          data: {
+            homeTeamId: homeIsTeamA ? teamA.id! : teamB.id!,
+            awayTeamId: homeIsTeamA ? teamB.id! : teamA.id!,
+          },
+        });
+      }
       await tx.tie.update({
         where: { id: current.id },
         data: {
@@ -1197,6 +1277,8 @@ async function processTie(
           roundId: round.internalId!,
           key: incoming.key,
           order: incoming.order,
+          teamAId: teamA.id!,
+          teamBId: teamB.id!,
           expectedLegs: incoming.expectedLegs,
           status: desiredStatus,
           decisionMethod: desiredMethod,
@@ -1206,6 +1288,12 @@ async function processTie(
           metadata: desiredMetadata,
         },
       });
+      for (const attachedMatch of attachedMatches) {
+        await tx.match.update({
+          where: { id: attachedMatch.id },
+          data: { tieId: current.id, legNumber: attachedMatch.legNumber },
+        });
+      }
       if (mapping) {
         await tx.providerEntityMapping.update({
           where: { id: mapping.id },

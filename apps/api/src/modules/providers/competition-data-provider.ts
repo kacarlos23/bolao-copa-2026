@@ -183,6 +183,8 @@ export const normalizedTieSchema = z
     decisionMethod: z
       .enum(['AGGREGATE', 'EXTRA_TIME', 'PENALTIES', 'WALKOVER', 'ADMINISTRATIVE'])
       .optional(),
+    aggregateTeamAScore: z.number().int().nonnegative().optional(),
+    aggregateTeamBScore: z.number().int().nonnegative().optional(),
     winnerTeamExternalId: externalIdSchema.optional(),
     provenance: z.string().trim().min(1).max(500),
     metadata: nullableMetadataSchema,

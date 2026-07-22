@@ -60,13 +60,27 @@ export class ProviderRegistry {
 
 const snapshotSettingsSchema = z
   .object({
-    fixtureName: z.string().trim().min(1).max(160),
+    fixtureName: z.string().trim().min(1).max(160).optional(),
     competition: z.string().trim().min(1).max(120).optional(),
     collectionStrategy: z
-      .enum(['IMMUTABLE_FIXTURE', 'LIVE_SUDAMERICANA_2026', 'LIVE_LIBERTADORES_2026'])
+      .enum([
+        'IMMUTABLE_FIXTURE',
+        'LIVE_SUDAMERICANA_2026',
+        'LIVE_LIBERTADORES_2026',
+        'LIVE_CBF_COPA_DO_BRASIL_2026',
+      ])
       .optional(),
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((settings, context) => {
+    if (settings.collectionStrategy === 'IMMUTABLE_FIXTURE' && !settings.fixtureName) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['fixtureName'],
+        message: 'Fixture is required.',
+      });
+    }
+  });
 
 export const seasonProviderRegistry = new ProviderRegistry()
   .register('fifa-official', () => {
@@ -131,7 +145,10 @@ export const seasonProviderRegistry = new ProviderRegistry()
   })
   .register('cbf-copa-do-brasil-official', (providerConfig) => {
     const settings = snapshotSettingsSchema.parse(providerConfig.settings);
-    const provider = new CbfCopaDoBrasilProvider({ fixtureName: settings.fixtureName });
+    const provider =
+      settings.collectionStrategy === 'LIVE_CBF_COPA_DO_BRASIL_2026'
+        ? new CbfCopaDoBrasilProvider()
+        : new CbfCopaDoBrasilProvider({ fixtureName: settings.fixtureName });
     return {
       provider,
       evidence: () => provider.snapshotEvidence(),

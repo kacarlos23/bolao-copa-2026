@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, type ProviderSyncType } from '@prisma/client';
 import { prisma } from '../../prisma.js';
 import { dispatchOutboxEvent, enqueueOutboxEvent } from '../events/outbox.js';
 import type { ProviderSnapshotEvidence } from '../providers/competition-data-provider.js';
@@ -15,7 +15,15 @@ export interface ConmebolCup2026Definition {
   competitionName: string;
   seasonName: string;
   fixtureName: string;
-  collectionStrategy: 'LIVE_SUDAMERICANA_2026' | 'LIVE_LIBERTADORES_2026';
+  collectionStrategy: 'LIVE_SUDAMERICANA_2026' | 'LIVE_LIBERTADORES_2026' | 'IMMUTABLE_FIXTURE';
+  providerKey?: string;
+  competitionCapabilities?: Prisma.InputJsonValue;
+  providerSettings?: Record<string, Prisma.InputJsonValue>;
+  providerEnabledTypes?: ProviderSyncType[];
+  predictionPolicy?: {
+    scoreableFromRound: number | null;
+    startsAtRound: number | null;
+  };
   providerProvenance: string;
   policyVersion: string;
   featureReason: string;
@@ -27,6 +35,7 @@ export interface ConmebolCup2026Definition {
 }
 
 function providerMapping(input: {
+  providerKey: string;
   entityType: 'COMPETITION' | 'COMPETITION_SEASON';
   externalId: string;
   internalId: string;
@@ -34,7 +43,7 @@ function providerMapping(input: {
   evidence: ProviderSnapshotEvidence;
 }) {
   return {
-    provider: 'conmebol-official',
+    provider: input.providerKey,
     scopeKey: input.seasonId ? `season:${input.seasonId}` : 'global',
     entityType: input.entityType,
     externalId: input.externalId,
@@ -61,6 +70,7 @@ export async function prepareConmebolCup2026(input: {
   actorId?: string | null;
 }) {
   const { definition } = input;
+  const providerKey = definition.providerKey ?? 'conmebol-official';
   const sourceEvidence = JSON.parse(JSON.stringify(input.evidence)) as Prisma.InputJsonValue;
   const result = await prisma.$transaction(async (tx) => {
     const competition = await tx.competition.upsert({
@@ -68,7 +78,7 @@ export async function prepareConmebolCup2026(input: {
       create: {
         slug: definition.competitionSlug,
         name: definition.competitionName,
-        capabilities: {
+        capabilities: definition.competitionCapabilities ?? {
           format: 'GROUPS_KNOCKOUT',
           capabilityList: ['GROUPS', 'KNOCKOUT', 'TWO_LEGS', 'STANDINGS', 'LIVE_SCORING'],
           groups: true,
@@ -82,7 +92,7 @@ export async function prepareConmebolCup2026(input: {
       },
       update: {
         name: definition.competitionName,
-        capabilities: {
+        capabilities: definition.competitionCapabilities ?? {
           format: 'GROUPS_KNOCKOUT',
           capabilityList: ['GROUPS', 'KNOCKOUT', 'TWO_LEGS', 'STANDINGS', 'LIVE_SCORING'],
           groups: true,
@@ -133,14 +143,19 @@ export async function prepareConmebolCup2026(input: {
       },
     });
     await tx.seasonProviderConfig.upsert({
-      where: {
-        seasonId_providerKey: { seasonId: season.id, providerKey: 'conmebol-official' },
-      },
+      where: { seasonId_providerKey: { seasonId: season.id, providerKey } },
       create: {
         seasonId: season.id,
-        providerKey: 'conmebol-official',
+        providerKey,
         priority: 1,
-        enabledTypes: ['TEAMS', 'STRUCTURE', 'TIES', 'SCHEDULE', 'RESULTS', 'STANDINGS'],
+        enabledTypes: definition.providerEnabledTypes ?? [
+          'TEAMS',
+          'STRUCTURE',
+          'TIES',
+          'SCHEDULE',
+          'RESULTS',
+          'STANDINGS',
+        ],
         cadenceSeconds: 300,
         timeoutMs: 20_000,
         active: true,
@@ -151,13 +166,21 @@ export async function prepareConmebolCup2026(input: {
           competition: definition.competitionSlug,
           fixtureName: definition.fixtureName,
           collectionStrategy: definition.collectionStrategy,
+          ...(definition.providerSettings ?? {}),
           fallbackProviders: ['manual'],
           automaticSyncControlledByFeatureFlag: true,
         },
       },
       update: {
         priority: 1,
-        enabledTypes: ['TEAMS', 'STRUCTURE', 'TIES', 'SCHEDULE', 'RESULTS', 'STANDINGS'],
+        enabledTypes: definition.providerEnabledTypes ?? [
+          'TEAMS',
+          'STRUCTURE',
+          'TIES',
+          'SCHEDULE',
+          'RESULTS',
+          'STANDINGS',
+        ],
         cadenceSeconds: 300,
         timeoutMs: 20_000,
         active: true,
@@ -168,6 +191,7 @@ export async function prepareConmebolCup2026(input: {
           competition: definition.competitionSlug,
           fixtureName: definition.fixtureName,
           collectionStrategy: definition.collectionStrategy,
+          ...(definition.providerSettings ?? {}),
           fallbackProviders: ['manual'],
           automaticSyncControlledByFeatureFlag: true,
         },
@@ -208,9 +232,9 @@ export async function prepareConmebolCup2026(input: {
       update: {},
     });
     const predictionPolicy = {
-      scoreableFromRound: null,
+      scoreableFromRound: definition.predictionPolicy?.scoreableFromRound ?? null,
       scoreableFrom: definition.scoreableFrom,
-      startsAtRound: null,
+      startsAtRound: definition.predictionPolicy?.startsAtRound ?? null,
       historicalMatchesScoreable: false,
     } as const;
     const poolSeason = await tx.poolSeason.upsert({
@@ -245,12 +269,14 @@ export async function prepareConmebolCup2026(input: {
 
     for (const entry of [
       providerMapping({
+        providerKey,
         entityType: 'COMPETITION',
         externalId: `competition:${definition.competitionSlug}`,
         internalId: competition.id,
         evidence: input.evidence,
       }),
       providerMapping({
+        providerKey,
         entityType: 'COMPETITION_SEASON',
         externalId: `season:${definition.seasonSlug}`,
         internalId: season.id,
