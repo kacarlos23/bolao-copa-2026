@@ -2,9 +2,12 @@
 
 ## Resultado da homologação
 
-A coleta final foi feita em `2026-07-22T09:42:26-03:00`, timezone
+A fotografia foi revalidada no Prompt 5 em `2026-07-22T14:22:53-03:00`, timezone
 `America/Sao_Paulo`, offset `-03:00`. O snapshot normalizado tem SHA-256
-`7df6cfdae16b8342cd84f570da556a1119eec8b25a785129bccc70a3bf86b525`.
+`44059d3a03f7cc9b8768674f83be5e781bf3efe7a9fc2228b9a21b08bc68b761`.
+Essa revalidação acrescentou país/federação somente aos homônimos com
+códigos curtos iguais (`NAC` e `RAC`), conforme os Manuais de Clubes, para
+provar que a carga conjunta com a Libertadores não funde clubes distintos.
 
 A fonte oficial continha 144 fixtures: 16 da fase preliminar, 96 da fase de
 grupos, 16 dos playoffs e 16 slots das oitavas. Os slots das oitavas continham
@@ -32,15 +35,15 @@ A fotografia reconciliada registra:
 
 | Fonte oficial                                                                                                                                                                    |    Bytes | SHA-256                                                            |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------: | ------------------------------------------------------------------ |
-| [Manual de Clubes — página](https://www.conmebol.com/documentos/manual-de-clubes-conmebol-sudamericana-2026/)                                                                    |   210882 | `b6c7b2dc786096f9e4792d9c68cba2c655173f1b4cbcadd56185a12fa2283364` |
+| [Manual de Clubes — página](https://www.conmebol.com/documentos/manual-de-clubes-conmebol-sudamericana-2026/)                                                                    |   210882 | `b2509b3678e19ec43429ee610dc106de733f0fa1b9fd0ca148eeac2840a90cf2` |
 | [Manual de Clubes — PDF](https://cdn.conmebol.com/wp-content/uploads/2025/12/CS-2026-Manual-de-Clubes-ESP-Feb26.pdf)                                                             | 11679327 | `ab8bab858def7e9ce1a866fbec02eb90d18ae7223fe42bfa154c1597e2bd84ea` |
-| [Calendário da fase de grupos](https://gol.conmebol.com/sudamericana/es/news/calendario-conmebol-sudamericana-2026-dias-horarios-y-sedes-de-la-fase-de-grupos)                   |   136214 | `eaa533b522ce3c41dcfd703109bad258069d1fbbff7f20ffb8e105a0e58f1434` |
-| [Fixtures oficiais 2026](https://gol.conmebol.com/sudamericana/es/api/v2/tournament-fixtures/104)                                                                                |  2829885 | `18827f917f825ce56ebeb1e0f5be5d06a98c8508941a5ca802f5132698ebc1e3` |
+| [Calendário da fase de grupos](https://gol.conmebol.com/sudamericana/es/news/calendario-conmebol-sudamericana-2026-dias-horarios-y-sedes-de-la-fase-de-grupos)                   |   135819 | `60d3f3a3bf6bb96d9fc5a92b64096e338905fe240ab7eec4e3233a3b4dfc3ea7` |
+| [Fixtures oficiais 2026](https://gol.conmebol.com/sudamericana/es/api/v2/tournament-fixtures/104)                                                                                |  2829885 | `f96dd491624652c3e2a6444aae63bab2fbcc2ef1ee0e7a4c4a9767e9a210832e` |
 | [Classificação oficial](https://gol.conmebol.com/sudamericana/es/tournament-table/104)                                                                                           |   175251 | `eca79da34d8d158ee62aae36422bb894f9740715bce585e80902f28fdeb5b1ab` |
-| [Definição dos playoffs](https://gol.conmebol.com/sudamericana/es/news/definidos-los-cruces-de-playoffs-de-la-conmebol-sudamericana)                                             |   124905 | `5ef96872f2cc490c973b6f67bb7c68c3ec638b6dff9a35b18de0d1af941372a1` |
-| [Dias, horários e sedes dos playoffs](https://gol.conmebol.com/sudamericana/es/news/para-tomar-nota-asi-se-jugaran-los-playoffs-de-octavos-de-final-de-la-conmebol-sudamericana) |   123321 | `c2e7d7568c6423432748a399539fccfeca2c58d4da3289f65559dc7aba2553fd` |
-| [Chave das oitavas](https://gol.conmebol.com/sudamericana/es/news/asi-se-jugaran-los-octavos-de-final-de-la-conmebol-sudamericana)                                               |   132371 | `27519bda0d7ab97590c533710557e5cb59a578bd1598ed097d4470c2349f643b` |
-| [Sede da final](https://gol.conmebol.com/sudamericana/es/news/barranquilla-sede-de-la-final-de-la-conmebol-sudamericana-2026)                                                    |   121857 | `59e8272196360f2f4904907e5eed767c27e5d71193d5fd7024040dec63ab89e2` |
+| [Definição dos playoffs](https://gol.conmebol.com/sudamericana/es/news/definidos-los-cruces-de-playoffs-de-la-conmebol-sudamericana)                                             |   124510 | `e9cc1adcccebbf7d7fce4b2d93a2e939310e7b3a6c105bce07035215c79ecf7c` |
+| [Dias, horários e sedes dos playoffs](https://gol.conmebol.com/sudamericana/es/news/para-tomar-nota-asi-se-jugaran-los-playoffs-de-octavos-de-final-de-la-conmebol-sudamericana) |   122926 | `a400804888715d5c4f2185ce7c6e9cec098c35c52a998b5f6175dd2b17e6ce08` |
+| [Chave das oitavas](https://gol.conmebol.com/sudamericana/es/news/asi-se-jugaran-los-octavos-de-final-de-la-conmebol-sudamericana)                                               |   131976 | `477d3c57b7ad9eafda882180b30e3714757ab359d7b945268776094dff5cafb5` |
+| [Sede da final](https://gol.conmebol.com/sudamericana/es/news/barranquilla-sede-de-la-final-de-la-conmebol-sudamericana-2026)                                                    |   121462 | `3fc1360ebd3c146eb0d0514c9f50e8fd8336204f6cd9d26bd6fb5365487719a9` |
 | Feed de standings exposto pela página oficial                                                                                                                                    |    13466 | `ebb7566d4a33c67a4eefc530a3e4c28d2985c49b7125c2b89bc6081a0e88bcbd` |
 
 O URL completo do feed de standings, incluindo o identificador público que a

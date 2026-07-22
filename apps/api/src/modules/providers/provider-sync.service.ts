@@ -411,7 +411,13 @@ async function processTeam(
     const codeMatches = team.code
       ? seasonTeams
           .map((entry) => entry.team)
-          .filter((candidate) => candidate.code?.toUpperCase() === team.code?.toUpperCase())
+          .filter(
+            (candidate) =>
+              candidate.code?.toUpperCase() === team.code?.toUpperCase() &&
+              (!team.countryCode ||
+                !candidate.countryCode ||
+                candidate.countryCode === team.countryCode),
+          )
       : [];
     if (codeMatches.length > 1) {
       const quarantine = {
@@ -424,8 +430,9 @@ async function processTeam(
     }
     internal = codeMatches[0];
     if (!internal) {
-      const resolution = uniqueNameCandidate(
+      const resolution = uniqueGlobalClubCandidate(
         team.name,
+        team.countryCode,
         seasonTeams.map((entry) => entry.team),
       );
       if (resolution.matches.length > 1) {
@@ -459,7 +466,11 @@ async function processTeam(
       });
       const codeMatches = team.code
         ? globalCandidates.filter(
-            (candidate) => candidate.code?.toUpperCase() === team.code?.toUpperCase(),
+            (candidate) =>
+              candidate.code?.toUpperCase() === team.code?.toUpperCase() &&
+              (!team.countryCode ||
+                !candidate.countryCode ||
+                candidate.countryCode === team.countryCode),
           )
         : [];
       if (codeMatches.length > 1) {

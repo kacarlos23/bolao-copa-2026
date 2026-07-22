@@ -32,6 +32,19 @@ const DEFAULT_OUTPUT = resolve(
 
 type JsonRecord = Record<string, any>;
 
+// The official fixture feed omits association/country. These homonymous
+// identities are pinned from the official 2026 Club Manuals so equal short
+// codes (NAC/RAC) never collapse clubs from different associations.
+const clubIdentityDisambiguation: Record<
+  string,
+  { countryCode: string; federation: string }
+> = {
+  '27ia8tgma24uc864wpnbdwoxo': { countryCode: 'URY', federation: 'AUF' },
+  '6j9bbun984g4ajwa5l7caidll': { countryCode: 'COL', federation: 'FCF' },
+  '39acfbxikh52o6y9opfb0q0nb': { countryCode: 'ARG', federation: 'AFA' },
+  '4chpayofjomoamckrr2t0c7k0': { countryCode: 'URY', federation: 'AUF' },
+};
+
 function sha256(bytes: Uint8Array) {
   return createHash('sha256').update(bytes).digest('hex');
 }
@@ -313,27 +326,34 @@ export async function collectSudamericana2026Snapshot() {
   );
 
   const teams = [...teamRecords.values()]
-    .map((team) => ({
-      externalId: team.externalId,
-      name: team.name,
-      code: team.code,
-      type: 'CLUB' as const,
-      crestUrl: team.crest?.uri_1x,
-      ...(groupByTeam.has(team.externalId) ? { groupName: groupByTeam.get(team.externalId) } : {}),
-      providerMetadata: {
-        officialName: team.officialName,
-        legacyId: team.legacyId,
-        tournamentCalendarId: calendarId,
-        ...(transferredTeamIds.has(team.externalId)
-          ? {
-              entryRoute: 'LIBERTADORES_GROUP_THIRD',
-              transferredFromCompetition: 'conmebol-libertadores',
-            }
-          : groupTeamIds.has(team.externalId)
-            ? { entryRoute: 'SUDAMERICANA_GROUP_STAGE' }
-            : { entryRoute: 'SUDAMERICANA_PRELIMINARY' }),
-      },
-    }))
+    .map((team) => {
+      const identity = clubIdentityDisambiguation[team.externalId];
+      return {
+        externalId: team.externalId,
+        name: team.name,
+        code: team.code,
+        type: 'CLUB' as const,
+        crestUrl: team.crest?.uri_1x,
+        ...(identity ?? {}),
+        ...(groupByTeam.has(team.externalId)
+          ? { groupName: groupByTeam.get(team.externalId) }
+          : {}),
+        providerMetadata: {
+          officialName: team.officialName,
+          legacyId: team.legacyId,
+          tournamentCalendarId: calendarId,
+          ...(identity ? { identitySource: 'CONMEBOL_2026_CLUB_MANUALS' } : {}),
+          ...(transferredTeamIds.has(team.externalId)
+            ? {
+                entryRoute: 'LIBERTADORES_GROUP_THIRD',
+                transferredFromCompetition: 'conmebol-libertadores',
+              }
+            : groupTeamIds.has(team.externalId)
+              ? { entryRoute: 'SUDAMERICANA_GROUP_STAGE' }
+              : { entryRoute: 'SUDAMERICANA_PRELIMINARY' }),
+        },
+      };
+    })
     .sort((left, right) => left.externalId.localeCompare(right.externalId));
 
   const groupMatches = concreteMatches.filter(

@@ -14,6 +14,7 @@ import {
 import type { CompetitionDataProvider } from './competition-data-provider.js';
 import type { SeasonProviderRuntimeConfig } from './season-runtime-config.js';
 import { collectSudamericana2026Snapshot } from '../../scripts/collect-sudamericana-2026.js';
+import { collectLibertadores2026Snapshot } from '../../scripts/collect-libertadores-2026.js';
 import { syncFifaWorldCup2026LegacyKnockout } from './fifa-world-cup-2026-sync.service.js';
 
 export interface ProviderRuntime {
@@ -61,7 +62,9 @@ const snapshotSettingsSchema = z
   .object({
     fixtureName: z.string().trim().min(1).max(160),
     competition: z.string().trim().min(1).max(120).optional(),
-    collectionStrategy: z.enum(['IMMUTABLE_FIXTURE', 'LIVE_SUDAMERICANA_2026']).optional(),
+    collectionStrategy: z
+      .enum(['IMMUTABLE_FIXTURE', 'LIVE_SUDAMERICANA_2026', 'LIVE_LIBERTADORES_2026'])
+      .optional(),
   })
   .passthrough();
 
@@ -100,11 +103,17 @@ export const seasonProviderRegistry = new ProviderRegistry()
   .register('conmebol-official', (providerConfig) => {
     const settings = snapshotSettingsSchema.parse(providerConfig.settings);
     if (!settings.competition) throw new Error('CONMEBOL provider requires competition setting.');
-    if (settings.collectionStrategy === 'LIVE_SUDAMERICANA_2026') {
+    if (
+      settings.collectionStrategy === 'LIVE_SUDAMERICANA_2026' ||
+      settings.collectionStrategy === 'LIVE_LIBERTADORES_2026'
+    ) {
       const provider = new RefreshingConmebolProvider({
         competition: settings.competition,
         source: providerConfig.source,
-        collectSnapshot: collectSudamericana2026Snapshot,
+        collectSnapshot:
+          settings.collectionStrategy === 'LIVE_LIBERTADORES_2026'
+            ? collectLibertadores2026Snapshot
+            : collectSudamericana2026Snapshot,
       });
       return {
         provider,

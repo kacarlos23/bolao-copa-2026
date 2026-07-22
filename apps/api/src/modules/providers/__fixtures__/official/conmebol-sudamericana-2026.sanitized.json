@@ -4,7 +4,7 @@
   "competition": "conmebol-sudamericana",
   "season": "2026",
   "source": "https://www.conmebol.com/documentos/manual-de-clubes-conmebol-sudamericana-2026/",
-  "collectedAt": "2026-07-22T09:42:26-03:00",
+  "collectedAt": "2026-07-22T14:22:53-03:00",
   "collectionTimezone": "America/Sao_Paulo",
   "sourceOffset": "-03:00",
   "metadata": {
@@ -50,7 +50,7 @@
       "source": "https://www.conmebol.com/documentos/manual-de-clubes-conmebol-sudamericana-2026/",
       "contentType": "text/html",
       "retention": "CHECKSUM_ONLY",
-      "checksum": "b6c7b2dc786096f9e4792d9c68cba2c655173f1b4cbcadd56185a12fa2283364",
+      "checksum": "b2509b3678e19ec43429ee610dc106de733f0fa1b9fd0ca148eeac2840a90cf2",
       "byteLength": 210882
     },
     {
@@ -66,15 +66,15 @@
       "source": "https://gol.conmebol.com/sudamericana/es/news/calendario-conmebol-sudamericana-2026-dias-horarios-y-sedes-de-la-fase-de-grupos",
       "contentType": "text/html",
       "retention": "CHECKSUM_ONLY",
-      "checksum": "eaa533b522ce3c41dcfd703109bad258069d1fbbff7f20ffb8e105a0e58f1434",
-      "byteLength": 136214
+      "checksum": "60d3f3a3bf6bb96d9fc5a92b64096e338905fe240ab7eec4e3233a3b4dfc3ea7",
+      "byteLength": 135819
     },
     {
       "kind": "RESPONSE",
       "source": "https://gol.conmebol.com/sudamericana/es/api/v2/tournament-fixtures/104",
       "contentType": "application/json",
       "retention": "CHECKSUM_ONLY",
-      "checksum": "18827f917f825ce56ebeb1e0f5be5d06a98c8508941a5ca802f5132698ebc1e3",
+      "checksum": "f96dd491624652c3e2a6444aae63bab2fbcc2ef1ee0e7a4c4a9767e9a210832e",
       "byteLength": 2829885
     },
     {
@@ -90,32 +90,32 @@
       "source": "https://gol.conmebol.com/sudamericana/es/news/definidos-los-cruces-de-playoffs-de-la-conmebol-sudamericana",
       "contentType": "text/html",
       "retention": "CHECKSUM_ONLY",
-      "checksum": "5ef96872f2cc490c973b6f67bb7c68c3ec638b6dff9a35b18de0d1af941372a1",
-      "byteLength": 124905
+      "checksum": "e9cc1adcccebbf7d7fce4b2d93a2e939310e7b3a6c105bce07035215c79ecf7c",
+      "byteLength": 124510
     },
     {
       "kind": "PAGE",
       "source": "https://gol.conmebol.com/sudamericana/es/news/para-tomar-nota-asi-se-jugaran-los-playoffs-de-octavos-de-final-de-la-conmebol-sudamericana",
       "contentType": "text/html",
       "retention": "CHECKSUM_ONLY",
-      "checksum": "c2e7d7568c6423432748a399539fccfeca2c58d4da3289f65559dc7aba2553fd",
-      "byteLength": 123321
+      "checksum": "a400804888715d5c4f2185ce7c6e9cec098c35c52a998b5f6175dd2b17e6ce08",
+      "byteLength": 122926
     },
     {
       "kind": "PAGE",
       "source": "https://gol.conmebol.com/sudamericana/es/news/asi-se-jugaran-los-octavos-de-final-de-la-conmebol-sudamericana",
       "contentType": "text/html",
       "retention": "CHECKSUM_ONLY",
-      "checksum": "27519bda0d7ab97590c533710557e5cb59a578bd1598ed097d4470c2349f643b",
-      "byteLength": 132371
+      "checksum": "477d3c57b7ad9eafda882180b30e3714757ab359d7b945268776094dff5cafb5",
+      "byteLength": 131976
     },
     {
       "kind": "PAGE",
       "source": "https://gol.conmebol.com/sudamericana/es/news/barranquilla-sede-de-la-final-de-la-conmebol-sudamericana-2026",
       "contentType": "text/html",
       "retention": "CHECKSUM_ONLY",
-      "checksum": "59e8272196360f2f4904907e5eed767c27e5d71193d5fd7024040dec63ab89e2",
-      "byteLength": 121857
+      "checksum": "3fc1360ebd3c146eb0d0514c9f50e8fd8336204f6cd9d26bd6fb5365487719a9",
+      "byteLength": 121462
     },
     {
       "kind": "RESPONSE",
@@ -259,10 +259,13 @@
         "code": "NAC",
         "type": "CLUB",
         "crestUrl": "https://gol-cdn.conmebol.com/icons/team/light/1x/id/41.png?version=2026040801&fallback=0",
+        "countryCode": "URY",
+        "federation": "AUF",
         "providerMetadata": {
           "officialName": "Club Nacional de Football",
           "legacyId": "859",
           "tournamentCalendarId": "cup6pcsd1c7669pbvoptcmlg4",
+          "identitySource": "CONMEBOL_2026_CLUB_MANUALS",
           "entryRoute": "LIBERTADORES_GROUP_THIRD",
           "transferredFromCompetition": "conmebol-libertadores"
         }
@@ -314,11 +317,14 @@
         "code": "RAC",
         "type": "CLUB",
         "crestUrl": "https://gol-cdn.conmebol.com/icons/team/light/1x/id/23.png?version=2026040801&fallback=0",
+        "countryCode": "ARG",
+        "federation": "AFA",
         "groupName": "E",
         "providerMetadata": {
           "officialName": "Racing Club",
           "legacyId": "986",
           "tournamentCalendarId": "cup6pcsd1c7669pbvoptcmlg4",
+          "identitySource": "CONMEBOL_2026_CLUB_MANUALS",
           "entryRoute": "SUDAMERICANA_GROUP_STAGE"
         }
       },
@@ -410,10 +416,13 @@
         "code": "RAC",
         "type": "CLUB",
         "crestUrl": "https://gol-cdn.conmebol.com/icons/team/light/1x/id/81.png?version=2026040801&fallback=0",
+        "countryCode": "URY",
+        "federation": "AUF",
         "providerMetadata": {
           "officialName": "Racing Club de Montevideo",
           "legacyId": "5455",
           "tournamentCalendarId": "cup6pcsd1c7669pbvoptcmlg4",
+          "identitySource": "CONMEBOL_2026_CLUB_MANUALS",
           "entryRoute": "SUDAMERICANA_PRELIMINARY"
         }
       },
@@ -521,10 +530,13 @@
         "code": "NAC",
         "type": "CLUB",
         "crestUrl": "https://gol-cdn.conmebol.com/icons/team/light/1x/id/32.png?version=2026040801&fallback=0",
+        "countryCode": "COL",
+        "federation": "FCF",
         "providerMetadata": {
           "officialName": "Club Atlético Nacional SA",
           "legacyId": "2302",
           "tournamentCalendarId": "cup6pcsd1c7669pbvoptcmlg4",
+          "identitySource": "CONMEBOL_2026_CLUB_MANUALS",
           "entryRoute": "SUDAMERICANA_PRELIMINARY"
         }
       },
@@ -918,7 +930,16 @@
         "type": "GROUP",
         "order": 2,
         "metadata": {
-          "groups": ["A", "B", "C", "D", "E", "F", "G", "H"]
+          "groups": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E",
+            "F",
+            "G",
+            "H"
+          ]
         }
       },
       {
@@ -957,7 +978,16 @@
         "startsAt": "2026-04-07T22:00:00.000Z",
         "endsAt": "2026-04-10T00:30:00.000Z",
         "metadata": {
-          "groups": ["A", "B", "C", "D", "E", "F", "G", "H"]
+          "groups": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E",
+            "F",
+            "G",
+            "H"
+          ]
         }
       },
       {
@@ -970,7 +1000,16 @@
         "startsAt": "2026-04-14T22:00:00.000Z",
         "endsAt": "2026-04-17T02:00:00.000Z",
         "metadata": {
-          "groups": ["A", "B", "C", "D", "E", "F", "G", "H"]
+          "groups": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E",
+            "F",
+            "G",
+            "H"
+          ]
         }
       },
       {
@@ -983,7 +1022,16 @@
         "startsAt": "2026-04-28T22:00:00.000Z",
         "endsAt": "2026-05-01T02:00:00.000Z",
         "metadata": {
-          "groups": ["A", "B", "C", "D", "E", "F", "G", "H"]
+          "groups": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E",
+            "F",
+            "G",
+            "H"
+          ]
         }
       },
       {
@@ -996,7 +1044,16 @@
         "startsAt": "2026-05-05T22:00:00.000Z",
         "endsAt": "2026-05-08T00:30:00.000Z",
         "metadata": {
-          "groups": ["A", "B", "C", "D", "E", "F", "G", "H"]
+          "groups": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E",
+            "F",
+            "G",
+            "H"
+          ]
         }
       },
       {
@@ -1009,7 +1066,16 @@
         "startsAt": "2026-05-19T22:00:00.000Z",
         "endsAt": "2026-05-22T02:00:00.000Z",
         "metadata": {
-          "groups": ["A", "B", "C", "D", "E", "F", "G", "H"]
+          "groups": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E",
+            "F",
+            "G",
+            "H"
+          ]
         }
       },
       {
@@ -1022,7 +1088,16 @@
         "startsAt": "2026-05-26T22:00:00.000Z",
         "endsAt": "2026-05-29T00:30:00.000Z",
         "metadata": {
-          "groups": ["A", "B", "C", "D", "E", "F", "G", "H"]
+          "groups": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E",
+            "F",
+            "G",
+            "H"
+          ]
         }
       },
       {
@@ -1032,8 +1107,8 @@
         "name": "Playoffs das oitavas",
         "order": 1,
         "status": "ACTIVE",
-        "startsAt": "2026-07-21T22:00:00Z",
-        "endsAt": "2026-07-31T00:30:00Z",
+        "startsAt": "2026-07-21T22:00:00.000Z",
+        "endsAt": "2026-07-31T00:30:00.000Z",
         "metadata": {
           "format": "TWO_LEGS",
           "entrants": "8 group runners-up + 8 Libertadores third-placed"
@@ -1046,49 +1121,78 @@
         "name": "Oitavas de final",
         "order": 2,
         "status": "SCHEDULED",
+        "startsAt": "2026-08-12T12:00:00.000Z",
+        "endsAt": "2026-08-19T12:00:00.000Z",
         "metadata": {
           "format": "TWO_LEGS",
-          "officialWindow": ["2026-08-12", "2026-08-19"],
+          "officialWindow": [
+            "2026-08-12",
+            "2026-08-19"
+          ],
           "kickoffStatus": "TBC",
           "officialPairings": [
             {
               "playoff": "PLAYOFF-A",
-              "playoffTeams": ["Boca Juniors", "O'Higgins"],
+              "playoffTeams": [
+                "Boca Juniors",
+                "O'Higgins"
+              ],
               "opponent": "Recoleta"
             },
             {
               "playoff": "PLAYOFF-B",
-              "playoffTeams": ["Bolívar", "Grêmio"],
+              "playoffTeams": [
+                "Bolívar",
+                "Grêmio"
+              ],
               "opponent": "São Paulo"
             },
             {
               "playoff": "PLAYOFF-C",
-              "playoffTeams": ["Independiente Santa Fe", "Caracas"],
+              "playoffTeams": [
+                "Independiente Santa Fe",
+                "Caracas"
+              ],
               "opponent": "River Plate"
             },
             {
               "playoff": "PLAYOFF-D",
-              "playoffTeams": ["Independiente Medellín", "Vasco da Gama"],
+              "playoffTeams": [
+                "Independiente Medellín",
+                "Vasco da Gama"
+              ],
               "opponent": "Olimpia"
             },
             {
               "playoff": "PLAYOFF-E",
-              "playoffTeams": ["Sporting Cristal", "RB Bragantino"],
+              "playoffTeams": [
+                "Sporting Cristal",
+                "RB Bragantino"
+              ],
               "opponent": "Atlético Mineiro"
             },
             {
               "playoff": "PLAYOFF-F",
-              "playoffTeams": ["UCV", "Santos"],
+              "playoffTeams": [
+                "UCV",
+                "Santos"
+              ],
               "opponent": "Macará"
             },
             {
               "playoff": "PLAYOFF-G",
-              "playoffTeams": ["Nacional", "Tigre"],
+              "playoffTeams": [
+                "Nacional",
+                "Tigre"
+              ],
               "opponent": "Montevideo City Torque"
             },
             {
               "playoff": "PLAYOFF-H",
-              "playoffTeams": ["Lanús", "Cienciano"],
+              "playoffTeams": [
+                "Lanús",
+                "Cienciano"
+              ],
               "opponent": "Botafogo"
             }
           ]
@@ -1103,8 +1207,16 @@
         "status": "SCHEDULED",
         "metadata": {
           "format": "TWO_LEGS",
-          "officialWindow": ["2026-09-09", "2026-09-16"],
-          "officialBracket": ["A-H", "B-G", "C-F", "D-E"],
+          "officialWindow": [
+            "2026-09-09",
+            "2026-09-16"
+          ],
+          "officialBracket": [
+            "A-H",
+            "B-G",
+            "C-F",
+            "D-E"
+          ],
           "participants": "TBC"
         }
       },
@@ -1117,8 +1229,14 @@
         "status": "SCHEDULED",
         "metadata": {
           "format": "TWO_LEGS",
-          "officialWindow": ["2026-10-14", "2026-10-21"],
-          "officialBracket": ["S1-S4", "S2-S3"],
+          "officialWindow": [
+            "2026-10-14",
+            "2026-10-21"
+          ],
+          "officialBracket": [
+            "S1-S4",
+            "S2-S3"
+          ],
           "participants": "TBC"
         }
       },
@@ -1471,7 +1589,7 @@
         "teamAName": "Boca Juniors",
         "teamBName": "O'Higgins",
         "expectedLegs": 2,
-        "status": "IN_PROGRESS",
+        "status": "SCHEDULED",
         "provenance": "https://gol.conmebol.com/sudamericana/es/news/definidos-los-cruces-de-playoffs-de-la-conmebol-sudamericana | https://gol.conmebol.com/sudamericana/es/news/para-tomar-nota-asi-se-jugaran-los-playoffs-de-octavos-de-final-de-la-conmebol-sudamericana",
         "metadata": {
           "transferRule": "Sudamericana group runner-up vs Libertadores group third-placed",
@@ -1489,7 +1607,7 @@
         "teamAName": "Bolívar",
         "teamBName": "Grêmio",
         "expectedLegs": 2,
-        "status": "IN_PROGRESS",
+        "status": "SCHEDULED",
         "provenance": "https://gol.conmebol.com/sudamericana/es/news/definidos-los-cruces-de-playoffs-de-la-conmebol-sudamericana | https://gol.conmebol.com/sudamericana/es/news/para-tomar-nota-asi-se-jugaran-los-playoffs-de-octavos-de-final-de-la-conmebol-sudamericana",
         "metadata": {
           "transferRule": "Sudamericana group runner-up vs Libertadores group third-placed",
@@ -1507,7 +1625,7 @@
         "teamAName": "Independiente Santa Fe",
         "teamBName": "Caracas",
         "expectedLegs": 2,
-        "status": "IN_PROGRESS",
+        "status": "SCHEDULED",
         "provenance": "https://gol.conmebol.com/sudamericana/es/news/definidos-los-cruces-de-playoffs-de-la-conmebol-sudamericana | https://gol.conmebol.com/sudamericana/es/news/para-tomar-nota-asi-se-jugaran-los-playoffs-de-octavos-de-final-de-la-conmebol-sudamericana",
         "metadata": {
           "transferRule": "Sudamericana group runner-up vs Libertadores group third-placed",
@@ -1525,7 +1643,7 @@
         "teamAName": "Independiente Medellín",
         "teamBName": "Vasco da Gama",
         "expectedLegs": 2,
-        "status": "IN_PROGRESS",
+        "status": "SCHEDULED",
         "provenance": "https://gol.conmebol.com/sudamericana/es/news/definidos-los-cruces-de-playoffs-de-la-conmebol-sudamericana | https://gol.conmebol.com/sudamericana/es/news/para-tomar-nota-asi-se-jugaran-los-playoffs-de-octavos-de-final-de-la-conmebol-sudamericana",
         "metadata": {
           "transferRule": "Sudamericana group runner-up vs Libertadores group third-placed",
@@ -1543,7 +1661,7 @@
         "teamAName": "Sporting Cristal",
         "teamBName": "RB Bragantino",
         "expectedLegs": 2,
-        "status": "IN_PROGRESS",
+        "status": "SCHEDULED",
         "provenance": "https://gol.conmebol.com/sudamericana/es/news/definidos-los-cruces-de-playoffs-de-la-conmebol-sudamericana | https://gol.conmebol.com/sudamericana/es/news/para-tomar-nota-asi-se-jugaran-los-playoffs-de-octavos-de-final-de-la-conmebol-sudamericana",
         "metadata": {
           "transferRule": "Sudamericana group runner-up vs Libertadores group third-placed",
@@ -1597,7 +1715,7 @@
         "teamAName": "Lanús",
         "teamBName": "Cienciano",
         "expectedLegs": 2,
-        "status": "IN_PROGRESS",
+        "status": "SCHEDULED",
         "provenance": "https://gol.conmebol.com/sudamericana/es/news/definidos-los-cruces-de-playoffs-de-la-conmebol-sudamericana | https://gol.conmebol.com/sudamericana/es/news/para-tomar-nota-asi-se-jugaran-los-playoffs-de-octavos-de-final-de-la-conmebol-sudamericana",
         "metadata": {
           "transferRule": "Sudamericana group runner-up vs Libertadores group third-placed",
@@ -1910,7 +2028,7 @@
           "legacyId": "2615207",
           "officialPath": "/sudamericana/es/fixture/view/337",
           "rawStage": "1st Round",
-          "officialLastUpdated": 1784557991
+          "officialLastUpdated": 1784725561
         }
       },
       {
@@ -2003,7 +2121,7 @@
           "legacyId": "2631715",
           "officialPath": "/sudamericana/es/fixture/view/1268",
           "rawStage": "Fase de grupos",
-          "officialLastUpdated": 1784677798
+          "officialLastUpdated": 1784740683
         }
       },
       {
@@ -2113,7 +2231,7 @@
           "legacyId": "2631702",
           "officialPath": "/sudamericana/es/fixture/view/1277",
           "rawStage": "Fase de grupos",
-          "officialLastUpdated": 1784674853
+          "officialLastUpdated": 1784733939
         }
       },
       {
@@ -2443,7 +2561,7 @@
           "legacyId": "2631705",
           "officialPath": "/sudamericana/es/fixture/view/1226",
           "rawStage": "Fase de grupos",
-          "officialLastUpdated": 1784507489
+          "officialLastUpdated": 1784725562
         }
       },
       {
@@ -2465,7 +2583,7 @@
           "legacyId": "2631717",
           "officialPath": "/sudamericana/es/fixture/view/1220",
           "rawStage": "Fase de grupos",
-          "officialLastUpdated": 1784677798
+          "officialLastUpdated": 1784740683
         }
       },
       {
@@ -2795,7 +2913,7 @@
           "legacyId": "2631707",
           "officialPath": "/sudamericana/es/fixture/view/1178",
           "rawStage": "Fase de grupos",
-          "officialLastUpdated": 1784674852
+          "officialLastUpdated": 1784733939
         }
       },
       {
@@ -2861,7 +2979,7 @@
           "legacyId": "2631718",
           "officialPath": "/sudamericana/es/fixture/view/1175",
           "rawStage": "Fase de grupos",
-          "officialLastUpdated": 1784677798
+          "officialLastUpdated": 1784740683
         }
       },
       {
@@ -3147,7 +3265,7 @@
           "legacyId": "2631709",
           "officialPath": "/sudamericana/es/fixture/view/1130",
           "rawStage": "Fase de grupos",
-          "officialLastUpdated": 1784674852
+          "officialLastUpdated": 1784733939
         }
       },
       {
@@ -3279,7 +3397,7 @@
           "legacyId": "2631721",
           "officialPath": "/sudamericana/es/fixture/view/1124",
           "rawStage": "Fase de grupos",
-          "officialLastUpdated": 1784677798
+          "officialLastUpdated": 1784740683
         }
       },
       {
@@ -3499,7 +3617,7 @@
           "legacyId": "2631711",
           "officialPath": "/sudamericana/es/fixture/view/1082",
           "rawStage": "Fase de grupos",
-          "officialLastUpdated": 1784674852
+          "officialLastUpdated": 1784733939
         }
       },
       {
@@ -3697,7 +3815,7 @@
           "legacyId": "2631722",
           "officialPath": "/sudamericana/es/fixture/view/1079",
           "rawStage": "Fase de grupos",
-          "officialLastUpdated": 1784677798
+          "officialLastUpdated": 1784740684
         }
       },
       {
@@ -3851,7 +3969,7 @@
           "legacyId": "2631713",
           "officialPath": "/sudamericana/es/fixture/view/1034",
           "rawStage": "Fase de grupos",
-          "officialLastUpdated": 1784674853
+          "officialLastUpdated": 1784733939
         }
       },
       {
@@ -3895,7 +4013,7 @@
           "legacyId": "2631724",
           "officialPath": "/sudamericana/es/fixture/view/1031",
           "rawStage": "Fase de grupos",
-          "officialLastUpdated": 1784677798
+          "officialLastUpdated": 1784740684
         }
       },
       {
@@ -4208,7 +4326,7 @@
           "legacyId": "2637067",
           "officialPath": "/sudamericana/es/fixture/view/1551",
           "rawStage": "Knockout Round Play-offs",
-          "officialLastUpdated": 1784621138
+          "officialLastUpdated": 1784725565
         }
       },
       {
@@ -4397,7 +4515,7 @@
           "legacyId": "2637068",
           "officialPath": "/sudamericana/es/fixture/view/1527",
           "rawStage": "Knockout Round Play-offs",
-          "officialLastUpdated": 1784120179
+          "officialLastUpdated": 1784725565
         }
       },
       {
@@ -8648,5 +8766,5 @@
       }
     ]
   },
-  "snapshotChecksum": "7df6cfdae16b8342cd84f570da556a1119eec8b25a785129bccc70a3bf86b525"
+  "snapshotChecksum": "44059d3a03f7cc9b8768674f83be5e781bf3efe7a9fc2228b9a21b08bc68b761"
 }

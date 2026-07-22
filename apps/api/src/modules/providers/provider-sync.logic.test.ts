@@ -43,6 +43,16 @@ describe('provider reconciliation invariants', () => {
     expect(resolution.matches).toHaveLength(1);
   });
 
+  it('keeps homonymous club identities separated by association country', () => {
+    const resolution = uniqueGlobalClubCandidate('Racing', 'URY', [
+      { id: 'racing-arg', name: 'Racing Club', countryCode: 'ARG' },
+      { id: 'racing-ury', name: 'Racing', countryCode: 'URY' },
+    ]);
+
+    expect(resolution.candidate?.id).toBe('racing-ury');
+    expect(resolution.matches).toHaveLength(1);
+  });
+
   it('allows a corrected FINISHED score but blocks automatic status regression', () => {
     expect(resultUpdateAllowed('FINISHED', 'FINISHED')).toBe(true);
     expect(resultUpdateAllowed('FINISHED', 'LIVE')).toBe(false);
