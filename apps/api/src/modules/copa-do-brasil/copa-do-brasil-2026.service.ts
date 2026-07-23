@@ -12,6 +12,7 @@ import type {
   NormalizedTie,
   ProviderSnapshotEvidence,
 } from '../providers/competition-data-provider.js';
+import { buildCupAchievementDefinitions } from '../engagement/competition-achievements.js';
 
 export const COPA_DO_BRASIL_COMPETITION_SLUG = 'copa-do-brasil';
 export const COPA_DO_BRASIL_2026_SEASON_SLUG = 'copa-do-brasil-2026';
@@ -201,6 +202,12 @@ const definition: ConmebolCup2026Definition = {
     collectionStrategy: 'IMMUTABLE_FIXTURE',
     fallbackProviders: ['manual'],
   },
+  achievementDefinitions: buildCupAchievementDefinitions({
+    keyPrefix: 'COPA_DO_BRASIL_2026',
+    includeGroupStage: false,
+    finalRoundOrder: 9,
+    championName: 'Campeão da Copa do Brasil no Bolão',
+  }),
 };
 
 export function prepareCopaDoBrasil2026(input: {

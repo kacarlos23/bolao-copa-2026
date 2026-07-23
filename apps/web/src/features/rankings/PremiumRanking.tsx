@@ -243,11 +243,13 @@ function MiniMetric({ label, value }: { label: string; value: string }) {
 
 function TrophyRoom({
   visible,
+  seasonName,
   awards,
   engagement,
   onClose,
 }: {
   visible: boolean;
+  seasonName: string;
   awards: RankingAward[];
   engagement: EngagementDashboard | null;
   onClose: () => void;
@@ -265,6 +267,7 @@ function TrophyRoom({
               <Text role="heading" aria-level={2} style={styles.roomTitle}>
                 Temporada & conquistas
               </Text>
+              <Text style={styles.roomSubtitle}>{seasonName}</Text>
               <Text style={styles.roomSubtitle}>
                 {achieved}/{engagement?.achievements.length ?? 0} conquistas pessoais desbloqueadas
               </Text>
@@ -564,7 +567,7 @@ export function PremiumRanking({
       <View {...dataTarget('hero')} style={styles.hero}>
         <View style={styles.heroGlow} />
         <View style={styles.heroCopy}>
-          <Text style={styles.eyebrow}>BRASILEIRÃO SÉRIE A · 2026</Text>
+          <Text style={styles.eyebrow}>{seasonName.toLocaleUpperCase('pt-BR')}</Text>
           <Text role="heading" aria-level={2} style={styles.heroTitle}>
             Corrida pelo topo
           </Text>
@@ -872,6 +875,7 @@ export function PremiumRanking({
       />
       <TrophyRoom
         visible={roomOpen}
+        seasonName={seasonName}
         awards={awards}
         engagement={engagement}
         onClose={() => setRoomOpen(false)}

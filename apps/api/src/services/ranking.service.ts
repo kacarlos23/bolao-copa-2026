@@ -486,6 +486,20 @@ function buildOverallAwardStatus(
   return allFinished ? 'locked' : 'live';
 }
 
+function buildGenericOverallAwardStatus(
+  seasonStatus: string | undefined,
+  matches: ScopeItem[],
+  scores: RankingAwardScoreInput[],
+): RankingAwardStatus {
+  if (matches.length === 0) return 'empty';
+  if (scores.length === 0) {
+    return matches.some((match) => match.status === 'LIVE') ? 'live' : 'pending';
+  }
+  return seasonStatus === 'FINISHED' && matches.every((match) => match.status === 'FINISHED')
+    ? 'locked'
+    : 'live';
+}
+
 function makeAward(input: {
   key: string;
   title: string;
@@ -751,7 +765,7 @@ export async function getRanking(
 }
 
 export async function getRankingAwards(context: RankingContext = DEFAULT_RANKING_CONTEXT) {
-  const [overallRanking, users, groupMatches, knockoutFixtures] = await Promise.all([
+  const [overallRanking, users, groupMatches, knockoutFixtures, season] = await Promise.all([
     getRanking('all', context),
     prisma.user.findMany({
       where: {
@@ -772,7 +786,16 @@ export async function getRankingAwards(context: RankingContext = DEFAULT_RANKING
             points: true,
             isFinal: true,
             scoreType: true,
-            match: { select: { rawPayload: true, status: true } },
+            match: {
+              select: {
+                rawPayload: true,
+                status: true,
+                stageId: true,
+                stage: { select: { id: true, name: true, type: true } },
+                roundId: true,
+                round: { select: { id: true, name: true, order: true } },
+              },
+            },
           },
         },
         knockoutScores: {
@@ -791,11 +814,23 @@ export async function getRankingAwards(context: RankingContext = DEFAULT_RANKING
     }),
     prisma.match.findMany({
       where: { seasonId: context.seasonId },
-      select: { rawPayload: true, status: true },
+      select: {
+        id: true,
+        rawPayload: true,
+        status: true,
+        stageId: true,
+        stage: { select: { id: true, name: true, type: true } },
+        roundId: true,
+        round: { select: { id: true, name: true, order: true } },
+      },
     }),
     prisma.knockoutFixture.findMany({
       where: { seasonId: context.seasonId },
       select: { stage: true, status: true },
+    }),
+    prisma.competitionSeason.findUnique({
+      where: { id: context.seasonId },
+      select: { status: true },
     }),
   ]);
 
@@ -829,6 +864,92 @@ export async function getRankingAwards(context: RankingContext = DEFAULT_RANKING
 
   const awards: RankingAward[] = [];
   const leader = overallRanking[0];
+  if (knockoutFixtures.length === 0) {
+    awards.push({
+      key: `overall:${context.seasonId}`,
+      title: 'Campeão Geral',
+      subtitle: 'Troféu máximo da temporada',
+      scope: 'OVERALL',
+      tier: 'legendary',
+      status: buildGenericOverallAwardStatus(season?.status, groupMatches, groupScores),
+      icon: 'trophy',
+      ...(leader
+        ? {
+            winner: {
+              userId: leader.userId,
+              nickname: leader.nickname,
+              avatarUrl: leader.avatarUrl,
+              points: leader.points,
+              exactScores: leader.exactScores,
+              resultHits: leader.resultHits,
+              oneGoalHits: leader.oneGoalHits,
+              misses: leader.misses,
+            },
+          }
+        : {}),
+    });
+
+    const stages = new Map<string, NonNullable<(typeof groupMatches)[number]['stage']>>();
+    const rounds = new Map<
+      string,
+      NonNullable<(typeof groupMatches)[number]['round']> & {
+        stageType: NonNullable<(typeof groupMatches)[number]['stage']>['type'];
+      }
+    >();
+    for (const match of groupMatches) {
+      if (match.stage) stages.set(match.stage.id, match.stage);
+      if (match.round && match.stage) {
+        rounds.set(match.round.id, { ...match.round, stageType: match.stage.type });
+      }
+    }
+    for (const stage of [...stages.values()].sort((left, right) =>
+      left.name.localeCompare(right.name, 'pt-BR'),
+    )) {
+      const matches = groupMatches.filter((match) => match.stageId === stage.id);
+      const scores = groupScoreRows
+        .filter((score) => score.match.stageId === stage.id)
+        .map(({ match: _match, ...score }) => score);
+      awards.push(
+        makeAward({
+          key: `stage:${stage.id}`,
+          title:
+            stage.type === 'GROUP'
+              ? 'Mestre da Fase de Grupos'
+              : stage.type === 'KNOCKOUT'
+                ? 'Especialista em Mata-Mata'
+                : `Líder de ${stage.name}`,
+          subtitle: `Maior pontuação em ${stage.name}`,
+          scope: stage.type === 'KNOCKOUT' ? 'KNOCKOUT_STAGE' : 'GROUP_STAGE',
+          tier: 'major',
+          status: buildAwardStatus(matches, scores),
+          icon: stage.type === 'KNOCKOUT' ? 'git-network-outline' : 'ribbon',
+          scores,
+        }),
+      );
+    }
+    for (const round of [...rounds.values()].sort(
+      (left, right) => left.order - right.order || left.name.localeCompare(right.name, 'pt-BR'),
+    )) {
+      const matches = groupMatches.filter((match) => match.roundId === round.id);
+      const scores = groupScoreRows
+        .filter((score) => score.match.roundId === round.id)
+        .map(({ match: _match, ...score }) => score);
+      awards.push(
+        makeAward({
+          key: `round:${round.id}`,
+          title: `Líder de ${round.name}`,
+          subtitle: `Maior pontuação em ${round.name}`,
+          scope: round.stageType === 'KNOCKOUT' ? 'KNOCKOUT_STAGE' : 'GROUP_ROUND',
+          tier: 'standard',
+          status: buildAwardStatus(matches, scores),
+          icon: round.stageType === 'KNOCKOUT' ? 'shield-outline' : 'medal-outline',
+          scores,
+        }),
+      );
+    }
+    return awards;
+  }
+
   awards.push({
     key: 'overall_champion',
     title: 'Campeao Geral',

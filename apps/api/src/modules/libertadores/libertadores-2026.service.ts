@@ -14,6 +14,7 @@ import type {
   ProviderSnapshotEvidence,
 } from '../providers/competition-data-provider.js';
 import { SUDAMERICANA_2026_SEASON_SLUG } from '../sudamericana/sudamericana-2026.service.js';
+import { buildCupAchievementDefinitions } from '../engagement/competition-achievements.js';
 
 export const LIBERTADORES_COMPETITION_SLUG = 'conmebol-libertadores';
 export const LIBERTADORES_2026_SEASON_SLUG = 'conmebol-libertadores-2026';
@@ -361,6 +362,12 @@ const definition: ConmebolCup2026Definition = {
     twoLegs: true,
     rankingScopes: ['OVERALL', 'STAGE', 'ROUND'],
   },
+  achievementDefinitions: buildCupAchievementDefinitions({
+    keyPrefix: 'LIBERTADORES_2026',
+    includeGroupStage: true,
+    finalRoundOrder: 4,
+    championName: 'Campeão da Libertadores no Bolão',
+  }),
 };
 
 export function prepareLibertadores2026(input: {

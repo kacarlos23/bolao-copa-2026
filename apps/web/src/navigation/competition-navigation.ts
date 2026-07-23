@@ -31,6 +31,6 @@ export function competitionSectionEnabled(
 }
 
 export function enabledRankingScopes(config: CompetitionCapabilities) {
-  const declared = config.rankingScopes ?? ['OVERALL', 'ROUND'];
+  const declared = config.rankingScopes ?? ['OVERALL'];
   return new Set(declared);
 }

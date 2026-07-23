@@ -7,6 +7,7 @@ import {
   INITIAL_SCORING_VERSION_ID,
   INITIAL_TIE_BREAKER_ID,
 } from '../scoring/scoring-rules.service.js';
+import type { SeasonAchievementDefinition } from '../engagement/competition-achievements.js';
 
 export interface ConmebolCup2026Definition {
   competitionSlug: string;
@@ -36,6 +37,7 @@ export interface ConmebolCup2026Definition {
   cutoffBasis: string;
   cutoffRequiresOfficialKickoffRevalidation: boolean;
   seasonCapabilities: Prisma.InputJsonValue;
+  achievementDefinitions?: SeasonAchievementDefinition[];
 }
 
 function providerMapping(input: {
@@ -119,6 +121,12 @@ export async function prepareConmebolCup2026(input: {
         historicalMatchesScoreable: false,
         basis: definition.cutoffBasis,
       },
+      gamification: {
+        trophyRoomSeason: definition.seasonName,
+        achievementKeys: (definition.achievementDefinitions ?? []).map(
+          (achievement) => achievement.key,
+        ),
+      },
     } satisfies Prisma.InputJsonValue;
     const season = await tx.competitionSeason.upsert({
       where: {
@@ -148,6 +156,26 @@ export async function prepareConmebolCup2026(input: {
         metadata: seasonMetadata,
       },
     });
+    if (definition.achievementDefinitions?.length) {
+      await tx.achievementDefinition.createMany({
+        data: definition.achievementDefinitions.map((achievement) => ({
+          key: achievement.key,
+          version: achievement.version,
+          name: achievement.name,
+          description: achievement.description,
+          rarity: achievement.rarity,
+          criteria: JSON.parse(JSON.stringify(achievement.criteria)) as Prisma.InputJsonValue,
+          checksum: checksum({
+            season: definition.seasonSlug,
+            key: achievement.key,
+            version: achievement.version,
+            criteria: achievement.criteria,
+          }),
+          seasonId: season.id,
+        })),
+        skipDuplicates: true,
+      });
+    }
     await tx.seasonProviderConfig.upsert({
       where: { seasonId_providerKey: { seasonId: season.id, providerKey } },
       create: {

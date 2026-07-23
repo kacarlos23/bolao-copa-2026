@@ -23,7 +23,13 @@ function row(rank: number, nickname: string, points: number): RankingRowDto {
     lastFive: [15, 3],
     lastFiveMatches: [],
     hasLiveData: rank === 2,
-    movement: { delta: rank === 1 ? 1 : 0, fromRank: rank + 1, toRank: rank, isProvisional: false, changedAt: '2026-07-16T12:00:00.000Z' },
+    movement: {
+      delta: rank === 1 ? 1 : 0,
+      fromRank: rank + 1,
+      toRank: rank,
+      isProvisional: false,
+      changedAt: '2026-07-16T12:00:00.000Z',
+    },
   };
 }
 
@@ -81,5 +87,34 @@ describe('PremiumRanking', () => {
     fireEvent.click(screen.getByLabelText('Fechar perfil'));
     fireEvent.click(screen.getByText('Sala de Troféus'));
     expect(screen.getByText('Temporada & conquistas')).toBeTruthy();
+    expect(screen.getAllByText('Brasileirão Série A 2026').length).toBeGreaterThan(0);
+  });
+
+  it('identifica a sala e o hero ao trocar de temporada sem fallback para liga', () => {
+    const ranking = [row(1, 'Ana', 30)];
+    render(
+      <PremiumRanking
+        seasonName="CONMEBOL Libertadores 2026"
+        ranking={ranking}
+        roundRanking={ranking}
+        currentUserId="user-1"
+        scope="overall"
+        availableScopes={new Set(['OVERALL', 'STAGE', 'ROUND'])}
+        onScopeChange={vi.fn()}
+        connection="live"
+        syncing={false}
+        lastSyncedAt={null}
+        onRefresh={vi.fn()}
+        awards={[]}
+        engagement={null}
+        tieBreakers={[]}
+      />,
+    );
+
+    expect(screen.getByText('CONMEBOL LIBERTADORES 2026')).toBeTruthy();
+    expect(screen.queryByText('BRASILEIRÃO SÉRIE A · 2026')).toBeNull();
+    expect(screen.queryByText('Turno 1')).toBeNull();
+    fireEvent.click(screen.getByText('Sala de Troféus'));
+    expect(screen.getByText('CONMEBOL Libertadores 2026')).toBeTruthy();
   });
 });

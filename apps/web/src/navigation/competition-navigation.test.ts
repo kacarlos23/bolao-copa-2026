@@ -45,5 +45,6 @@ describe('navegação por capabilities', () => {
     const config = { format: 'GROUPS' as const, groupStage: true };
     const capabilities = normalizeCapabilities(config, null);
     expect(competitionSectionsForCapabilities(capabilities, config)).not.toContain('standings');
+    expect(enabledRankingScopes(config)).toEqual(new Set(['OVERALL']));
   });
 });

@@ -11,6 +11,7 @@ import type {
   NormalizedTie,
   ProviderSnapshotEvidence,
 } from '../providers/competition-data-provider.js';
+import { buildCupAchievementDefinitions } from '../engagement/competition-achievements.js';
 
 export const SUDAMERICANA_COMPETITION_SLUG = 'conmebol-sudamericana';
 export const SUDAMERICANA_2026_SEASON_SLUG = 'conmebol-sudamericana-2026';
@@ -142,6 +143,13 @@ const definition: ConmebolCup2026Definition = {
     twoLegs: true,
     rankingScopes: ['OVERALL', 'STAGE', 'ROUND'],
   },
+  achievementDefinitions: buildCupAchievementDefinitions({
+    keyPrefix: 'SUDAMERICANA_2026',
+    includeGroupStage: true,
+    playoffsRoundOrder: 1,
+    finalRoundOrder: 5,
+    championName: 'Campeão da Sul-Americana no Bolão',
+  }),
 };
 
 export function prepareSudamericana2026(input: {
