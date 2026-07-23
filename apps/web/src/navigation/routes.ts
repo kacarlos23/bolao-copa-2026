@@ -1,7 +1,4 @@
-import {
-  preferredCompetitionRouteSlug,
-  resolveCompetitionRouteSlug,
-} from './legacy-route-aliases';
+import { preferredCompetitionRouteSlug, resolveCompetitionRouteSlug } from './legacy-route-aliases';
 
 export type GlobalScreen = 'home' | 'competitions' | 'admin' | 'not-found';
 
@@ -41,7 +38,9 @@ export type LegacyScreen =
 
 export type AppScreen = GlobalScreen | CompetitionScreen | LegacyScreen;
 export type PrimaryDestination = 'home' | 'competitions' | 'predictions' | 'ranking';
-export type LeagueTeamSection = 'athletes' | 'matches' | 'statistics';
+export type CompetitionTeamSection = 'athletes' | 'matches' | 'statistics';
+/** @deprecated Name retained for existing deep-link consumers. */
+export type LeagueTeamSection = CompetitionTeamSection;
 
 export interface ParsedAppRoute {
   screen: AppScreen;
@@ -216,10 +215,10 @@ export function pathForCompetition(
   return segment ? `${base}/${segment}` : base;
 }
 
-export function pathForLeagueTeam(
+export function pathForCompetitionTeam(
   competitionSlug: string,
   teamId: string,
-  section: LeagueTeamSection = 'athletes',
+  section: CompetitionTeamSection = 'athletes',
 ) {
   const teamSection =
     section === 'matches'
@@ -229,6 +228,9 @@ export function pathForLeagueTeam(
         : 'team-athletes';
   return `${pathForCompetition(competitionSlug, 'teams')}/${encodeURIComponent(teamId)}/${segmentBySection[teamSection]}`;
 }
+
+/** @deprecated Use pathForCompetitionTeam. */
+export const pathForLeagueTeam = pathForCompetitionTeam;
 
 export function pathForScreen(
   screen: AppScreen,
@@ -250,7 +252,7 @@ export function pathForScreen(
         : section === 'team-statistics'
           ? 'statistics'
           : 'athletes';
-    return pathForLeagueTeam(competitionSlug, target.teamId, teamSection);
+    return pathForCompetitionTeam(competitionSlug, target.teamId, teamSection);
   }
   return pathForCompetition(competitionSlug, section);
 }

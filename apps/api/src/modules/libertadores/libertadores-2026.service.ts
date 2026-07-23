@@ -334,6 +334,15 @@ const definition: ConmebolCup2026Definition = {
   poolSlug: LIBERTADORES_2026_POOL_SLUG,
   competitionName: 'CONMEBOL Libertadores',
   seasonName: 'CONMEBOL Libertadores 2026',
+  presentation: {
+    label: 'CONMEBOL',
+    theme: {
+      accent: '#f4d65c',
+      accentInk: '#201c08',
+      surface: '#473b18',
+      glow: 'rgba(244, 214, 92, .18)',
+    },
+  },
   fixtureName: LIBERTADORES_2026_FIXTURE,
   collectionStrategy: 'LIVE_LIBERTADORES_2026',
   providerProvenance: 'prompt-5-libertadores-2026-official-snapshot',
@@ -345,12 +354,12 @@ const definition: ConmebolCup2026Definition = {
     'Primeiro jogo das oitavas integralmente confirmado: Fluminense x Independiente Rivadavia, 11/08/2026 às 19h locais, Maracanã.',
   cutoffRequiresOfficialKickoffRevalidation: false,
   seasonCapabilities: {
-    groups: 8,
-    groupRounds: 6,
-    historicalPreliminaryRounds: 3,
-    twoLegsThroughSemifinal: true,
-    finalSingleMatch: true,
-    downstreamBracketSlotsDeferredUntilParticipantsKnown: 7,
+    format: 'GROUPS',
+    groupStage: true,
+    standings: true,
+    knockout: true,
+    twoLegs: true,
+    rankingScopes: ['OVERALL', 'STAGE', 'ROUND'],
   },
 };
 

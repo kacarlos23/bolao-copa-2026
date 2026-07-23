@@ -115,6 +115,15 @@ const definition: ConmebolCup2026Definition = {
   poolSlug: SUDAMERICANA_2026_POOL_SLUG,
   competitionName: 'CONMEBOL Sul-Americana',
   seasonName: 'CONMEBOL Sul-Americana 2026',
+  presentation: {
+    label: 'CONMEBOL',
+    theme: {
+      accent: '#e89bc8',
+      accentInk: '#2b0920',
+      surface: '#4b1d3b',
+      glow: 'rgba(232, 155, 200, .18)',
+    },
+  },
   fixtureName: SUDAMERICANA_2026_FIXTURE,
   collectionStrategy: 'LIVE_SUDAMERICANA_2026',
   providerProvenance: 'prompt-4-sudamericana-2026-official-snapshot',
@@ -126,11 +135,12 @@ const definition: ConmebolCup2026Definition = {
     'Primeiro slot futuro oficial das oitavas; horário TBC exige nova homologação antes de liberar escrita.',
   cutoffRequiresOfficialKickoffRevalidation: true,
   seasonCapabilities: {
-    groups: 8,
-    groupRounds: 6,
-    historicalPreliminary: true,
-    twoLegsThroughSemifinal: true,
-    finalSingleMatch: true,
+    format: 'GROUPS',
+    groupStage: true,
+    standings: true,
+    knockout: true,
+    twoLegs: true,
+    rankingScopes: ['OVERALL', 'STAGE', 'ROUND'],
   },
 };
 

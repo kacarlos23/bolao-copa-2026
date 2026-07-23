@@ -51,14 +51,14 @@ import {
   competitionSectionForScreen,
   isCompetitionScreen,
   pageTitle,
-  pathForLeagueTeam,
+  pathForCompetitionTeam,
   pathForCompetition,
   pathForScreen,
   routeFromPath,
   screenForCompetitionSection,
   type AppScreen,
   type CompetitionSection,
-  type LeagueTeamSection,
+  type CompetitionTeamSection,
 } from './src/navigation/routes';
 import { competitionSectionEnabled } from './src/navigation/competition-navigation';
 
@@ -82,17 +82,19 @@ const CupOverviewV2 = lazy(() =>
 const DailyPredictionsV2 = lazy(() =>
   import('./src/competitionV2').then((module) => ({ default: module.DailyPredictionsV2 })),
 );
-const SeasonCompetitionScreen = lazy(() =>
-  import('./src/brasileirao2026').then((module) => ({ default: module.SeasonCompetitionScreen })),
+const SeasonCompetitionWorkspace = lazy(() =>
+  import('./src/features/competitions/SeasonWorkspace').then((module) => ({
+    default: module.SeasonWorkspace,
+  })),
 );
 const TeamDirectoryScreen = lazy(() =>
-  import('./src/features/teams/LeagueTeamsScreen').then((module) => ({
-    default: module.TeamDirectoryScreen,
+  import('./src/features/teams/CompetitionTeams').then((module) => ({
+    default: module.CompetitionTeams,
   })),
 );
 const TeamProfileScreen = lazy(() =>
-  import('./src/features/teams/LeagueTeamsScreen').then((module) => ({
-    default: module.TeamProfileScreen,
+  import('./src/features/teams/CompetitionTeams').then((module) => ({
+    default: module.CompetitionTeamProfile,
   })),
 );
 const BrasileiraoCanaryAdmin = lazy(() =>
@@ -118,13 +120,13 @@ function initialCompetitionSlug() {
   return routeFromPath(window.location.pathname).competitionSlug;
 }
 
-function leagueTeamSectionForScreen(screen: Screen): LeagueTeamSection {
+function competitionTeamSectionForScreen(screen: Screen): CompetitionTeamSection {
   if (screen === 'competition-team-matches') return 'matches';
   if (screen === 'competition-team-statistics') return 'statistics';
   return 'athletes';
 }
 
-function screenForLeagueTeamSection(section: LeagueTeamSection): Screen {
+function screenForCompetitionTeamSection(section: CompetitionTeamSection): Screen {
   if (section === 'matches') return 'competition-team-matches';
   if (section === 'statistics') return 'competition-team-statistics';
   return 'competition-team-athletes';
@@ -3983,13 +3985,13 @@ function CompetitionScreenContent({
     return (
       <TeamProfileScreen
         teamId={teamId}
-        section={leagueTeamSectionForScreen(screen)}
+        section={competitionTeamSectionForScreen(screen)}
         refreshVersion={refreshVersion}
         onBack={() => onNavigateCompetition(competitionSlug, 'teams')}
         onOpenSection={(teamSection) =>
           onNavigateCompetition(
             competitionSlug,
-            competitionSectionForScreen(screenForLeagueTeamSection(teamSection)) ??
+            competitionSectionForScreen(screenForCompetitionTeamSection(teamSection)) ??
               'team-athletes',
             teamId,
           )
@@ -3997,28 +3999,18 @@ function CompetitionScreenContent({
       />
     );
   }
-  if (section === 'bracket') {
-    return (
-      <RouteState
-        title="Chave da temporada"
-        message="A navegação está habilitada pelo formato; a representação genérica dos confrontos será adicionada na próxima etapa."
-        actionLabel="Ver jogos"
-        onAction={() => onNavigateCompetition(competitionSlug, 'games')}
-      />
-    );
-  }
-
   const workspaceSection =
     section === 'games'
       ? 'matches'
       : section === 'predictions' ||
           section === 'standings' ||
+          section === 'bracket' ||
           section === 'ranking' ||
           section === 'overview'
         ? section
         : 'overview';
   return (
-    <SeasonCompetitionScreen
+    <SeasonCompetitionWorkspace
       currentUserId={currentUserId}
       refreshVersion={refreshVersion}
       section={workspaceSection}
@@ -4114,17 +4106,18 @@ export default function App() {
   ) {
     const nextScreen = screenForCompetitionSection(section);
     return requestContextChange(() => {
-      const nextPath = section.startsWith('team-') && teamId
-        ? pathForLeagueTeam(
-            competitionSlug,
-            teamId,
-            section === 'team-matches'
-              ? 'matches'
-              : section === 'team-statistics'
-                ? 'statistics'
-                : 'athletes',
-          )
-        : pathForCompetition(competitionSlug, section);
+      const nextPath =
+        section.startsWith('team-') && teamId
+          ? pathForCompetitionTeam(
+              competitionSlug,
+              teamId,
+              section === 'team-matches'
+                ? 'matches'
+                : section === 'team-statistics'
+                  ? 'statistics'
+                  : 'athletes',
+            )
+          : pathForCompetition(competitionSlug, section);
       if (appIaV2 && Platform.OS === 'web' && typeof window !== 'undefined') {
         window.history.pushState({ screen: nextScreen, teamId, section }, '', nextPath);
         routePathRef.current = nextPath;
@@ -4309,7 +4302,10 @@ export default function App() {
     }
     if (!appIaV2 && screen === 'brasileirao' && brasileiraoUi) {
       return (
-        <SeasonCompetitionScreen currentUserId={user?.id ?? ''} refreshVersion={refreshVersion} />
+        <SeasonCompetitionWorkspace
+          currentUserId={user?.id ?? ''}
+          refreshVersion={refreshVersion}
+        />
       );
     }
     if (screen === 'ranking')
@@ -4402,10 +4398,7 @@ export default function App() {
   return (
     <ToastProvider>
       <AppShell>
-        <CompetitionProvider
-          initialCompetitionSlug={routeCompetitionSlug}
-          userRole={user.role}
-        >
+        <CompetitionProvider initialCompetitionSlug={routeCompetitionSlug} userRole={user.role}>
           {appIaV2 ? (
             <RoutedWorkspace
               user={user}
@@ -4439,15 +4432,13 @@ export default function App() {
                   requestChange={requestContextChange}
                   onCompetitionChange={(competition) => {
                     const capabilities = normalizeCapabilities(competition.capabilities, null);
-                    if (capabilities.has('LEAGUE') && brasileiraoUi)
-                      navigate('brasileirao');
+                    if (capabilities.has('LEAGUE') && brasileiraoUi) navigate('brasileirao');
                     else if (capabilities.has('KNOCKOUT') || capabilities.has('GROUPS'))
                       navigate('days');
                   }}
                   onSeasonChange={(season) => {
                     const capabilities = normalizeCapabilities(null, season.capabilities);
-                    if (capabilities.has('LEAGUE') && brasileiraoUi)
-                      navigate('brasileirao');
+                    if (capabilities.has('LEAGUE') && brasileiraoUi) navigate('brasileirao');
                     else if (capabilities.has('KNOCKOUT')) navigate('knockout');
                     else navigate('days');
                   }}

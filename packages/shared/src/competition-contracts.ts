@@ -47,7 +47,7 @@ export const competitionCapabilitiesSchema = z
     teams: z.number().int().positive().optional(),
     lastFiveUnit: z.enum(['MATCH', 'ROUND']).optional(),
     rankingScopes: z
-      .array(z.enum(['OVERALL', 'ROUND', 'MONTH', 'TURN']))
+      .array(z.enum(['OVERALL', 'STAGE', 'ROUND', 'MONTH', 'TURN']))
       .min(1)
       .optional(),
   })
@@ -78,7 +78,8 @@ export const listTiesQuerySchema = paginationQuerySchema.extend({
 export const rankingQuerySchema = paginationQuerySchema
   .extend({
     period: z.enum(['all', 'week', 'day']).default('all'),
-    scope: z.enum(['overall', 'round', 'month', 'turn']).default('overall'),
+    scope: z.enum(['overall', 'stage', 'round', 'month', 'turn']).default('overall'),
+    stageId: entityIdSchema.optional(),
     roundId: entityIdSchema.optional(),
     month: z
       .string()
@@ -95,13 +96,15 @@ export const rankingQuerySchema = paginationQuerySchema
       });
     }
     const required =
-      value.scope === 'round'
-        ? ['roundId', value.roundId]
-        : value.scope === 'month'
-          ? ['month', value.month]
-          : value.scope === 'turn'
-            ? ['turn', value.turn]
-            : null;
+      value.scope === 'stage'
+        ? ['stageId', value.stageId]
+        : value.scope === 'round'
+          ? ['roundId', value.roundId]
+          : value.scope === 'month'
+            ? ['month', value.month]
+            : value.scope === 'turn'
+              ? ['turn', value.turn]
+              : null;
     if (required && required[1] == null) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -167,6 +170,22 @@ export const competitionDtoSchema = z
     slug: slugSchema,
     name: z.string(),
     capabilities: competitionCapabilitiesSchema.nullable(),
+    presentation: z
+      .object({
+        label: z.string().trim().min(1).max(80).optional(),
+        theme: z
+          .object({
+            accent: z.string().trim().min(3).max(32).optional(),
+            accentInk: z.string().trim().min(3).max(32).optional(),
+            surface: z.string().trim().min(3).max(32).optional(),
+            glow: z.string().trim().min(3).max(48).optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .nullable()
+      .optional(),
   })
   .strict();
 

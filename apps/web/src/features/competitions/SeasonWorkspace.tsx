@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import type {
   MatchDto,
@@ -6,14 +6,13 @@ import type {
   RankingRowDto,
   RoundDto,
   StandingRowDto,
+  TieDto,
 } from '@bolao/shared';
 import { useCompetition } from '../../app/CompetitionContext';
 import { AsyncState, type AsyncStatus } from '../../components/AsyncState';
-import { ConnectionIndicator } from '../../components/ConnectionIndicator';
-import { ScoreInput } from '../../components/ScoreInput';
 import { TeamBadge } from '../../components/TeamBadge';
 import { RouteLink } from '../../navigation/RouteLink';
-import { pathForLeagueTeam } from '../../navigation/routes';
+import { pathForCompetitionTeam } from '../../navigation/routes';
 import { enabledRankingScopes } from '../../navigation/competition-navigation';
 import { useToast } from '../../components/Toast';
 import {
@@ -32,7 +31,6 @@ import {
   loadDraft,
   persistDraft,
   registerActiveDraftGuard,
-  saveStatusLabel,
   warnBeforeUnload,
   type DraftState,
 } from '../../services/drafts';
@@ -40,6 +38,14 @@ import { createRealtimeClient, type ConnectionStatus } from '../../services/real
 import { registerActiveRefresh } from '../../services/active-refresh';
 import { theme } from '../../theme/tokens';
 import { PremiumRanking } from '../rankings/PremiumRanking';
+import {
+  CompetitionHero,
+  GroupStandings,
+  KnockoutBracket,
+  MatchPredictionCard,
+  RoundSelector,
+  StageSelector,
+} from './CompetitionExperience';
 import { PublicPredictionsModal } from './PublicPredictionsModal';
 import {
   civilDateKey,
@@ -51,13 +57,14 @@ import {
 } from './predictionDays';
 
 const POOL_SLUG = 'bolao-do-trabalho';
-type RankingScope = 'overall' | 'round' | 'month' | 'turn-1' | 'turn-2';
+type RankingScope = 'overall' | 'stage' | 'round' | 'month' | 'turn-1' | 'turn-2';
 export type SeasonWorkspaceSection =
   | 'all'
   | 'overview'
   | 'matches'
   | 'predictions'
   | 'standings'
+  | 'bracket'
   | 'ranking';
 
 function formatMatchHour(value: string, timezone: string) {
@@ -184,7 +191,13 @@ function score(match: MatchDto) {
   return home == null || away == null ? null : `${home} × ${away}`;
 }
 
-function rankingQuery(scope: RankingScope, round: RoundDto | undefined, matches: MatchDto[]) {
+function rankingQuery(
+  scope: RankingScope,
+  stageId: string,
+  round: RoundDto | undefined,
+  matches: MatchDto[],
+) {
+  if (scope === 'stage' && stageId) return `scope=stage&stageId=${encodeURIComponent(stageId)}`;
   if (scope === 'round' && round) return `scope=round&roundId=${encodeURIComponent(round.id)}`;
   if (scope === 'month') {
     const source = matches[0]?.startsAt ?? round?.startsAt;
@@ -224,7 +237,7 @@ function standingsTable(
             <Text style={[styles.standingCell, styles.standingPosition]}>{row.rank}</Text>
             {onOpenTeam ? (
               <RouteLink
-                href={pathForLeagueTeam(competitionSlug, row.team.id)}
+                href={pathForCompetitionTeam(competitionSlug, row.team.id)}
                 accessibilityLabel={`Abrir perfil de ${row.team.name}`}
                 onActivate={() => onOpenTeam(row.team.id)}
                 style={[styles.standingTeam, styles.standingIdentity]}
@@ -271,14 +284,20 @@ export function SeasonWorkspace({
   const season = context.season;
   const competitionSlug = context.competition?.slug ?? '';
   const supportsStandings = context.capabilityConfig.standings === true;
+  const supportsKnockout = context.capabilities.has('KNOCKOUT');
   const rankingScopes = enabledRankingScopes(context.capabilityConfig);
+  const supportsRoundRanking = rankingScopes.has('ROUND');
   const [rounds, setRounds] = useState<RoundDto[]>([]);
+  const [stageId, setStageId] = useState('');
   const [roundId, setRoundId] = useState('');
   const [matches, setMatches] = useState<MatchDto[]>([]);
   const [predictionMatches, setPredictionMatches] = useState<MatchDto[]>([]);
   const [predictionMonth, setPredictionMonth] = useState('');
   const [selectedDayKey, setSelectedDayKey] = useState('');
-  const [standings, setStandings] = useState<StandingRowDto[]>([]);
+  const [standingsByGroup, setStandingsByGroup] = useState<
+    Array<{ group: string; rows: StandingRowDto[] }>
+  >([]);
+  const [ties, setTies] = useState<TieDto[]>([]);
   const [ranking, setRanking] = useState<RankingRowDto[]>([]);
   const [roundRanking, setRoundRanking] = useState<RankingRowDto[]>([]);
   const [rules, setRules] = useState<PoolSeasonRules | null>(null);
@@ -300,17 +319,30 @@ export function SeasonWorkspace({
   const [publicPredictions, setPublicPredictions] = useState<PublicMatchPredictionDto[]>([]);
   const [publicPredictionsLoading, setPublicPredictionsLoading] = useState(false);
   const [publicPredictionsError, setPublicPredictionsError] = useState('');
+  const stages = useMemo(
+    () =>
+      [...new Map(rounds.map((round) => [round.stage.id, round.stage])).values()].sort(
+        (left, right) => left.name.localeCompare(right.name, 'pt-BR'),
+      ),
+    [rounds],
+  );
+  const stageRounds = rounds.filter((round) => !stageId || round.stageId === stageId);
   const selectedRound = rounds.find((round) => round.id === roundId);
-  const dataRequest = useRef(new LatestRequest()).current;
+  const selectedStage = stages.find((stage) => stage.id === stageId);
   const predictionDataRequest = useRef(new LatestRequest()).current;
   const draftRef = useRef(draft);
   const hydratedStorageKeyRef = useRef('');
   const confirmedValuesRef = useRef<Record<string, { home: string; away: string }>>({});
   const visitedSeasonRef = useRef('');
   const publicPredictionsRequestRef = useRef(0);
+  const poolSeasonIdRef = useRef(poolSeasonId);
   draftRef.current = draft;
-  const stablePoolSeasonKey = season ? `pool:${POOL_SLUG}:season:${season.id}` : 'pending';
-  const storageKey = draftStorageKey(currentUserId, stablePoolSeasonKey, 'season-predictions');
+  poolSeasonIdRef.current = poolSeasonId;
+  const storageKey = draftStorageKey(
+    currentUserId,
+    poolSeasonId || 'pending',
+    'season-predictions',
+  );
   const timezone = season?.timezone ?? 'America/Sao_Paulo';
   const predictionDays = groupPredictionMatchesByDay(
     predictionMatches,
@@ -328,6 +360,15 @@ export function SeasonWorkspace({
   useEffect(() => {
     if (!season) return;
     setRules(null);
+    setPoolSeasonId('');
+    setStageId('');
+    setRoundId('');
+    setRounds([]);
+    setMatches([]);
+    setStandingsByGroup([]);
+    setRanking([]);
+    setRoundRanking([]);
+    setTies([]);
     setPredictionMonth(civilMonthKey(new Date(), season.timezone));
     setSelectedDayKey('');
     setPredictionMatches([]);
@@ -335,21 +376,32 @@ export function SeasonWorkspace({
 
   useEffect(() => {
     if (!season) return;
+    let active = true;
     setStatus('loading');
     api
       .seasonRounds(season.id)
       .then((result) => {
+        if (!active) return;
         setRounds(result.rounds);
-        const active =
-          result.rounds.find((round) => round.status === 'ACTIVE') ??
-          result.rounds[0];
-        setRoundId(active?.id ?? '');
+        const activeRound =
+          result.rounds.find((round) => round.status === 'ACTIVE') ?? result.rounds[0];
+        setRoundId(activeRound?.id ?? '');
+        const knockoutStage = result.rounds.find((round) => round.stage.type === 'KNOCKOUT');
+        setStageId(
+          (section === 'bracket' ? knockoutStage : activeRound)?.stageId ??
+            activeRound?.stageId ??
+            '',
+        );
       })
       .catch((cause) => {
+        if (!active) return;
         setError(errorMessage(cause));
         setStatus('error');
       });
-  }, [season?.id, refreshVersion]);
+    return () => {
+      active = false;
+    };
+  }, [season?.id, refreshVersion, section]);
 
   useEffect(() => {
     const declaredScope =
@@ -357,9 +409,11 @@ export function SeasonWorkspace({
         ? 'TURN'
         : scope === 'month'
           ? 'MONTH'
-          : scope === 'round'
-            ? 'ROUND'
-            : 'OVERALL';
+          : scope === 'stage'
+            ? 'STAGE'
+            : scope === 'round'
+              ? 'ROUND'
+              : 'OVERALL';
     if (!rankingScopes.has(declaredScope)) setScope('overall');
   }, [context.capabilityConfig.rankingScopes, scope]);
 
@@ -368,11 +422,12 @@ export function SeasonWorkspace({
     let active = true;
     const load = async (quiet = false) => {
       if (!quiet) setStatus(matches.length ? 'refreshing' : 'loading');
-      const result = await dataRequest.run(async () => {
-        const query = rankingQuery(scope, selectedRound, matches);
+      const result = await (async () => {
+        const query = rankingQuery(scope, stageId, selectedRound, matches);
         const [
           matchesResult,
           standingsResult,
+          tiesResult,
           predictionsResult,
           rankingResult,
           roundResult,
@@ -387,13 +442,21 @@ export function SeasonWorkspace({
                 standingsByGroup: [],
                 pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
               }),
+          supportsKnockout
+            ? api.seasonTies(season.id, { stageId: stageId || undefined })
+            : Promise.resolve({
+                ties: [],
+                pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
+              }),
           api.seasonPredictions(POOL_SLUG, season.id),
           api.seasonRanking(POOL_SLUG, season.id, query),
-          api.seasonRanking(
-            POOL_SLUG,
-            season.id,
-            `scope=round&roundId=${encodeURIComponent(roundId)}`,
-          ),
+          supportsRoundRanking
+            ? api.seasonRanking(
+                POOL_SLUG,
+                season.id,
+                `scope=round&roundId=${encodeURIComponent(roundId)}`,
+              )
+            : Promise.resolve({ ranking: [] }),
           api.seasonRules(POOL_SLUG, season.id),
           api.seasonEngagement(POOL_SLUG, season.id),
           api.seasonAwards(POOL_SLUG, season.id).catch(() => ({ awards: [] })),
@@ -401,6 +464,7 @@ export function SeasonWorkspace({
         return {
           matchesResult,
           standingsResult,
+          tiesResult,
           predictionsResult,
           rankingResult,
           roundResult,
@@ -408,8 +472,8 @@ export function SeasonWorkspace({
           engagementResult,
           awardsResult,
         };
-      });
-      if (!active || !result) return;
+      })();
+      if (!active) return;
       const values = Object.fromEntries(
         result.predictionsResult.predictions.map((prediction) => [
           prediction.matchId,
@@ -420,10 +484,11 @@ export function SeasonWorkspace({
         ]),
       );
       confirmedValuesRef.current = { ...confirmedValuesRef.current, ...values };
-      const resolvedPoolSeasonId = result.predictionsResult.predictions[0]?.poolSeasonId;
+      const resolvedPoolSeasonId = result.rulesResult.poolSeasonId;
       if (resolvedPoolSeasonId) setPoolSeasonId(resolvedPoolSeasonId);
       setMatches(result.matchesResult.matches);
-      setStandings(result.standingsResult.standingsByGroup.flatMap((group) => group.rows));
+      setStandingsByGroup(result.standingsResult.standingsByGroup);
+      setTies(result.tiesResult.ties);
       setRanking(result.rankingResult.ranking);
       setRoundRanking(result.roundResult.ranking);
       setRules(result.rulesResult);
@@ -447,7 +512,7 @@ export function SeasonWorkspace({
     const interval = setInterval(() => void load(true), 30_000);
     const realtime = createRealtimeClient({
       seasonId: season.id,
-      poolSeasonId: poolSeasonId || undefined,
+      poolSeasonId: poolSeasonIdRef.current || undefined,
       eventTypes: [
         'prediction.updated',
         'ranking.updated',
@@ -464,16 +529,17 @@ export function SeasonWorkspace({
       active = false;
       clearInterval(interval);
       realtime.close();
-      dataRequest.cancel();
     };
   }, [
     season?.id,
     roundId,
+    stageId,
     scope,
     refreshVersion,
     workspaceRefreshVersion,
-    poolSeasonId,
     supportsStandings,
+    supportsKnockout,
+    supportsRoundRanking,
   ]);
 
   useEffect(() => {
@@ -528,6 +594,7 @@ export function SeasonWorkspace({
         );
         setPredictionMatches(matchesResult.matches);
         setRules(rulesResult);
+        setPoolSeasonId(rulesResult.poolSeasonId);
         setSelectedDayKey((current) =>
           days.some((day) => day.key === current)
             ? current
@@ -701,6 +768,21 @@ export function SeasonWorkspace({
     if (failures.length) showToast(failures[0] ?? 'Não foi possível salvar.', 'error');
   }
 
+  function discardMatches(matchIds: string[]) {
+    const values = Object.fromEntries(
+      matchIds.flatMap((matchId) =>
+        confirmedValuesRef.current[matchId] ? [[matchId, confirmedValuesRef.current[matchId]]] : [],
+      ),
+    );
+    dispatch({ type: 'discard', itemIds: matchIds });
+    if (Object.keys(values).length) dispatch({ type: 'hydrate', values });
+    discardStoredDraft(storageKey);
+    showToast(
+      `${matchIds.length} ${matchIds.length === 1 ? 'rascunho descartado' : 'rascunhos descartados'}.`,
+      'success',
+    );
+  }
+
   async function togglePreference(field: 'pushEnabled' | 'emailEnabled' | 'quietHoursEnabled') {
     if (!season || !engagement) return;
     const enabled = !engagement.preferences[field];
@@ -765,23 +847,25 @@ export function SeasonWorkspace({
     matches: 'Calendário e resultados da temporada selecionada.',
     predictions: 'Escolha o dia, preencha os placares e acompanhe cada salvamento.',
     standings: 'Classificação esportiva da temporada, separada do ranking do bolão.',
+    bracket: 'Confrontos, pernas, agregado e classificação da temporada.',
     ranking: 'Sua posição, o rival mais próximo e os critérios de desempate.',
   };
+  const dataStatus: AsyncStatus = connection === 'offline' && !matches.length ? 'offline' : status;
+  const agendaStatus: AsyncStatus =
+    connection === 'offline' && !predictionMatches.length ? 'offline' : predictionStatus;
 
   return (
     <View style={styles.page} accessibilityLabel={season?.name ?? 'Temporada'}>
-      <View style={[styles.titleRow, compact && styles.titleRowCompact]}>
-        <View>
-          <Text style={styles.eyebrow}>
-            TEMPORADA · {[...context.capabilities].join(' · ') || 'COMPETIÇÃO'}
-          </Text>
-          <Text role="heading" aria-level={1} style={styles.title}>
-            {season?.name ?? 'Competição'}
-          </Text>
-          <Text style={styles.subtitle}>{sectionSubtitle[section]}</Text>
-        </View>
-        <ConnectionIndicator status={connection} />
-      </View>
+      <CompetitionHero
+        competition={context.competition}
+        season={season}
+        capabilities={context.capabilities}
+        presentation={context.competition?.presentation}
+        connection={connection}
+        syncing={syncing}
+        onRefresh={() => void refreshOfficialResults()}
+      />
+      <Text style={styles.subtitle}>{sectionSubtitle[section]}</Text>
 
       {(section === 'overview' || section === 'all') && rules ? (
         <View
@@ -817,9 +901,10 @@ export function SeasonWorkspace({
       {section === 'overview' ? (
         <View style={styles.overviewStrip} accessibilityLabel="Resumo da temporada">
           {[
+            ['Fase atual', selectedStage?.name ?? 'A definir'],
             ['Rodada atual', selectedRound?.name ?? 'A definir'],
             ['Jogos na rodada', String(matches.length)],
-            ['Clubes na tabela', String(standings.length)],
+            ['Clubes na tabela', String(standingsByGroup.flatMap((group) => group.rows).length)],
             ['Participantes', String(ranking.length)],
           ].map(([label, value], index) => (
             <View
@@ -837,35 +922,27 @@ export function SeasonWorkspace({
         </View>
       ) : null}
 
-      {section === 'ranking' || section === 'matches' || section === 'all' ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.roundRail}
-          accessibilityLabel="Rodadas disponíveis"
-        >
-          {rounds.map((round) => {
-            const selected = round.id === roundId;
-            return (
-              <Pressable
-                key={round.id}
-                {...({ 'aria-pressed': selected } as never)}
-                accessibilityRole="button"
-                onPress={() => setRoundId(round.id)}
-                style={[styles.roundTab, selected && styles.roundTabActive]}
-              >
-                <Text style={[styles.roundText, selected && styles.roundTextActive]}>
-                  {round.name}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+      {section === 'ranking' ||
+      section === 'matches' ||
+      section === 'all' ||
+      section === 'bracket' ? (
+        <View style={styles.selectorStack}>
+          <StageSelector
+            stages={stages}
+            selectedStageId={stageId}
+            onChange={(nextStageId) => {
+              setStageId(nextStageId);
+              const nextRound = rounds.find((round) => round.stageId === nextStageId);
+              setRoundId(nextRound?.id ?? '');
+            }}
+          />
+          <RoundSelector rounds={stageRounds} selectedRoundId={roundId} onChange={setRoundId} />
+        </View>
       ) : null}
 
       {section === 'matches' ? (
         <AsyncState
-          status={status}
+          status={dataStatus}
           error={error}
           emptyTitle="Nenhum jogo nesta rodada"
           emptyMessage="Escolha outra fase ou rodada para consultar o calendário."
@@ -882,9 +959,13 @@ export function SeasonWorkspace({
                   <TeamBadge team={match.homeTeam} kind="crest" size={34} />
                   <Text style={styles.matchTeam}>{match.homeTeam.name}</Text>
                 </View>
-                <Text style={styles.matchScore}>{score(match) ?? formatMatchHour(match.startsAt, timezone)}</Text>
+                <Text style={styles.matchScore}>
+                  {score(match) ?? formatMatchHour(match.startsAt, timezone)}
+                </Text>
                 <View style={[styles.matchIdentity, styles.matchIdentityAway]}>
-                  <Text style={[styles.matchTeam, styles.matchTeamAway]}>{match.awayTeam.name}</Text>
+                  <Text style={[styles.matchTeam, styles.matchTeamAway]}>
+                    {match.awayTeam.name}
+                  </Text>
                   <TeamBadge team={match.awayTeam} kind="crest" size={34} />
                 </View>
               </View>
@@ -983,7 +1064,7 @@ export function SeasonWorkspace({
           </ScrollView>
 
           <AsyncState
-            status={predictionStatus}
+            status={agendaStatus}
             error={predictionError}
             emptyTitle="Nenhum jogo neste mês"
             emptyMessage="Navegue pelos meses para encontrar as próximas partidas publicadas."
@@ -1013,136 +1094,27 @@ export function SeasonWorkspace({
                       const round = rounds.find((candidate) => candidate.id === match.roundId);
                       const availability = predictionAvailability(match, round, rules);
                       const open = availability.open;
-                      const official = score(match);
                       const publicAvailable = predictionsDeadlinePassed(match);
-                      const errorText = item?.status === 'failed' ? item.error : undefined;
                       return (
-                        <View
+                        <MatchPredictionCard
                           key={match.id}
-                          style={styles.matchRow}
-                          accessibilityLabel={`${match.homeTeam.name} contra ${match.awayTeam.name}`}
-                        >
-                          <View style={styles.matchMeta}>
-                            <View style={styles.matchContext}>
-                              <Text style={styles.matchTime}>
-                                {formatMatchHour(match.startsAt, timezone)}
-                              </Text>
-                              {round ? <Text style={styles.roundMeta}>{round.name}</Text> : null}
-                            </View>
-                            <Text style={[styles.matchStatus, open ? styles.open : styles.closed]}>
-                              {match.status === 'FINISHED'
-                                ? 'FINAL'
-                                : match.status === 'LIVE'
-                                  ? 'AO VIVO'
-                                  : availability.label}
-                            </Text>
-                          </View>
-                          <View style={[styles.matchup, compact && styles.matchupCompact]}>
-                            <View style={styles.teamIdentity}>
-                              <TeamBadge team={match.homeTeam} kind="crest" size={34} />
-                              <Text style={styles.teamName}>{match.homeTeam.name}</Text>
-                            </View>
-                            {official ? (
-                              <Text style={styles.officialScore}>{official}</Text>
-                            ) : (
-                              <View style={styles.scoreGroup}>
-                                <ScoreInput
-                                  teamName={match.homeTeam.name}
-                                  side="home"
-                                  value={value.home}
-                                  editable={open}
-                                  error={errorText}
-                                  onChange={(home) =>
-                                    dispatch({
-                                      type: 'edit',
-                                      itemId: match.id,
-                                      side: 'home',
-                                      value: home,
-                                    })
-                                  }
-                                />
-                                <Text style={styles.versus}>×</Text>
-                                <ScoreInput
-                                  teamName={match.awayTeam.name}
-                                  side="away"
-                                  value={value.away}
-                                  editable={open}
-                                  onChange={(away) =>
-                                    dispatch({
-                                      type: 'edit',
-                                      itemId: match.id,
-                                      side: 'away',
-                                      value: away,
-                                    })
-                                  }
-                                />
-                              </View>
-                            )}
-                            <View style={styles.teamIdentity}>
-                              <TeamBadge team={match.awayTeam} kind="crest" size={34} />
-                              <Text style={styles.teamName}>{match.awayTeam.name}</Text>
-                            </View>
-                          </View>
-                          {!official && !open && availability.reason ? (
-                            <Text style={styles.unavailableReason}>{availability.reason}</Text>
-                          ) : null}
-                          {!official ? (
-                            <View style={styles.saveRow}>
-                              <Text
-                                accessibilityLiveRegion="polite"
-                                style={[
-                                  styles.saveState,
-                                  item?.status === 'failed' && styles.failed,
-                                ]}
-                              >
-                                {saveStatusLabel(item)}
-                              </Text>
-                              <Pressable
-                                accessibilityRole="button"
-                                accessibilityLabel={`Salvar palpite de ${match.homeTeam.name} contra ${match.awayTeam.name}`}
-                                disabled={!open || item?.status === 'saving'}
-                                onPress={() => void saveMatches([match.id])}
-                                style={[
-                                  styles.saveButton,
-                                  (!open || item?.status === 'saving') && styles.disabled,
-                                ]}
-                              >
-                                <Text style={styles.saveButtonText}>
-                                  {open
-                                    ? 'Salvar palpite'
-                                    : availability.label === 'FORA DO BOLÃO'
-                                      ? 'Não elegível'
-                                      : 'Palpite fechado'}
-                                </Text>
-                              </Pressable>
-                              {publicAvailable ? (
-                                <Pressable
-                                  accessibilityRole="button"
-                                  accessibilityLabel={`Ver palpites de ${match.homeTeam.name} contra ${match.awayTeam.name}`}
-                                  onPress={() => void openPublicPredictions(match)}
-                                  style={styles.publicPredictionsButton}
-                                >
-                                  <Text style={styles.publicPredictionsButtonText}>
-                                    Ver palpites
-                                  </Text>
-                                </Pressable>
-                              ) : null}
-                            </View>
-                          ) : publicAvailable ? (
-                            <View style={styles.publicPredictionsRow}>
-                              <Pressable
-                                accessibilityRole="button"
-                                accessibilityLabel={`Ver palpites de ${match.homeTeam.name} contra ${match.awayTeam.name}`}
-                                onPress={() => void openPublicPredictions(match)}
-                                style={styles.publicPredictionsButton}
-                              >
-                                <Text style={styles.publicPredictionsButtonText}>
-                                  Ver palpites dos participantes
-                                </Text>
-                              </Pressable>
-                            </View>
-                          ) : null}
-                        </View>
+                          match={match}
+                          value={value}
+                          item={item}
+                          open={open}
+                          availabilityLabel={availability.label}
+                          unavailableReason={open ? undefined : availability.reason}
+                          timezone={timezone}
+                          roundLabel={round?.name}
+                          onEdit={(side, nextValue) =>
+                            dispatch({ type: 'edit', itemId: match.id, side, value: nextValue })
+                          }
+                          onSave={() => void saveMatches([match.id])}
+                          onDiscard={() => discardMatches([match.id])}
+                          onOpenPublicPredictions={
+                            publicAvailable ? () => void openPublicPredictions(match) : undefined
+                          }
+                        />
                       );
                     })}
                   </View>
@@ -1165,6 +1137,14 @@ export function SeasonWorkspace({
                       >
                         <Text style={styles.bulkButtonText}>Salvar todos do dia</Text>
                       </Pressable>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Descartar ${dirtyOpenIds.length} rascunhos do dia`}
+                        onPress={() => discardMatches(dirtyOpenIds)}
+                        style={styles.bulkDiscardButton}
+                      >
+                        <Text style={styles.bulkDiscardButtonText}>Descartar rascunhos</Text>
+                      </Pressable>
                     </View>
                   ) : null}
                 </View>
@@ -1176,11 +1156,11 @@ export function SeasonWorkspace({
 
       {(section === 'standings' || section === 'all') && supportsStandings ? (
         <AsyncState
-          status={status}
+          status={dataStatus}
           error={error}
           emptyTitle="Classificação indisponível"
           emptyMessage="Os resultados oficiais ainda não formaram a tabela."
-          onRetry={() => setRoundId((value) => `${value}`)}
+          onRetry={() => setWorkspaceRefreshVersion((value) => value + 1)}
           skeletonLines={6}
         >
           <View style={styles.standingsPage}>
@@ -1190,8 +1170,17 @@ export function SeasonWorkspace({
                 {context.capabilities.has('LEAGUE') ? 'Tabela da liga' : 'Grupos da temporada'}
               </Text>
             </View>
-            {standings.length ? (
-              standingsTable(standings, compact, competitionSlug, onOpenTeam)
+            {standingsByGroup.length ? (
+              context.capabilities.has('GROUPS') ? (
+                <GroupStandings groups={standingsByGroup} onOpenTeam={onOpenTeam} />
+              ) : (
+                standingsTable(
+                  standingsByGroup.flatMap((group) => group.rows),
+                  compact,
+                  competitionSlug,
+                  onOpenTeam,
+                )
+              )
             ) : (
               <AsyncState
                 status="empty"
@@ -1201,6 +1190,24 @@ export function SeasonWorkspace({
             )}
           </View>
         </AsyncState>
+      ) : null}
+
+      {section === 'bracket' && supportsKnockout ? (
+        <View style={styles.standingsPage}>
+          <View>
+            <Text style={styles.sectionEyebrow}>CHAVE</Text>
+            <Text style={styles.sectionTitle}>
+              {selectedStage?.name ?? 'Confrontos eliminatórios'}
+            </Text>
+          </View>
+          <KnockoutBracket
+            ties={ties}
+            rounds={rounds}
+            status={dataStatus}
+            error={error}
+            onRetry={() => setWorkspaceRefreshVersion((value) => value + 1)}
+          />
+        </View>
       ) : null}
 
       {section === 'ranking' || section === 'all' ? (
@@ -1379,6 +1386,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   overviewMetricValue: { color: theme.color.text, fontSize: 20, fontWeight: '900', marginTop: 5 },
+  selectorStack: { gap: theme.space.sm },
   roundRail: { gap: 6 },
   roundTab: {
     borderColor: theme.color.border,
@@ -1460,7 +1468,13 @@ const styles = StyleSheet.create({
   matchIdentityAway: { justifyContent: 'flex-end' },
   matchTeam: { color: theme.color.text, flex: 1, fontSize: 12, fontWeight: '800' },
   matchTeamAway: { textAlign: 'right' },
-  matchScore: { color: theme.color.gold, fontSize: 13, fontWeight: '900', minWidth: 76, textAlign: 'center' },
+  matchScore: {
+    color: theme.color.gold,
+    fontSize: 13,
+    fontWeight: '900',
+    minWidth: 76,
+    textAlign: 'center',
+  },
   sectionHeading: {
     alignItems: 'flex-end',
     flexDirection: 'row',
@@ -1581,6 +1595,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.space.lg,
   },
   bulkButtonText: { color: '#211d08', fontWeight: '900' },
+  bulkDiscardButton: {
+    borderColor: theme.color.border,
+    borderRadius: theme.radius.sm,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: theme.touchTarget,
+    paddingHorizontal: theme.space.lg,
+  },
+  bulkDiscardButtonText: { color: theme.color.textMuted, fontWeight: '900' },
   standingsScroller: { minWidth: '100%' },
   standingsTable: { marginTop: theme.space.md, minWidth: 320, width: '100%' },
   standingRow: {

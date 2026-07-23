@@ -9,6 +9,7 @@ import {
   savedPredictionsResponseSchema,
   seasonTeamsResponseSchema,
   standingsResponseSchema,
+  tiesResponseSchema,
   teamProfileResponseSchema,
   type CompetitionDto,
   type MatchDto,
@@ -36,6 +37,7 @@ export interface User {
   updatedAt?: string;
 }
 export interface PoolSeasonRules {
+  poolSeasonId: string;
   scoring: {
     id: string;
     key: string;
@@ -577,6 +579,18 @@ export const api = {
     request(`/api/seasons/${seasonId}/standings?page=1&pageSize=100`, {
       schema: standingsResponseSchema,
     }),
+  seasonTies: (
+    seasonId: string,
+    query: { stageId?: string; roundId?: string; signal?: AbortSignal } = {},
+  ) => {
+    const params = new URLSearchParams({ page: '1', pageSize: '100' });
+    if (query.stageId) params.set('stageId', query.stageId);
+    if (query.roundId) params.set('roundId', query.roundId);
+    return request(`/api/seasons/${encodeURIComponent(seasonId)}/ties?${params.toString()}`, {
+      schema: tiesResponseSchema,
+      signal: query.signal,
+    });
+  },
   seasonTeams: (seasonId: string, signal?: AbortSignal) =>
     request(`/api/seasons/${seasonId}/teams?page=1&pageSize=100`, {
       schema: seasonTeamsResponseSchema,

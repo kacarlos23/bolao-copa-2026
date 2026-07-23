@@ -329,6 +329,48 @@ test('competição híbrida navega por capabilities sem consultar o Brasileirão
   expect(apiRequests).toContain('GET /api/seasons/season-hybrid/standings');
 });
 
+test('copas usam a mesma experiência por capability em grupos, ida e volta e final única', async ({
+  page,
+}) => {
+  const apiRequests: string[] = [];
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (url.pathname.startsWith('/api/')) apiRequests.push(`${request.method()} ${url.pathname}`);
+  });
+  await installApiMocks(page);
+
+  await page.goto('/competicoes/libertadores/classificacao');
+  await expect(page.getByRole('heading', { level: 1, name: 'Libertadores 2026' })).toBeVisible();
+  await expect(page.getByText('Grupo A')).toBeVisible();
+  await expect(page.getByRole('tab', { name: /Turno 1|Turno 2/ })).toHaveCount(0);
+
+  await page.goto('/competicoes/libertadores/chave');
+  await expect(page.getByText('IDA E VOLTA', { exact: true })).toBeVisible();
+
+  await page.goto('/competicoes/sul-americana/classificacao');
+  await expect(page.getByRole('heading', { level: 1, name: 'Sul-Americana 2026' })).toBeVisible();
+  await expect(page.getByText('Grupo A')).toBeVisible();
+
+  await page.goto('/competicoes/copa-do-brasil/chave');
+  await expect(page.getByRole('heading', { level: 1, name: 'Copa do Brasil 2026' })).toBeVisible();
+  await expect(page.getByText('IDA E VOLTA', { exact: true })).toBeVisible();
+  await expect(page.getByText('Agregado 2 × 2', { exact: true })).toBeVisible();
+  await expect(page.getByText('PARTIDA ÚNICA', { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('navigation', { name: 'Seções de Copa do Brasil 2026' }).getByRole('link', {
+      name: 'Classificação',
+    }),
+  ).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: /Turno 1|Turno 2/ })).toHaveCount(0);
+
+  expect(apiRequests.filter((request) => /brasileirao|season-league|cbf/i.test(request))).toEqual(
+    [],
+  );
+  expect(
+    apiRequests.filter((request) => request.includes('season-copa-do-brasil/standings')),
+  ).toEqual([]);
+});
+
 test('ranking destaca usuário, líder da rodada, distância e desempates', async ({ page }) => {
   await installApiMocks(page);
   await page.goto('/competicoes/brasileirao-serie-a-2026/ranking');

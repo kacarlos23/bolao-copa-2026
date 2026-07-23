@@ -1,4 +1,5 @@
 import { competitionDtoSchema, type PaginationQuery } from '@bolao/shared';
+import { z } from 'zod';
 import { AppError } from '../../http/errors.js';
 import { paginationArgs, paginationMeta } from '../shared/pagination.js';
 import { listSeasons } from '../seasons/season.use-cases.js';
@@ -8,14 +9,32 @@ import { findCompetitionBySlug, listCompetitionRecords } from './competition.rep
 function toCompetitionDto(
   competition: NonNullable<Awaited<ReturnType<typeof findCompetitionBySlug>>>,
 ) {
+  const metadata = z
+    .object({
+      presentation: z
+        .object({
+          label: z.string().trim().min(1).max(80).optional(),
+          theme: z
+            .object({
+              accent: z.string().trim().min(3).max(32).optional(),
+              accentInk: z.string().trim().min(3).max(32).optional(),
+              surface: z.string().trim().min(3).max(32).optional(),
+              glow: z.string().trim().min(3).max(48).optional(),
+            })
+            .strict()
+            .optional(),
+        })
+        .strict()
+        .optional(),
+    })
+    .passthrough()
+    .safeParse(competition.metadata);
   return competitionDtoSchema.parse({
     id: competition.id,
     slug: competition.slug,
     name: competition.name,
-    capabilities: publicCompetitionCapabilities(
-      competition.capabilities,
-      competition.metadata,
-    ),
+    capabilities: publicCompetitionCapabilities(competition.capabilities, competition.metadata),
+    presentation: metadata.success ? (metadata.data.presentation ?? null) : null,
   });
 }
 

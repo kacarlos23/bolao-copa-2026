@@ -16,6 +16,7 @@ import { matchScoreForPrediction } from '../modules/scoring/match-scoring-basis.
 export type RankingPeriod = 'all' | 'week' | 'day';
 export type RankingScope =
   | { scope?: 'overall' }
+  | { scope: 'stage'; stageId: string }
   | { scope: 'round'; roundId: string }
   | { scope: 'month'; month: string }
   | { scope: 'turn'; turn: 1 | 2 };
@@ -421,6 +422,9 @@ function rankingMatchFilter(period: RankingPeriod, selection: RankingScope) {
     ...(window ? { startsAt: { gte: window.start, lt: window.end } } : {}),
     ...(scope === 'round'
       ? { roundId: (selection as Extract<RankingScope, { scope: 'round' }>).roundId }
+      : {}),
+    ...(scope === 'stage'
+      ? { stageId: (selection as Extract<RankingScope, { scope: 'stage' }>).stageId }
       : {}),
     ...(scope === 'turn'
       ? {

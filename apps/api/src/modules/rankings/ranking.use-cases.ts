@@ -18,13 +18,15 @@ export async function getPoolRanking(
   query: PaginationQuery & Partial<RankingQuery>,
 ) {
   const selection =
-    query.scope === 'round' && query.roundId
-      ? ({ scope: 'round', roundId: query.roundId } as const)
-      : query.scope === 'month' && query.month
-        ? ({ scope: 'month', month: query.month } as const)
-        : query.scope === 'turn' && query.turn
-          ? ({ scope: 'turn', turn: query.turn as 1 | 2 } as const)
-          : ({ scope: 'overall' } as const);
+    query.scope === 'stage' && query.stageId
+      ? ({ scope: 'stage', stageId: query.stageId } as const)
+      : query.scope === 'round' && query.roundId
+        ? ({ scope: 'round', roundId: query.roundId } as const)
+        : query.scope === 'month' && query.month
+          ? ({ scope: 'month', month: query.month } as const)
+          : query.scope === 'turn' && query.turn
+            ? ({ scope: 'turn', turn: query.turn as 1 | 2 } as const)
+            : ({ scope: 'overall' } as const);
   const ranking = (await getRanking(period, context, selection)).map((row) =>
     rankingRowDtoSchema.parse(row),
   );

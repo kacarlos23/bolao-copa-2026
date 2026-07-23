@@ -53,9 +53,47 @@ export function CompetitionSubnav({
   ).map((enabledSection) => itemBySection[enabledSection as keyof typeof itemBySection]);
   const title = competitionName ?? 'Competição';
   const legacy = context.capabilityConfig.workspace === 'WORLD_CUP_LEGACY';
+  const currentSection = section.startsWith('team-')
+    ? 'Time'
+    : (itemBySection[section]?.label ?? 'Visão geral');
 
   return (
     <View style={styles.shell}>
+      <View
+        accessibilityRole="navigation"
+        accessibilityLabel="Caminho de navegação"
+        style={styles.breadcrumbs}
+      >
+        <RouteLink
+          href={pathForScreen('competitions')}
+          accessibilityLabel="Voltar à lista"
+          onActivate={onChangeCompetition}
+        >
+          <Text style={styles.breadcrumbLink}>Competições</Text>
+        </RouteLink>
+        <Text accessibilityElementsHidden style={styles.breadcrumbSeparator}>
+          /
+        </Text>
+        <RouteLink
+          href={pathForCompetition(competitionSlug)}
+          accessibilityLabel={`Abrir ${title}`}
+          onActivate={() => onNavigate('overview')}
+        >
+          <Text style={styles.breadcrumbLink} numberOfLines={1}>
+            {title}
+          </Text>
+        </RouteLink>
+        {section !== 'overview' ? (
+          <>
+            <Text accessibilityElementsHidden style={styles.breadcrumbSeparator}>
+              /
+            </Text>
+            <Text aria-current="page" numberOfLines={1} style={styles.breadcrumbCurrent}>
+              {currentSection}
+            </Text>
+          </>
+        ) : null}
+      </View>
       <View style={styles.contextRow}>
         <View style={styles.contextText}>
           <View style={styles.eyebrowRow}>
@@ -113,8 +151,7 @@ export function CompetitionSubnav({
       >
         {items.map((item) => {
           const selected =
-            item.section === section ||
-            (item.section === 'teams' && section.startsWith('team-'));
+            item.section === section || (item.section === 'teams' && section.startsWith('team-'));
           return (
             <RouteLink
               key={item.section}
@@ -149,6 +186,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.space.xl,
     paddingVertical: theme.space.md,
     width: '100%',
+  },
+  breadcrumbs: { alignItems: 'center', flexDirection: 'row', gap: 6, minHeight: 24 },
+  breadcrumbLink: { color: theme.color.info, fontSize: 12, fontWeight: '800' },
+  breadcrumbSeparator: { color: theme.color.textMuted, fontSize: 12 },
+  breadcrumbCurrent: {
+    color: theme.color.textMuted,
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: '700',
   },
   contextRow: {
     alignItems: 'center',

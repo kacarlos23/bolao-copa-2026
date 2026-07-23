@@ -2,7 +2,14 @@ import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { theme } from '../theme/tokens';
 
-export type AsyncStatus = 'idle' | 'loading' | 'refreshing' | 'success' | 'empty' | 'error';
+export type AsyncStatus =
+  | 'idle'
+  | 'loading'
+  | 'refreshing'
+  | 'success'
+  | 'empty'
+  | 'error'
+  | 'offline';
 
 function Skeleton({ lines = 4 }: { lines?: number }) {
   return (
@@ -56,6 +63,19 @@ export function AsyncState({
       </View>
     );
   }
+  if (status === 'offline' && !children) {
+    return (
+      <View style={styles.message} accessibilityRole="alert">
+        <Text style={styles.title}>Sem conexão</Text>
+        <Text style={styles.body}>Mostraremos os dados salvos assim que a conexão voltar.</Text>
+        {onRetry ? (
+          <Pressable accessibilityRole="button" onPress={onRetry} style={styles.retry}>
+            <Text style={styles.retryText}>Tentar novamente</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    );
+  }
   return (
     <View>
       {children}
@@ -73,6 +93,11 @@ export function AsyncState({
             </Pressable>
           ) : null}
         </View>
+      ) : null}
+      {status === 'offline' ? (
+        <Text accessibilityLiveRegion="polite" style={styles.refreshing}>
+          Sem conexão. Exibindo os últimos dados disponíveis.
+        </Text>
       ) : null}
     </View>
   );

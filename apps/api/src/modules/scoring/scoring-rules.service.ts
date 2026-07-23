@@ -11,7 +11,10 @@ import { prisma } from '../../prisma.js';
 export const INITIAL_SCORING_VERSION_ID = 'scoring-rule-set-version-15-3-1-0-v1';
 export const INITIAL_TIE_BREAKER_ID = 'tie-breaker-classic-v1';
 
-type RuleDatabase = Pick<Prisma.TransactionClient, 'poolSeason' | 'scoringRuleSetVersion' | 'tieBreakerRuleSet'>;
+type RuleDatabase = Pick<
+  Prisma.TransactionClient,
+  'poolSeason' | 'scoringRuleSetVersion' | 'tieBreakerRuleSet'
+>;
 
 export function stableHash(value: unknown) {
   const normalize = (item: unknown): unknown => {
@@ -25,10 +28,18 @@ export function stableHash(value: unknown) {
     }
     return item;
   };
-  return createHash('sha256').update(JSON.stringify(normalize(value))).digest('hex');
+  return createHash('sha256')
+    .update(JSON.stringify(normalize(value)))
+    .digest('hex');
 }
 
-function parseRules(row: { id: string; key: string; name: string; version: number; rules: unknown }): ScoringRuleSetInput {
+function parseRules(row: {
+  id: string;
+  key: string;
+  name: string;
+  version: number;
+  rules: unknown;
+}): ScoringRuleSetInput {
   const rules = row.rules as Partial<ScoringRuleSetInput['rules']>;
   if (
     !Number.isSafeInteger(rules.exactScore) ||
@@ -38,7 +49,13 @@ function parseRules(row: { id: string; key: string; name: string; version: numbe
   ) {
     throw new Error(`Invalid scoring rule version ${row.id}.`);
   }
-  return { id: row.id, key: row.key, name: row.name, version: row.version, rules: rules as ScoringRuleSetInput['rules'] };
+  return {
+    id: row.id,
+    key: row.key,
+    name: row.name,
+    version: row.version,
+    rules: rules as ScoringRuleSetInput['rules'],
+  };
 }
 
 function parseTieBreakers(value: unknown): TieBreakerCriterion[] {
@@ -51,12 +68,16 @@ function parseTieBreakers(value: unknown): TieBreakerCriterion[] {
       !allowedFields.has(criterion.field) ||
       !['asc', 'desc'].includes(criterion.direction ?? '') ||
       typeof criterion.label !== 'string'
-    ) throw new Error('Invalid tie-break criterion.');
+    )
+      throw new Error('Invalid tie-break criterion.');
     return criterion as TieBreakerCriterion;
   });
 }
 
-export async function resolvePoolSeasonRules(poolSeasonId: string, database: RuleDatabase = prisma) {
+export async function resolvePoolSeasonRules(
+  poolSeasonId: string,
+  database: RuleDatabase = prisma,
+) {
   const poolSeason = await database.poolSeason.findUnique({
     where: { id: poolSeasonId },
     select: {
@@ -65,26 +86,63 @@ export async function resolvePoolSeasonRules(poolSeasonId: string, database: Rul
       scoreableFromRound: true,
       startsAtRound: true,
       historicalMatchesScoreable: true,
-      scoringRuleSetVersion: { select: { id: true, key: true, name: true, version: true, rules: true } },
-      tieBreakerRuleSet: { select: { id: true, key: true, name: true, version: true, criteria: true, allowSharedPositions: true } },
+      scoringRuleSetVersion: {
+        select: { id: true, key: true, name: true, version: true, rules: true },
+      },
+      tieBreakerRuleSet: {
+        select: {
+          id: true,
+          key: true,
+          name: true,
+          version: true,
+          criteria: true,
+          allowSharedPositions: true,
+        },
+      },
     },
   });
   if (!poolSeason) throw new Error(`PoolSeason ${poolSeasonId} not found.`);
 
-  const scoringRow = poolSeason.scoringRuleSetVersion ?? await database.scoringRuleSetVersion.findUnique({
-    where: { id: INITIAL_SCORING_VERSION_ID },
-    select: { id: true, key: true, name: true, version: true, rules: true },
-  });
-  const tieRow = poolSeason.tieBreakerRuleSet ?? await database.tieBreakerRuleSet.findUnique({
-    where: { id: INITIAL_TIE_BREAKER_ID },
-    select: { id: true, key: true, name: true, version: true, criteria: true, allowSharedPositions: true },
-  });
+  const scoringRow =
+    poolSeason.scoringRuleSetVersion ??
+    (await database.scoringRuleSetVersion.findUnique({
+      where: { id: INITIAL_SCORING_VERSION_ID },
+      select: { id: true, key: true, name: true, version: true, rules: true },
+    }));
+  const tieRow =
+    poolSeason.tieBreakerRuleSet ??
+    (await database.tieBreakerRuleSet.findUnique({
+      where: { id: INITIAL_TIE_BREAKER_ID },
+      select: {
+        id: true,
+        key: true,
+        name: true,
+        version: true,
+        criteria: true,
+        allowSharedPositions: true,
+      },
+    }));
 
   return {
+    poolSeasonId: poolSeason.id,
     scoring: scoringRow ? parseRules(scoringRow) : INITIAL_SCORING_RULE_SET,
     tieBreakers: tieRow
-      ? { id: tieRow.id, key: tieRow.key, name: tieRow.name, version: tieRow.version, criteria: parseTieBreakers(tieRow.criteria), allowSharedPositions: tieRow.allowSharedPositions }
-      : { id: INITIAL_TIE_BREAKER_ID, key: 'classic-ranking', name: 'Desempate clássico', version: 1, criteria: [...INITIAL_TIE_BREAKERS], allowSharedPositions: true },
+      ? {
+          id: tieRow.id,
+          key: tieRow.key,
+          name: tieRow.name,
+          version: tieRow.version,
+          criteria: parseTieBreakers(tieRow.criteria),
+          allowSharedPositions: tieRow.allowSharedPositions,
+        }
+      : {
+          id: INITIAL_TIE_BREAKER_ID,
+          key: 'classic-ranking',
+          name: 'Desempate clássico',
+          version: 1,
+          criteria: [...INITIAL_TIE_BREAKERS],
+          allowSharedPositions: true,
+        },
     predictionPolicy: {
       scoreableFrom: poolSeason.scoreableFrom?.toISOString() ?? null,
       scoreableFromRound: poolSeason.scoreableFromRound,

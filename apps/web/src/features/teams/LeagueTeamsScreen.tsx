@@ -9,14 +9,14 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import type { LeagueTeamSection } from '../../navigation/routes';
+import type { CompetitionTeamSection } from '../../navigation/routes';
 import type { SeasonTeamSummaryDto, TeamMatchHistoryDto, TeamProfileDto } from '@bolao/shared';
 import { useCompetition } from '../../app/CompetitionContext';
 import { api, errorMessage, LatestRequest } from '../../api';
 import { AsyncState, type AsyncStatus } from '../../components/AsyncState';
 import { TeamBadge } from '../../components/TeamBadge';
 import { RouteLink } from '../../navigation/RouteLink';
-import { pathForCompetition, pathForLeagueTeam, pathForScreen } from '../../navigation/routes';
+import { pathForCompetition, pathForCompetitionTeam, pathForScreen } from '../../navigation/routes';
 import { theme } from '../../theme/tokens';
 
 function normalizeName(value: string) {
@@ -166,7 +166,7 @@ export function TeamDirectoryScreen({
                 key={entry.team.id}
                 href={
                   competitionSlug
-                    ? pathForLeagueTeam(competitionSlug, entry.team.id)
+                    ? pathForCompetitionTeam(competitionSlug, entry.team.id)
                     : pathForScreen('competitions')
                 }
                 accessibilityLabel={`Abrir perfil de ${entry.team.name}`}
@@ -199,7 +199,7 @@ export function TeamDirectoryScreen({
 }
 
 const sectionItems: Array<{
-  section: LeagueTeamSection;
+  section: CompetitionTeamSection;
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
 }> = [
@@ -409,10 +409,10 @@ export function TeamProfileScreen({
   onOpenSection,
 }: {
   teamId: string;
-  section: LeagueTeamSection;
+  section: CompetitionTeamSection;
   refreshVersion: number;
   onBack: () => void;
-  onOpenSection: (section: LeagueTeamSection) => void;
+  onOpenSection: (section: CompetitionTeamSection) => void;
 }) {
   const context = useCompetition();
   const [profile, setProfile] = useState<TeamProfileDto | null>(null);
@@ -511,7 +511,7 @@ export function TeamProfileScreen({
                       {...({ 'aria-current': active ? 'page' : undefined } as never)}
                       href={
                         competitionSlug
-                          ? pathForLeagueTeam(competitionSlug, teamId, item.section)
+                          ? pathForCompetitionTeam(competitionSlug, teamId, item.section)
                           : pathForScreen('competitions')
                       }
                       accessibilityLabel={item.label}

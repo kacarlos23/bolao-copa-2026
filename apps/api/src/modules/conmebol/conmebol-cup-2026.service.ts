@@ -14,6 +14,10 @@ export interface ConmebolCup2026Definition {
   poolSlug: string;
   competitionName: string;
   seasonName: string;
+  presentation?: {
+    label?: string;
+    theme?: { accent?: string; accentInk?: string; surface?: string; glow?: string };
+  };
   fixtureName: string;
   collectionStrategy: 'LIVE_SUDAMERICANA_2026' | 'LIVE_LIBERTADORES_2026' | 'IMMUTABLE_FIXTURE';
   providerKey?: string;
@@ -72,6 +76,10 @@ export async function prepareConmebolCup2026(input: {
   const { definition } = input;
   const providerKey = definition.providerKey ?? 'conmebol-official';
   const sourceEvidence = JSON.parse(JSON.stringify(input.evidence)) as Prisma.InputJsonValue;
+  const competitionMetadata = {
+    source: sourceEvidence,
+    ...(definition.presentation ? { presentation: definition.presentation } : {}),
+  } satisfies Prisma.InputJsonValue;
   const result = await prisma.$transaction(async (tx) => {
     const competition = await tx.competition.upsert({
       where: { slug: definition.competitionSlug },
@@ -79,30 +87,28 @@ export async function prepareConmebolCup2026(input: {
         slug: definition.competitionSlug,
         name: definition.competitionName,
         capabilities: definition.competitionCapabilities ?? {
-          format: 'GROUPS_KNOCKOUT',
-          capabilityList: ['GROUPS', 'KNOCKOUT', 'TWO_LEGS', 'STANDINGS', 'LIVE_SCORING'],
-          groups: true,
+          format: 'GROUPS',
+          groupStage: true,
           knockout: true,
           twoLegs: true,
           standings: true,
           liveScoring: true,
-          rankingScopes: ['OVERALL', 'ROUND'],
+          rankingScopes: ['OVERALL', 'STAGE', 'ROUND'],
         },
-        metadata: { source: sourceEvidence },
+        metadata: competitionMetadata,
       },
       update: {
         name: definition.competitionName,
         capabilities: definition.competitionCapabilities ?? {
-          format: 'GROUPS_KNOCKOUT',
-          capabilityList: ['GROUPS', 'KNOCKOUT', 'TWO_LEGS', 'STANDINGS', 'LIVE_SCORING'],
-          groups: true,
+          format: 'GROUPS',
+          groupStage: true,
           knockout: true,
           twoLegs: true,
           standings: true,
           liveScoring: true,
-          rankingScopes: ['OVERALL', 'ROUND'],
+          rankingScopes: ['OVERALL', 'STAGE', 'ROUND'],
         },
-        metadata: { source: sourceEvidence },
+        metadata: competitionMetadata,
       },
     });
     const seasonMetadata = {

@@ -25,8 +25,40 @@ const vasco = {
   flagUrl: null,
   crestUrl: null,
 };
+const nacional = {
+  id: 'team-nacional',
+  name: 'Nacional',
+  code: 'NAC',
+  flagUrl: null,
+  crestUrl: null,
+};
+const penarol = {
+  id: 'team-penarol',
+  name: 'Peñarol',
+  code: 'PEN',
+  flagUrl: null,
+  crestUrl: null,
+};
 const stage = { id: 'stage-league', name: 'Série A', type: 'LEAGUE' };
 const hybridStage = { id: 'stage-hybrid', name: 'Grupo A', type: 'GROUP' };
+const hybridKnockoutStage = {
+  id: 'stage-hybrid-knockout',
+  name: 'Eliminatórias',
+  type: 'KNOCKOUT',
+};
+const libertadoresGroupStage = { id: 'stage-lib-groups', name: 'Fase de grupos', type: 'GROUP' };
+const libertadoresKnockoutStage = {
+  id: 'stage-lib-knockout',
+  name: 'Eliminatórias',
+  type: 'KNOCKOUT',
+};
+const sulamericanaGroupStage = { id: 'stage-sula-groups', name: 'Fase de grupos', type: 'GROUP' };
+const sulamericanaKnockoutStage = {
+  id: 'stage-sula-knockout',
+  name: 'Eliminatórias',
+  type: 'KNOCKOUT',
+};
+const copaKnockoutStage = { id: 'stage-copa-knockout', name: 'Mata-mata', type: 'KNOCKOUT' };
 const pagination = { page: 1, pageSize: 100, total: 1, totalPages: 1 };
 const worldSeason = {
   id: 'season-world',
@@ -76,6 +108,61 @@ const hybridSeason = {
     rankingScopes: ['OVERALL', 'ROUND'],
   },
 };
+const libertadoresSeason = {
+  id: 'season-libertadores',
+  competitionId: 'competition-libertadores',
+  slug: 'libertadores-2026',
+  name: 'Libertadores 2026',
+  year: 2026,
+  timezone: 'America/Sao_Paulo',
+  status: 'ACTIVE',
+  startsAt: '2026-02-03T00:00:00.000Z',
+  endsAt: '2026-11-28T00:00:00.000Z',
+  capabilities: {
+    format: 'GROUPS',
+    groupStage: true,
+    standings: true,
+    knockout: true,
+    twoLegs: true,
+    rankingScopes: ['OVERALL', 'STAGE', 'ROUND'],
+  },
+};
+const sulamericanaSeason = {
+  id: 'season-sulamericana',
+  competitionId: 'competition-sulamericana',
+  slug: 'sul-americana-2026',
+  name: 'Sul-Americana 2026',
+  year: 2026,
+  timezone: 'America/Sao_Paulo',
+  status: 'ACTIVE',
+  startsAt: '2026-03-03T00:00:00.000Z',
+  endsAt: '2026-11-21T00:00:00.000Z',
+  capabilities: {
+    format: 'GROUPS',
+    groupStage: true,
+    standings: true,
+    knockout: true,
+    twoLegs: true,
+    rankingScopes: ['OVERALL', 'STAGE', 'ROUND'],
+  },
+};
+const copaDoBrasilSeason = {
+  id: 'season-copa-do-brasil',
+  competitionId: 'competition-copa-do-brasil',
+  slug: 'copa-do-brasil-2026',
+  name: 'Copa do Brasil 2026',
+  year: 2026,
+  timezone: 'America/Sao_Paulo',
+  status: 'ACTIVE',
+  startsAt: '2026-02-18T00:00:00.000Z',
+  endsAt: '2026-12-06T00:00:00.000Z',
+  capabilities: {
+    format: 'KNOCKOUT',
+    knockout: true,
+    twoLegs: true,
+    rankingScopes: ['OVERALL', 'ROUND'],
+  },
+};
 const leagueSeason2025 = {
   ...leagueSeason,
   id: 'season-league-2025',
@@ -118,6 +205,83 @@ const hybridRound = {
   startsAt: '2026-07-16T22:30:00.000Z',
   endsAt: '2026-07-23T22:30:00.000Z',
   stage: hybridStage,
+};
+const hybridKnockoutRound = {
+  id: 'round-hybrid-semi',
+  seasonId: hybridSeason.id,
+  stageId: hybridKnockoutStage.id,
+  name: 'Semifinal',
+  order: 2,
+  status: 'SCHEDULED',
+  startsAt: '2026-10-21T22:00:00.000Z',
+  endsAt: '2026-10-29T02:00:00.000Z',
+  stage: hybridKnockoutStage,
+};
+const libertadoresGroupRound = {
+  id: 'round-lib-groups',
+  seasonId: libertadoresSeason.id,
+  stageId: libertadoresGroupStage.id,
+  name: 'Rodada 1',
+  order: 1,
+  status: 'ACTIVE',
+  startsAt: '2026-04-07T22:00:00.000Z',
+  endsAt: '2026-04-10T02:00:00.000Z',
+  stage: libertadoresGroupStage,
+};
+const libertadoresKnockoutRound = {
+  id: 'round-lib-semi',
+  seasonId: libertadoresSeason.id,
+  stageId: libertadoresKnockoutStage.id,
+  name: 'Semifinal',
+  order: 2,
+  status: 'SCHEDULED',
+  startsAt: '2026-10-21T22:00:00.000Z',
+  endsAt: '2026-10-29T02:00:00.000Z',
+  stage: libertadoresKnockoutStage,
+};
+const sulamericanaGroupRound = {
+  id: 'round-sula-groups',
+  seasonId: sulamericanaSeason.id,
+  stageId: sulamericanaGroupStage.id,
+  name: 'Rodada 1',
+  order: 1,
+  status: 'ACTIVE',
+  startsAt: '2026-04-09T22:00:00.000Z',
+  endsAt: '2026-04-10T02:00:00.000Z',
+  stage: sulamericanaGroupStage,
+};
+const sulamericanaKnockoutRound = {
+  id: 'round-sula-semi',
+  seasonId: sulamericanaSeason.id,
+  stageId: sulamericanaKnockoutStage.id,
+  name: 'Semifinal',
+  order: 2,
+  status: 'SCHEDULED',
+  startsAt: '2026-10-21T22:00:00.000Z',
+  endsAt: '2026-10-29T02:00:00.000Z',
+  stage: sulamericanaKnockoutStage,
+};
+const copaSemiRound = {
+  id: 'round-copa-semi',
+  seasonId: copaDoBrasilSeason.id,
+  stageId: copaKnockoutStage.id,
+  name: 'Semifinal',
+  order: 1,
+  status: 'ACTIVE',
+  startsAt: '2026-10-21T22:00:00.000Z',
+  endsAt: '2026-10-29T02:00:00.000Z',
+  stage: copaKnockoutStage,
+};
+const copaFinalRound = {
+  id: 'round-copa-final',
+  seasonId: copaDoBrasilSeason.id,
+  stageId: copaKnockoutStage.id,
+  name: 'Final',
+  order: 2,
+  status: 'SCHEDULED',
+  startsAt: '2026-12-06T22:00:00.000Z',
+  endsAt: null,
+  stage: copaKnockoutStage,
 };
 const genericMatch = {
   id: 'match-1',
@@ -162,6 +326,74 @@ const hybridMatch = {
   stageId: hybridStage.id,
   roundId: hybridRound.id,
   matchDayId: 'day-hybrid-1',
+};
+const libertadoresMatch = {
+  ...hybridMatch,
+  id: 'match-lib-groups',
+  seasonId: libertadoresSeason.id,
+  stageId: libertadoresGroupStage.id,
+  roundId: libertadoresGroupRound.id,
+  matchDayId: 'day-lib-groups',
+  homeTeam: nacional,
+  awayTeam: penarol,
+};
+const sulamericanaMatch = {
+  ...hybridMatch,
+  id: 'match-sula-groups',
+  seasonId: sulamericanaSeason.id,
+  stageId: sulamericanaGroupStage.id,
+  roundId: sulamericanaGroupRound.id,
+  matchDayId: 'day-sula-groups',
+  homeTeam: penarol,
+  awayTeam: nacional,
+};
+const copaSemiFirstLeg = {
+  ...genericMatch,
+  id: 'match-copa-semi-1',
+  seasonId: copaDoBrasilSeason.id,
+  stageId: copaKnockoutStage.id,
+  roundId: copaSemiRound.id,
+  tieId: 'tie-copa-semi',
+  legNumber: 1,
+  matchDayId: 'day-copa-semi-1',
+  status: 'FINISHED',
+  homeScore: 1,
+  awayScore: 1,
+  finalHomeScore: 1,
+  finalAwayScore: 1,
+  regulationHomeScore: 1,
+  regulationAwayScore: 1,
+  homeTeam: santos,
+  awayTeam: vasco,
+};
+const copaSemiSecondLeg = {
+  ...copaSemiFirstLeg,
+  id: 'match-copa-semi-2',
+  legNumber: 2,
+  matchDayId: 'day-copa-semi-2',
+  homeScore: 1,
+  awayScore: 1,
+  finalHomeScore: 1,
+  finalAwayScore: 1,
+  regulationHomeScore: 1,
+  regulationAwayScore: 1,
+  penaltyHomeScore: 4,
+  penaltyAwayScore: 3,
+  homeTeam: vasco,
+  awayTeam: santos,
+};
+const copaFinal = {
+  ...genericMatch,
+  id: 'match-copa-final',
+  seasonId: copaDoBrasilSeason.id,
+  stageId: copaKnockoutStage.id,
+  roundId: copaFinalRound.id,
+  tieId: 'tie-copa-final',
+  legNumber: 1,
+  matchDayId: 'day-copa-final',
+  status: 'SCHEDULED',
+  homeTeam: vasco,
+  awayTeam: santos,
 };
 const standing = (rank: number, team: typeof brazil, points: number) => ({
   rank,
@@ -217,8 +449,215 @@ const leagueTeamSummaries = [
   },
 ];
 const hybridTeamSummaries = [
-  { team: brazil, externalId: null, state: null, profileAvailable: false, collectedAt: null },
-  { team: argentina, externalId: null, state: null, profileAvailable: false, collectedAt: null },
+  { team: brazil, externalId: 'brazil', state: null, profileAvailable: false, collectedAt: null },
+  {
+    team: argentina,
+    externalId: 'argentina',
+    state: null,
+    profileAvailable: false,
+    collectedAt: null,
+  },
+];
+const cupTeams = [
+  {
+    team: nacional,
+    externalId: 'nacional',
+    state: null,
+    profileAvailable: false,
+    collectedAt: null,
+  },
+  { team: penarol, externalId: 'penarol', state: null, profileAvailable: false, collectedAt: null },
+  { team: santos, externalId: 'santos', state: 'SP', profileAvailable: false, collectedAt: null },
+  { team: vasco, externalId: 'vasco', state: 'RJ', profileAvailable: false, collectedAt: null },
+];
+const libertadoresTie = {
+  id: 'tie-lib-semi',
+  seasonId: libertadoresSeason.id,
+  stageId: libertadoresKnockoutStage.id,
+  roundId: libertadoresKnockoutRound.id,
+  key: 'semi-1',
+  order: 1,
+  expectedLegs: 2,
+  status: 'SCHEDULED',
+  decisionMethod: null,
+  aggregateTeamAScore: null,
+  aggregateTeamBScore: null,
+  decidedAt: null,
+  lastRecomputedAt: '2026-07-16T12:00:00.000Z',
+  provenance: 'e2e-fixture',
+  metadata: null,
+  teamA: nacional,
+  teamB: penarol,
+  winnerTeam: null,
+  matches: [
+    {
+      ...libertadoresMatch,
+      id: 'match-lib-semi-1',
+      stageId: libertadoresKnockoutStage.id,
+      roundId: libertadoresKnockoutRound.id,
+      tieId: 'tie-lib-semi',
+      legNumber: 1,
+    },
+    {
+      ...libertadoresMatch,
+      id: 'match-lib-semi-2',
+      stageId: libertadoresKnockoutStage.id,
+      roundId: libertadoresKnockoutRound.id,
+      tieId: 'tie-lib-semi',
+      legNumber: 2,
+      homeTeam: penarol,
+      awayTeam: nacional,
+    },
+  ],
+};
+const hybridTie = {
+  ...libertadoresTie,
+  id: 'tie-hybrid-semi',
+  seasonId: hybridSeason.id,
+  stageId: hybridKnockoutStage.id,
+  roundId: hybridKnockoutRound.id,
+  teamA: brazil,
+  teamB: argentina,
+  matches: [
+    {
+      ...hybridMatch,
+      id: 'match-hybrid-semi-1',
+      stageId: hybridKnockoutStage.id,
+      roundId: hybridKnockoutRound.id,
+      tieId: 'tie-hybrid-semi',
+      legNumber: 1,
+    },
+    {
+      ...hybridMatch,
+      id: 'match-hybrid-semi-2',
+      stageId: hybridKnockoutStage.id,
+      roundId: hybridKnockoutRound.id,
+      tieId: 'tie-hybrid-semi',
+      legNumber: 2,
+      homeTeam: argentina,
+      awayTeam: brazil,
+    },
+  ],
+};
+const sulamericanaTie = {
+  ...libertadoresTie,
+  id: 'tie-sula-semi',
+  seasonId: sulamericanaSeason.id,
+  stageId: sulamericanaKnockoutStage.id,
+  roundId: sulamericanaKnockoutRound.id,
+  teamA: penarol,
+  teamB: nacional,
+  matches: [
+    {
+      ...sulamericanaMatch,
+      id: 'match-sula-semi-1',
+      stageId: sulamericanaKnockoutStage.id,
+      roundId: sulamericanaKnockoutRound.id,
+      tieId: 'tie-sula-semi',
+      legNumber: 1,
+    },
+    {
+      ...sulamericanaMatch,
+      id: 'match-sula-semi-2',
+      stageId: sulamericanaKnockoutStage.id,
+      roundId: sulamericanaKnockoutRound.id,
+      tieId: 'tie-sula-semi',
+      legNumber: 2,
+      homeTeam: nacional,
+      awayTeam: penarol,
+    },
+  ],
+};
+const copaTies = [
+  {
+    id: 'tie-copa-semi',
+    seasonId: copaDoBrasilSeason.id,
+    stageId: copaKnockoutStage.id,
+    roundId: copaSemiRound.id,
+    key: 'semi-1',
+    order: 1,
+    expectedLegs: 2,
+    status: 'DECIDED',
+    decisionMethod: 'PENALTIES',
+    aggregateTeamAScore: 2,
+    aggregateTeamBScore: 2,
+    decidedAt: '2026-10-29T22:00:00.000Z',
+    lastRecomputedAt: '2026-10-29T22:00:00.000Z',
+    provenance: 'e2e-fixture',
+    metadata: null,
+    teamA: santos,
+    teamB: vasco,
+    winnerTeam: vasco,
+    matches: [copaSemiFirstLeg, copaSemiSecondLeg],
+  },
+  {
+    id: 'tie-copa-final',
+    seasonId: copaDoBrasilSeason.id,
+    stageId: copaKnockoutStage.id,
+    roundId: copaFinalRound.id,
+    key: 'final',
+    order: 1,
+    expectedLegs: 1,
+    status: 'SCHEDULED',
+    decisionMethod: null,
+    aggregateTeamAScore: null,
+    aggregateTeamBScore: null,
+    decidedAt: null,
+    lastRecomputedAt: '2026-11-15T22:00:00.000Z',
+    provenance: 'e2e-fixture',
+    metadata: null,
+    teamA: vasco,
+    teamB: santos,
+    winnerTeam: null,
+    matches: [copaFinal],
+  },
+];
+const cupFixtures = [
+  {
+    competition: {
+      id: 'competition-libertadores',
+      slug: 'libertadores',
+      name: 'Libertadores',
+      capabilities: libertadoresSeason.capabilities,
+      presentation: { label: 'CONMEBOL', theme: { accent: '#f4d65c', surface: '#473b18' } },
+    },
+    season: libertadoresSeason,
+    rounds: [libertadoresGroupRound, libertadoresKnockoutRound],
+    matches: [libertadoresMatch],
+    standingsByGroup: [{ group: 'A', rows: [standing(1, nacional, 3), standing(2, penarol, 0)] }],
+    ties: [libertadoresTie],
+    poolSeasonId: 'pool-season-libertadores',
+  },
+  {
+    competition: {
+      id: 'competition-sulamericana',
+      slug: 'sul-americana',
+      name: 'Sul-Americana',
+      capabilities: sulamericanaSeason.capabilities,
+      presentation: { label: 'CONMEBOL', theme: { accent: '#e89bc8', surface: '#4b1d3b' } },
+    },
+    season: sulamericanaSeason,
+    rounds: [sulamericanaGroupRound, sulamericanaKnockoutRound],
+    matches: [sulamericanaMatch],
+    standingsByGroup: [{ group: 'A', rows: [standing(1, penarol, 3), standing(2, nacional, 0)] }],
+    ties: [sulamericanaTie],
+    poolSeasonId: 'pool-season-sulamericana',
+  },
+  {
+    competition: {
+      id: 'competition-copa-do-brasil',
+      slug: 'copa-do-brasil',
+      name: 'Copa do Brasil',
+      capabilities: copaDoBrasilSeason.capabilities,
+      presentation: { label: 'Copa nacional', theme: { accent: '#72b7f2', surface: '#123756' } },
+    },
+    season: copaDoBrasilSeason,
+    rounds: [copaSemiRound, copaFinalRound],
+    matches: [copaSemiFirstLeg, copaFinal],
+    standingsByGroup: [],
+    ties: copaTies,
+    poolSeasonId: 'pool-season-copa-do-brasil',
+  },
 ];
 const vascoProfile = {
   seasonId: leagueSeason.id,
@@ -570,8 +1009,9 @@ export async function installApiMocks(
               rankingScopes: ['OVERALL', 'ROUND'],
             },
           },
+          ...cupFixtures.map((fixture) => fixture.competition),
         ],
-        pagination: { ...pagination, total: 3 },
+        pagination: { ...pagination, total: 6 },
       });
     if (path.includes('/api/competitions/world-cup/seasons'))
       return json({
@@ -623,6 +1063,110 @@ export async function installApiMocks(
         seasons: [hybridSeason],
         pagination,
       });
+    const competitionFixture = cupFixtures.find((fixture) =>
+      path.includes(`/api/competitions/${fixture.competition.slug}/seasons`),
+    );
+    if (competitionFixture)
+      return json({
+        competition: competitionFixture.competition,
+        seasons: [competitionFixture.season],
+        pagination,
+      });
+    const seasonFixture = cupFixtures.find(
+      (fixture) =>
+        path.startsWith(`/api/seasons/${fixture.season.id}/`) ||
+        path.includes(`/api/pools/${POOL_SLUG}/seasons/${fixture.season.id}/`),
+    );
+    if (seasonFixture) {
+      const { season: cupSeason } = seasonFixture;
+      if (path === `/api/seasons/${cupSeason.id}/features`) return json({ uiEnabled: true });
+      if (path === `/api/seasons/${cupSeason.id}/rounds`)
+        return json({
+          rounds: seasonFixture.rounds,
+          pagination: { ...pagination, total: seasonFixture.rounds.length },
+        });
+      if (path === `/api/seasons/${cupSeason.id}/matches`)
+        return json({
+          matches: seasonFixture.matches,
+          pagination: { ...pagination, total: seasonFixture.matches.length },
+        });
+      if (path === `/api/seasons/${cupSeason.id}/standings`)
+        return json({
+          standingsByGroup: seasonFixture.standingsByGroup,
+          pagination: { ...pagination, total: seasonFixture.standingsByGroup.length * 2 },
+        });
+      if (path === `/api/seasons/${cupSeason.id}/ties`)
+        return json({
+          ties: seasonFixture.ties,
+          pagination: { ...pagination, total: seasonFixture.ties.length },
+        });
+      if (path === `/api/seasons/${cupSeason.id}/teams`)
+        return json({ teams: cupTeams, pagination: { ...pagination, total: cupTeams.length } });
+      if (
+        path.includes(`/api/pools/${POOL_SLUG}/seasons/${cupSeason.id}/predictions`) &&
+        method === 'GET'
+      )
+        return json({ predictions: [], pagination: { ...pagination, total: 0, totalPages: 0 } });
+      if (
+        path.includes(`/api/pools/${POOL_SLUG}/seasons/${cupSeason.id}/predictions`) &&
+        method === 'PUT'
+      )
+        return json({ predictions: [] });
+      if (path === `/api/pools/${POOL_SLUG}/seasons/${cupSeason.id}/rules`)
+        return json({
+          poolSeasonId: seasonFixture.poolSeasonId,
+          scoring: {
+            id: `rules-${cupSeason.id}`,
+            key: 'cup-generic',
+            name: 'Pontuação de copa',
+            version: 1,
+            rules: { exactScore: 15, correctOutcome: 3, oneTeamGoals: 1, miss: 0 },
+          },
+          tieBreakers: {
+            id: `tie-${cupSeason.id}`,
+            key: 'cup-generic',
+            name: 'Desempate de copa',
+            version: 1,
+            allowSharedPositions: false,
+            criteria: [{ field: 'exactScores', direction: 'desc', label: 'Placares exatos' }],
+          },
+          predictionPolicy: {
+            scoreableFrom: null,
+            scoreableFromRound: null,
+            startsAtRound: null,
+            historicalMatchesScoreable: false,
+          },
+        });
+      if (path === `/api/pools/${POOL_SLUG}/seasons/${cupSeason.id}/engagement`)
+        return json({
+          achievements: [],
+          streaks: [],
+          notifications: [],
+          preferences: {
+            inAppEnabled: true,
+            pushEnabled: false,
+            emailEnabled: false,
+            quietHoursEnabled: false,
+            quietHoursStart: null,
+            quietHoursEnd: null,
+            timezone: 'America/Sao_Paulo',
+          },
+        });
+      if (
+        path.includes(`/api/pools/${POOL_SLUG}/seasons/${cupSeason.id}/ranking`) &&
+        method === 'GET'
+      )
+        return json({ ranking, pagination: { ...pagination, total: ranking.length } });
+      if (
+        path === `/api/pools/${POOL_SLUG}/seasons/${cupSeason.id}/ranking/visit` &&
+        method === 'POST'
+      )
+        return json({ summary: { previousRank: null, currentRank: 2, delta: null } });
+      if (path === `/api/pools/${POOL_SLUG}/seasons/${cupSeason.id}/awards`)
+        return json({ awards: [] });
+      if (path === `/api/pools/${POOL_SLUG}/seasons/${cupSeason.id}/sync-status`)
+        return json({ providers: [], lastSyncedAt: null, syncing: false });
+    }
     if (path === `/api/seasons/${leagueSeason.id}/features`) return json({ uiEnabled: true });
     if (path === `/api/seasons/${leagueSeason2025.id}/features`) return json({ uiEnabled: true });
     if (path === `/api/seasons/${leagueSeason.id}/rounds`)
@@ -683,6 +1227,7 @@ export async function installApiMocks(
     }
     if (path === `/api/pools/${POOL_SLUG}/seasons/${leagueSeason.id}/rules`)
       return json({
+        poolSeasonId: 'pool-season-league',
         scoring: {
           id: 'rules-v1',
           key: 'classic',
@@ -735,6 +1280,7 @@ export async function installApiMocks(
       return json({ predictions: [], pagination: { ...pagination, total: 0, totalPages: 0 } });
     if (path === `/api/pools/${POOL_SLUG}/seasons/${leagueSeason2025.id}/rules`)
       return json({
+        poolSeasonId: 'pool-season-league-2025',
         scoring: {
           id: 'rules-v1',
           key: 'classic',
@@ -776,7 +1322,10 @@ export async function installApiMocks(
       return json({ ranking: [], pagination: { ...pagination, total: 0, totalPages: 0 } });
     if (path === `/api/seasons/${hybridSeason.id}/features`) return json({ uiEnabled: true });
     if (path === `/api/seasons/${hybridSeason.id}/rounds`)
-      return json({ rounds: [hybridRound], pagination });
+      return json({
+        rounds: [hybridRound, hybridKnockoutRound],
+        pagination: { ...pagination, total: 2 },
+      });
     if (path === `/api/seasons/${hybridSeason.id}/matches`)
       return json({ matches: [hybridMatch], pagination });
     if (path === `/api/seasons/${hybridSeason.id}/standings`)
@@ -786,6 +1335,8 @@ export async function installApiMocks(
         ],
         pagination: { ...pagination, total: 2 },
       });
+    if (path === `/api/seasons/${hybridSeason.id}/ties`)
+      return json({ ties: [hybridTie], pagination });
     if (path === `/api/seasons/${hybridSeason.id}/teams`)
       return json({ teams: hybridTeamSummaries, pagination: { ...pagination, total: 2 } });
     if (
@@ -795,6 +1346,7 @@ export async function installApiMocks(
       return json({ predictions: [], pagination: { ...pagination, total: 0, totalPages: 0 } });
     if (path === `/api/pools/${POOL_SLUG}/seasons/${hybridSeason.id}/rules`)
       return json({
+        poolSeasonId: 'pool-season-hybrid',
         scoring: {
           id: 'rules-hybrid',
           key: 'hybrid',
