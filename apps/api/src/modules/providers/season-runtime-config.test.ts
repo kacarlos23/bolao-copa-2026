@@ -9,6 +9,7 @@ vi.mock('../../prisma.js', () => ({
 }));
 
 import {
+  assertConfiguredProvider,
   getSeasonRuntimeConfig,
   listActiveSeasonRuntimeConfigs,
   parseLegacySeasonProviderMetadataForMigration,
@@ -82,5 +83,26 @@ describe('configuracao persistida de provider', () => {
         where: { status: 'ACTIVE', providerConfigs: { some: { active: true } } },
       }),
     );
+  });
+
+  it('autoriza fallback CSV/manual somente quando declarado na configuração persistida', async () => {
+    mocks.findUnique.mockResolvedValue({
+      id: 'season-active',
+      status: 'ACTIVE',
+      metadata: {},
+      providerConfigs: [
+        {
+          ...persistedConfig,
+          settings: { fallbackProviders: ['csv', 'manual'] },
+        },
+      ],
+    });
+
+    await expect(
+      assertConfiguredProvider('season-active', 'csv', 'RESULTS'),
+    ).resolves.toMatchObject({ key: 'fixture-provider' });
+    await expect(
+      assertConfiguredProvider('season-active', 'unapproved-fallback', 'RESULTS'),
+    ).rejects.toMatchObject({ code: 'SEASON_PROVIDER_NOT_CONFIGURED' });
   });
 });

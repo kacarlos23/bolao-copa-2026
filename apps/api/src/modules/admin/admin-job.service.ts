@@ -3,6 +3,7 @@ import { prisma } from '../../prisma.js';
 import { logger } from '../../logger.js';
 import { recomputePoolSeasonEngagement } from '../engagement/engagement.service.js';
 import { recalculateScoresForMatch, refreshRankingSnapshot } from '../../services/ranking.service.js';
+import { redactProviderError } from '../providers/provider-utils.js';
 
 type ReprocessPayload = { targets: Array<'SCORES' | 'RANKING' | 'ACHIEVEMENTS'> };
 
@@ -56,11 +57,19 @@ export async function runNextAdminJob() {
       data: { status: 'SUCCEEDED', processedCount: processed, finishedAt: new Date(), result: { processed, targets: plan.targets } },
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'ADMIN_JOB_FAILED';
+    const message = redactProviderError(error);
+    const errorCode = error instanceof Error ? error.name.slice(0, 100) : 'UNKNOWN';
     await prisma.adminJob.update({
-      where: { id: candidate.id }, data: { status: 'FAILED', finishedAt: new Date(), errorCode: message.slice(0, 100), errorMessage: message.slice(0, 500) },
+      where: { id: candidate.id }, data: { status: 'FAILED', finishedAt: new Date(), errorCode, errorMessage: message },
     });
-    logger.error({ err: error, jobId: candidate.id }, 'admin job failed');
+    logger.error(
+      {
+        errorCode,
+        errorMessage: message,
+        jobId: candidate.id,
+      },
+      'admin job failed',
+    );
   }
   return true;
 }

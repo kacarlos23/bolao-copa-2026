@@ -3,7 +3,7 @@ interface ShutdownDependencies {
     close: (callback?: (error?: Error) => void) => unknown;
     closeAllConnections?: () => void;
   };
-  stopJobs: () => void;
+  stopJobs: () => void | Promise<void>;
   closeSse: () => void;
   closeSessionStore: () => Promise<void>;
   disconnectPrisma: () => Promise<void>;
@@ -30,7 +30,7 @@ export function createShutdownController(dependencies: ShutdownDependencies) {
 
   return () => {
     shutdownPromise ??= (async () => {
-      dependencies.stopJobs();
+      const jobsStopped = Promise.resolve(dependencies.stopJobs());
       dependencies.closeSse();
       let httpError: unknown;
       try {
@@ -38,6 +38,7 @@ export function createShutdownController(dependencies: ShutdownDependencies) {
       } catch (error) {
         httpError = error;
       }
+      await jobsStopped;
       await Promise.all([dependencies.closeSessionStore(), dependencies.disconnectPrisma()]);
       if (httpError) throw httpError;
     })();

@@ -422,10 +422,17 @@ test('@rollback admin desliga flags de leitura, escrita e UI em uma ação audit
   page,
 }) => {
   await installApiMocks(page, { admin: true });
+  let previewBody: Record<string, unknown> | undefined;
   let rollbackBody: Record<string, unknown> | undefined;
   page.on('request', (request) => {
     if (
+      request.url().includes('/api/admin/seasons/season-league/features/preview') &&
+      request.method() === 'POST'
+    )
+      previewBody = request.postDataJSON();
+    if (
       request.url().includes('/api/admin/seasons/season-league/features') &&
+      !request.url().endsWith('/preview') &&
       request.method() === 'PUT'
     )
       rollbackBody = request.postDataJSON();
@@ -434,9 +441,24 @@ test('@rollback admin desliga flags de leitura, escrita e UI em uma ação audit
   await page.getByRole('button', { name: 'Abrir menu de Maria' }).click();
   await page.getByRole('button', { name: 'Administração' }).click();
   await page.getByRole('button', { name: 'Preparar rollback' }).click();
-  await page.getByRole('button', { name: 'Salvar flags' }).click();
+  await page.getByRole('button', { name: 'Gerar prévia' }).click();
+  await expect(page.getByText(/CONFIRMAR 1 FEATURE12345/)).toBeVisible();
+  await page.getByRole('button', { name: 'Aplicar estado revisado' }).click();
   await expect(page.getByText('Flags salvas com auditoria.')).toBeVisible();
-  expect(rollbackBody).toMatchObject({ readEnabled: false, writeEnabled: false, uiEnabled: false });
+  expect(previewBody).toMatchObject({
+    readEnabled: false,
+    writeEnabled: false,
+    uiEnabled: false,
+    syncEnabled: false,
+  });
+  expect(rollbackBody).toMatchObject({
+    readEnabled: false,
+    writeEnabled: false,
+    uiEnabled: false,
+    syncEnabled: false,
+    previewId: 'preview-feature-rollback',
+    confirmation: 'CONFIRMAR 1 FEATURE12345',
+  });
 });
 
 test('telas autenticadas de palpite, mata-mata e ranking passam WCAG A/AA', async ({ page }) => {

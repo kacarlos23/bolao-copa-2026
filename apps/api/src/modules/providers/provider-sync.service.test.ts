@@ -340,6 +340,24 @@ describe('auditable provider pipeline', () => {
     expect(activeProviderSyncCount()).toBe(0);
   });
 
+  it('removes an orphaned expired lock before acquiring a new owner lock', async () => {
+    await runProviderSync(teamProvider(), {
+      type: 'TEAMS',
+      seasonId: 'season-1',
+      idempotencyKey: 'orphan-lock-recovery',
+    });
+
+    expect(mocks.prisma.providerSyncLock.deleteMany).toHaveBeenCalledWith({
+      where: {
+        key: 'fixture:season-1:TEAMS',
+        expiresAt: { lt: expect.any(Date) },
+      },
+    });
+    expect(
+      mocks.prisma.providerSyncLock.deleteMany.mock.invocationCallOrder[0],
+    ).toBeLessThan(mocks.prisma.providerSyncLock.create.mock.invocationCallOrder[0]!);
+  });
+
   it('releases the distributed lock and activeRun after a provider timeout', async () => {
     const timeout = new DOMException('aborted', 'AbortError');
     const provider = { ...teamProvider(), syncTeams: vi.fn(async () => Promise.reject(timeout)) };

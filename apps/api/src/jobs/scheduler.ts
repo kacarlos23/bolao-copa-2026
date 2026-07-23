@@ -3,57 +3,77 @@ import { config } from '../config.js';
 import { dispatchPendingOutboxEvents } from '../modules/events/outbox.js';
 import { runNextAdminJob } from '../modules/admin/admin-job.service.js';
 import { runAutomaticSeasonSyncs } from '../modules/providers/season-result-sync.service.js';
+import { redactProviderError } from '../modules/providers/provider-utils.js';
 
 let timer: NodeJS.Timeout | undefined;
 let seasonSyncTimer: NodeJS.Timeout | undefined;
-let activeRun = false;
-let activeSeasonSync = false;
+let activeRun: Promise<void> | undefined;
+let activeSeasonSync: Promise<void> | undefined;
+let stopping = false;
 
 async function pollOutbox() {
-  if (activeRun) return;
-  activeRun = true;
-  try {
-    await dispatchPendingOutboxEvents();
-    await runNextAdminJob();
-  } catch (error) {
-    logger.error({ err: error }, 'outbox poll failed');
-  } finally {
-    activeRun = false;
-  }
+  if (stopping) return;
+  if (activeRun) return activeRun;
+  activeRun = (async () => {
+    try {
+      await dispatchPendingOutboxEvents();
+      await runNextAdminJob();
+    } catch (error) {
+      logger.error({ error: redactProviderError(error) }, 'outbox poll failed');
+    }
+  })().finally(() => {
+    activeRun = undefined;
+  });
+  return activeRun;
 }
 
 export async function pollConfiguredSeasonProviders() {
-  if (activeSeasonSync) return;
-  activeSeasonSync = true;
-  try {
-    const results = await runAutomaticSeasonSyncs();
-    for (const result of results) {
-      if (!result.ok) {
-        logger.error(
-          { err: result.error, seasonId: result.seasonId },
-          'automatic season provider sync failed',
+  if (stopping) return;
+  if (activeSeasonSync) return activeSeasonSync;
+  activeSeasonSync = (async () => {
+    try {
+      const results = await runAutomaticSeasonSyncs();
+      for (const result of results) {
+        if (!result.ok) {
+          logger.error(
+            {
+              error: redactProviderError(result.error),
+              seasonId: result.seasonId,
+            },
+            'automatic season provider sync failed',
+          );
+          continue;
+        }
+        logger.info(
+          {
+            seasonId: result.seasonId,
+            changedMatches: result.summary.changedMatches,
+            updatedProfiles: result.summary.updatedProfiles,
+            schedule: result.schedule.providers.map((provider) => ({
+              providerKey: provider.providerKey,
+              mode: provider.mode,
+              nextRunAt: provider.nextRunAt,
+            })),
+            runs: result.summary.runs.map((run) => ({ type: run.type, status: run.status })),
+          },
+          'automatic season provider sync finished',
         );
-        continue;
       }
-      logger.info(
-        {
-          seasonId: result.seasonId,
-          changedMatches: result.summary.changedMatches,
-          updatedProfiles: result.summary.updatedProfiles,
-          runs: result.summary.runs.map((run) => ({ type: run.type, status: run.status })),
-        },
-        'automatic season provider sync finished',
+    } catch (error) {
+      logger.error(
+        { error: redactProviderError(error) },
+        'automatic season provider scheduler failed',
       );
     }
-  } catch (error) {
-    logger.error({ err: error }, 'automatic season provider scheduler failed');
-  } finally {
-    activeSeasonSync = false;
-  }
+  })().finally(() => {
+    activeSeasonSync = undefined;
+  });
+  return activeSeasonSync;
 }
 
 export function startJobs() {
   if (timer) return;
+  stopping = false;
   void pollOutbox();
   timer = setInterval(() => void pollOutbox(), 1_000);
   timer.unref?.();
@@ -66,9 +86,11 @@ export function startJobs() {
   logger.info('Outbox dispatcher and configured season provider sync started');
 }
 
-export function stopJobs() {
+export async function stopJobs() {
+  stopping = true;
   if (timer) clearInterval(timer);
   if (seasonSyncTimer) clearInterval(seasonSyncTimer);
   timer = undefined;
   seasonSyncTimer = undefined;
+  await Promise.allSettled([activeRun, activeSeasonSync].filter(Boolean));
 }

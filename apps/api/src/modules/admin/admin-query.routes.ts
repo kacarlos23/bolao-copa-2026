@@ -5,9 +5,18 @@ import { z } from 'zod';
 import { asyncHandler } from '../../http/async-handler.js';
 import { prisma } from '../../prisma.js';
 import { sseHealthSnapshot } from '../../realtime/sse.js';
-import { getCompetitionFeatureFlags } from '../competitions/competition-feature.service.js';
+import { inspectCompetitionFeatureFlags } from '../competitions/competition-feature.service.js';
+import { getAutomaticSeasonSyncPlan } from '../providers/season-result-sync.service.js';
+import { redactProviderError } from '../providers/provider-utils.js';
 
 export const adminQueryRouter = Router();
+
+function redactedRun<T extends { errorMessage?: string | null }>(run: T) {
+  return {
+    ...run,
+    errorMessage: run.errorMessage ? redactProviderError(run.errorMessage) : null,
+  };
+}
 
 const contextQuerySchema = z
   .object({
@@ -56,10 +65,15 @@ adminQueryRouter.get(
           orderBy: [{ priority: 'asc' }, { providerKey: 'asc' }],
           select: {
             providerKey: true,
+            priority: true,
             enabledTypes: true,
+            cadenceSeconds: true,
+            timeoutMs: true,
+            active: true,
             includeProfiles: true,
             source: true,
             provenance: true,
+            settings: true,
           },
         },
         providerSyncRuns: {
@@ -72,6 +86,13 @@ adminQueryRouter.get(
             source: true,
             collectedAt: true,
             checksum: true,
+            fetchedCount: true,
+            insertedCount: true,
+            updatedCount: true,
+            unchangedCount: true,
+            quarantinedCount: true,
+            errorCode: true,
+            errorMessage: true,
             startedAt: true,
             finishedAt: true,
           },
@@ -80,15 +101,58 @@ adminQueryRouter.get(
       },
     });
     const managedSeasons = await Promise.all(
-      seasons.map(async ({ providerConfigs, providerSyncRuns, ...season }) => ({
-        ...season,
-        featureFlags: await getCompetitionFeatureFlags(season.id),
-        refresh: {
-          available: providerConfigs.length > 0,
-          providers: providerConfigs,
-          lastRun: providerSyncRuns[0] ?? null,
-        },
-      })),
+      seasons.map(async ({ providerConfigs, providerSyncRuns, ...season }) => {
+        const [featureInspection, nextAdminJob, automaticSchedule] = await Promise.all([
+          inspectCompetitionFeatureFlags(season.id, season.status),
+          prisma.adminJob.findFirst({
+            where: { seasonId: season.id, status: { in: ['QUEUED', 'RUNNING', 'PAUSED'] } },
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            select: { id: true, type: true, status: true, createdAt: true },
+          }),
+          season.status === 'ACTIVE' && providerConfigs.length > 0
+            ? getAutomaticSeasonSyncPlan({
+                seasonId: season.id,
+                status: season.status,
+                standingsRule: 'LEGACY',
+                providers: providerConfigs.map((provider) => ({
+                  key: provider.providerKey,
+                  priority: provider.priority,
+                  types: provider.enabledTypes,
+                  enabled: provider.active,
+                  cadenceSeconds: provider.cadenceSeconds,
+                  timeoutMs: provider.timeoutMs,
+                  includeProfiles: provider.includeProfiles,
+                  source: provider.source,
+                  provenance: provider.provenance,
+                  settings:
+                    provider.settings &&
+                    typeof provider.settings === 'object' &&
+                    !Array.isArray(provider.settings)
+                      ? provider.settings
+                      : {},
+                })),
+              })
+            : null,
+        ]);
+        return {
+          ...season,
+          featureFlags: featureInspection.flags,
+          featureFlagsState: featureInspection.state,
+          nextJob: nextAdminJob,
+          refresh: {
+            available: providerConfigs.length > 0,
+            providers: providerConfigs.map(({ settings: _settings, ...provider }) => ({
+              ...provider,
+              schedule:
+                automaticSchedule?.providers.find(
+                  (item) => item.providerKey === provider.providerKey,
+                ) ?? null,
+            })),
+            lastRun: providerSyncRuns[0] ? redactedRun(providerSyncRuns[0]) : null,
+            automaticSchedule,
+          },
+        };
+      }),
     );
     // System administration never manufactures PoolMembership rows. Membership is intentionally absent here.
     res.json({ seasons: managedSeasons });
@@ -129,7 +193,7 @@ adminQueryRouter.get(
         take: 50,
       }),
     ]);
-    res.json({ quarantine, overrides, mappings, runs });
+    res.json({ quarantine, overrides, mappings, runs: runs.map(redactedRun) });
   }),
 );
 
@@ -252,7 +316,11 @@ adminQueryRouter.get(
     ]);
     res.json({
       checkedAt: new Date().toISOString(),
-      provider: { ok: !lastRun || !['FAILED'].includes(lastRun.status), lastRun, activeLockCount },
+      provider: {
+        ok: !lastRun || !['FAILED'].includes(lastRun.status),
+        lastRun: lastRun ? redactedRun(lastRun) : null,
+        activeLockCount,
+      },
       sse: sseHealthSnapshot(),
       connectionPool: database,
       ranking: { ok: Boolean(ranking), latest: ranking },

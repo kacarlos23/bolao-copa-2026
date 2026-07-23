@@ -51,7 +51,26 @@ function transactionClient(
       findFirst: vi.fn(async () => ({ id: 'day-1' })),
     },
     appSetting: {
-      findUnique: vi.fn(async () => ({ value: { minutes: 5 } })),
+      findUnique: vi.fn(
+        async ({ where }: { where: { key: string } }): Promise<any> =>
+          where.key.startsWith('competition-features:')
+            ? {
+                key: where.key,
+                value: {
+                  readEnabled: true,
+                  writeEnabled: true,
+                  uiEnabled: true,
+                  syncEnabled: false,
+                  reason: 'Temporada liberada para o teste transacional.',
+                  updatedAt: '2026-07-15T12:00:00.000Z',
+                  updatedById: 'admin-1',
+                },
+              }
+            : { value: { minutes: 5 } },
+      ),
+    },
+    competitionSeason: {
+      findUnique: vi.fn(async () => ({ status: 'ACTIVE' })),
     },
     match: {
       findMany: vi.fn(async () =>
@@ -177,6 +196,48 @@ describe('scoped prediction write', () => {
         historicalMatchesScoreable: false,
       },
     });
+    mocks.transaction.mockImplementation(async (callback) => callback(tx));
+
+    await expect(savePredictions(input)).resolves.toMatchObject({
+      predictions: [expect.objectContaining({ matchId: 'match-1' })],
+    });
+    expect(tx.prediction.upsert).toHaveBeenCalledOnce();
+  });
+
+  it('fails closed before writing when feature flags are missing', async () => {
+    const tx = transactionClient();
+    tx.appSetting.findUnique.mockImplementation(
+      async ({ where }: { where: { key: string } }) =>
+        where.key.startsWith('competition-features:') ? null : { value: { minutes: 5 } },
+    );
+    mocks.transaction.mockImplementation(async (callback) => callback(tx));
+
+    await expect(savePredictions(input)).rejects.toMatchObject({
+      code: 'COMPETITION_FEATURE_DISABLED',
+      statusCode: 404,
+    });
+    expect(tx.prediction.upsert).not.toHaveBeenCalled();
+  });
+
+  it('preserves restored DRAFT write access without persisting syncEnabled', async () => {
+    const tx = transactionClient();
+    tx.competitionSeason.findUnique.mockResolvedValue({ status: 'DRAFT' });
+    tx.appSetting.findUnique.mockImplementation(
+      async ({ where }: { where: { key: string } }) =>
+        where.key.startsWith('competition-features:')
+          ? {
+              key: where.key,
+              value: {
+                readEnabled: true,
+                writeEnabled: true,
+                uiEnabled: true,
+                reason: 'Estado restaurado preservado até decisão operacional.',
+                updatedAt: '2026-07-15T12:00:00.000Z',
+                updatedById: 'admin-1',
+              },
+            }
+          : { value: { minutes: 5 } },
+    );
     mocks.transaction.mockImplementation(async (callback) => callback(tx));
 
     await expect(savePredictions(input)).resolves.toMatchObject({

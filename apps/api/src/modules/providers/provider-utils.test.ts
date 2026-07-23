@@ -8,11 +8,14 @@ describe('provider audit utilities', () => {
 
   it('redacts remote URLs and secrets from persisted errors', () => {
     const message = redactProviderError(
-      new Error('GET https://feed.example/path?token=raw token=raw-secret password=hunter2'),
+      new Error(
+        'GET https://feed.example/path?token=raw Authorization: Bearer api.secret-value token=raw-secret password=hunter2',
+      ),
     );
     expect(message).not.toContain('feed.example');
     expect(message).not.toContain('raw-secret');
     expect(message).not.toContain('hunter2');
+    expect(message).not.toContain('api.secret-value');
     expect(message).toContain('[redacted]');
   });
 });

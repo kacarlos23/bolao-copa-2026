@@ -1,10 +1,17 @@
-# Runbook — administração e operação segura (Etapa 8)
+# Runbook — administração e operação segura multi-competição
 
 ## Princípios obrigatórios
 
 Toda mutação administrativa usa uma sessão revalidada no banco, papel global `ADMIN`, CSRF, `Idempotency-Key`, justificativa com no mínimo 10 caracteres e `x-request-id`. O papel global não cria `PoolMembership`: acesso social continua dependendo de membership explícita.
 
 ## Atualização de uma competição
+
+`GET /api/admin/overview` lista cada temporada com status, flags e estado do
+registro (`VALID`, `MISSING`, `INVALID` ou `RESTORED_DRAFT`), providers por prioridade, última
+sincronização, cadência efetiva (`LIVE`, `SCHEDULED_NEAR` ou `IDLE`), horário do
+próximo poll elegível e o próximo `AdminJob` pendente. Registro de flags ausente,
+parcial ou inválido gera alerta interno e é apresentado como as quatro flags
+desligadas.
 
 Em **Administração → Central de operação segura**, selecione a temporada e use
 **Buscar e atualizar <competição>**. O painel consulta a `SeasonProviderConfig`
@@ -25,9 +32,10 @@ revertidos nem ocultados.
 O clique é uma atualização administrativa manual. Ele nunca altera
 `readEnabled`, `writeEnabled`, `uiEnabled` ou `syncEnabled`; o relatório confirma
 explicitamente que as quatro flags foram preservadas. A configuração atual usa
-FIFA oficial na Copa do Mundo, CBF oficial no Brasileirão e CONMEBOL oficial na
-Sul-Americana. Uma temporada sem provider ativo exibe o botão desabilitado até
-receber uma configuração persistida e auditável.
+FIFA oficial na Copa do Mundo, CBF oficial no Brasileirão, CONMEBOL oficial na
+Libertadores/Sul-Americana e CBF Copa do Brasil na competição nacional. Uma
+temporada sem provider ativo exibe o botão desabilitado até receber uma
+configuração persistida e auditável.
 
 Ações de alto impacto seguem duas requisições distintas:
 
@@ -38,6 +46,54 @@ Ações de alto impacto seguem duas requisições distintas:
 5. conferir `GET /api/admin/audit` pelo `requestId`.
 
 Não há endpoint ou botão de reset genérico, truncamento ou exclusão em massa. Arquivamento é lógico.
+
+## Matriz única de status e flags
+
+As quatro flags são sempre enviadas juntas. Alteração parcial é recusada.
+
+| Status | Estados permitidos |
+| --- | --- |
+| `DRAFT` | tudo desligado; somente `sync`; ou o estado restaurado legado com `read/write/ui=true` |
+| `ACTIVE` | tudo desligado; sync de bastidor; leitura; leitura+sync; exposição pública com `read` obrigatório |
+| `FINISHED` | fechado ou leitura/UI; `write` e `sync` desligados |
+| `ARCHIVED` | fechado ou leitura/UI; `write` e `sync` desligados |
+
+`writeEnabled` e `uiEnabled` nunca podem ficar ligados sem `readEnabled`. O
+estado restaurado `DRAFT` do Brasileirão é classificado pela combinação de
+estado/flags, sem seleção por slug, e não é normalizado por migration ou
+startup. Para o registro histórico que não contém `syncEnabled`, a leitura
+preserva `read/write/ui=true` e assume `sync=false` somente em memória; nenhum
+write de normalização é executado.
+
+Use `POST /api/admin/seasons/:seasonId/features/preview` e depois `PUT
+/api/admin/seasons/:seasonId/features`, com nova chave idempotente, `previewId`
+e confirmação reforçada. O apply registra `requestId`, actor, `seasonId`,
+before/after e publica o evento na outbox dentro da mesma transação. Rollback é
+uma nova aplicação auditada das quatro flags do estado anterior.
+
+Uma mudança de `CompetitionSeason.status` também valida as flags persistidas
+contra a mesma matriz. Se o novo status não aceitar as flags atuais, feche-as
+primeiro pelo fluxo acima.
+
+## Cadência do scheduler
+
+A cadência base e a política operacional são configuradas sem editar código:
+
+1. `POST /api/admin/seasons/:seasonId/providers/:providerKey/cadence/preview`;
+2. revise `before/after`;
+3. `PUT` no mesmo caminho sem `/preview`, com confirmação reforçada e nova
+   chave idempotente.
+
+`operationalCadence` possui `liveSeconds`, `scheduledSeconds`, `idleSeconds`,
+`nearWindowMinutes` e até 100 overrides em `phases`. Cada override exige
+`stageId` ou `roundId` pertencente à mesma temporada; se ambos forem enviados,
+a rodada precisa pertencer à fase. A frequência só aumenta para partida `LIVE`
+ou `SCHEDULED` dentro da janela próxima. Fora dela, usa a cadência `IDLE`.
+
+O scheduler mantém lock por provider/temporada/tipo, remove lock órfão expirado,
+respeita timeout do adapter e aguarda poll em andamento no shutdown antes de
+desconectar o Prisma. A falha de uma temporada é registrada de forma redigida e
+não impede as demais.
 
 ## Preparação e diagnóstico
 
@@ -101,7 +157,10 @@ Rollback: aplique o papel/status anterior com nova justificativa. A sessão revo
 2. `POST /api/admin/reprocess/preview` com `SCORES`, `RANKING` e/ou `ACHIEVEMENTS`.
 3. Revise as contagens e aplique em `POST /api/admin/reprocess`.
 4. Acompanhe `GET /api/admin/jobs`. O worker compara novamente `seasonId`, `poolSeasonId` e `ruleSetVersionId` antes de escrever.
-5. Pause em `POST /api/admin/jobs/:jobId/pause`. Reexecute job `PAUSED`/`FAILED` em `POST .../retry`; são no máximo três tentativas.
+5. Pause em `POST /api/admin/jobs/:jobId/pause`.
+6. Retome job `PAUSED` em `POST .../resume`; a execução reinicia o plano
+   idempotente. Reexecute somente job `FAILED` em `POST .../retry`. São no
+   máximo três tentativas.
 
 Rollback: scores guardam auditoria de recomputação e cálculo idempotente. Para reversão lógica, corrija o resultado/override ou selecione a versão aprovada e reprocese de novo. Se o efeito pretendido for restauração pontual de banco, valide o backup fora de produção antes do restore.
 
@@ -110,6 +169,8 @@ Rollback: scores guardam auditoria de recomputação e cálculo idempotente. Par
 Filtre `GET /api/admin/audit` por `seasonId`, `poolSeasonId`, `actorId`, `action` ou `requestId`. Cada mutação nova contém actor, request, origem, justificativa, before/after e contagem. `AdminOperation` registra replay, preview consumida e chave; `AdminJob` registra progresso e regra fixada.
 
 Em incidente, pause jobs, preserve logs, capture o `requestId`, consulte a operação idempotente e compare before/after. Não remova evidência. Credenciais, cookies, tokens CSRF e payload externo integral não devem ser copiados para tickets.
+Erros persistidos e emitidos pelo scheduler/worker passam por redação de URL
+remota, authorization, cookie, token, secret e password.
 
 ## Validação de backup
 

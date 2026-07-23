@@ -99,9 +99,47 @@ adminJobRouter.post('/jobs/:jobId/retry', asyncHandler(async (req, res) => {
     justification: body.justification, request: body,
     mutate: async (tx) => {
       const before = await tx.adminJob.findUniqueOrThrow({ where: { id: existing.id } });
-      if (!['FAILED', 'PAUSED'].includes(before.status) || before.attempts >= before.maxAttempts) throw new AppError(409, 'Job não pode ser reexecutado com segurança.', 'JOB_NOT_RETRYABLE');
+      if (before.status !== 'FAILED' || before.attempts >= before.maxAttempts) throw new AppError(409, 'Job não pode ser reexecutado com segurança.', 'JOB_NOT_RETRYABLE');
       const after = await tx.adminJob.update({ where: { id: before.id }, data: { status: 'QUEUED', pauseRequested: false, processedCount: 0, startedAt: null, finishedAt: null, errorCode: null, errorMessage: null } });
       return { before, after, result: after, affectedCount: before.affectedCount };
     },
   }); res.status(202).json(response);
+}));
+
+adminJobRouter.post('/jobs/:jobId/resume', asyncHandler(async (req, res) => {
+  const body = jobActionSchema.parse(req.body);
+  const existing = await prisma.adminJob.findUnique({ where: { id: req.params.jobId } });
+  if (!existing) throw new AppError(404, 'Job não encontrado.', 'JOB_NOT_FOUND');
+  setAdminScope(req, existing);
+  const response = await executeSensitiveMutation({
+    context: adminRequestContext(req), action: 'JOB_RETRIED', operation: 'ADMIN_JOB_RESUME',
+    scope: { targetType: 'AdminJob', targetId: existing.id, seasonId: existing.seasonId, poolSeasonId: existing.poolSeasonId },
+    justification: body.justification, request: body,
+    mutate: async (tx) => {
+      const before = await tx.adminJob.findUniqueOrThrow({ where: { id: existing.id } });
+      if (before.status !== 'PAUSED' || before.attempts >= before.maxAttempts) {
+        throw new AppError(409, 'Job não pode ser retomado com segurança.', 'JOB_NOT_RESUMABLE');
+      }
+      const after = await tx.adminJob.update({
+        where: { id: before.id },
+        data: {
+          status: 'QUEUED',
+          pauseRequested: false,
+          processedCount: 0,
+          startedAt: null,
+          finishedAt: null,
+          errorCode: null,
+          errorMessage: null,
+        },
+      });
+      return {
+        before,
+        after,
+        result: after,
+        affectedCount: before.affectedCount,
+        details: { resumedFromStart: true, writesAreIdempotent: true },
+      };
+    },
+  });
+  res.status(202).json(response);
 }));

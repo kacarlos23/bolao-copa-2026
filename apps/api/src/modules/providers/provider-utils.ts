@@ -21,10 +21,19 @@ export function checksum(value: unknown) {
 }
 
 export function redactProviderError(error: unknown) {
-  const raw = error instanceof Error ? error.message : 'Unknown provider error';
+  const raw =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : 'Unknown provider error';
   return raw
     .replace(/https?:\/\/[^\s"']+/gi, '[remote-url]')
-    .replace(/(authorization|cookie|token|secret|password)=?[^\s,;]*/gi, '$1=[redacted]')
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]')
+    .replace(
+      /(authorization|cookie|token|secret|password)\s*[:=]\s*(?:Bearer\s+)?[^\s,;]*/gi,
+      '$1=[redacted]',
+    )
     .replace(/[\r\n\t]+/g, ' ')
     .slice(0, 500);
 }

@@ -963,6 +963,25 @@ export async function installApiMocks(
           updatedById: signedInUser.id,
         },
       });
+    if (
+      path === `/api/admin/seasons/${leagueSeason.id}/features/preview` &&
+      method === 'POST'
+    )
+      return json({
+        previewId: 'preview-feature-rollback',
+        affectedCount: 1,
+        confirmation: 'CONFIRMAR 1 FEATURE12345',
+        expiresAt: '2026-07-15T12:10:00.000Z',
+        preview: {
+          before: {
+            readEnabled: true,
+            writeEnabled: true,
+            uiEnabled: true,
+            syncEnabled: false,
+          },
+          after: JSON.parse(request.postData() ?? '{}'),
+        },
+      });
     if (path === `/api/admin/seasons/${leagueSeason.id}/features` && method === 'PUT')
       return json({
         flags: {

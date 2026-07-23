@@ -4,6 +4,7 @@ import { getScoreSyncSetting } from '../../services/score-sync-settings.service.
 import { dispatchOutboxEvent, enqueueOutboxEvent } from '../events/outbox.js';
 import { getCompetitionFeatureFlags } from '../competitions/competition-feature.service.js';
 import { seasonProviderRegistry, type ProviderRuntime } from './provider-registry.js';
+import { resolveProviderCadence, type SeasonMatchSignal } from './provider-cadence.js';
 import { redactProviderError } from './provider-utils.js';
 import { runProviderSync, type ProviderSyncSummary } from './provider-sync.service.js';
 import {
@@ -16,7 +17,6 @@ import {
 const USER_COOLDOWN_MS = 30_000;
 const RESULTS_SYNC_TIMEOUT_MS = 60_000;
 const FULL_SYNC_TIMEOUT_MS = 120_000;
-const AUTOMATIC_SYNC_BUCKET_MS = 5 * 60_000;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
   let timeout: NodeJS.Timeout | undefined;
@@ -248,6 +248,7 @@ export async function getSeasonResultSyncStatus(seasonId: string) {
       provider: { in: providerKeys },
       type: 'RESULTS',
       status: { not: 'RUNNING' },
+      mode: 'APPLY',
     },
     orderBy: [{ finishedAt: 'desc' }, { startedAt: 'desc' }],
     select: { status: true, finishedAt: true, updatedCount: true, insertedCount: true },
@@ -395,43 +396,90 @@ export async function runAutomaticSeasonSyncs() {
   const targets = flagsByTarget
     .filter(({ flags }) => flags.syncEnabled)
     .map(({ target }) => target);
-  const bucket = Math.floor(Date.now() / AUTOMATIC_SYNC_BUCKET_MS);
   const dueTargets = await Promise.all(
-    targets.map(async (target) => {
-      const dueProviders = [];
-      for (const provider of target.providers) {
-        const latest = await prisma.providerSyncRun.findFirst({
-          where: {
-            seasonId: target.seasonId,
-            provider: provider.key,
-            status: { not: 'RUNNING' },
-          },
-          orderBy: { startedAt: 'desc' },
-          select: { startedAt: true },
-        });
-        if (!latest || Date.now() - latest.startedAt.getTime() >= provider.cadenceSeconds * 1_000) {
-          dueProviders.push(provider.key);
-        }
-      }
-      return { target, dueProviders };
-    }),
+    targets.map(async (target) => ({ target, plan: await getAutomaticSeasonSyncPlan(target) })),
   );
   return Promise.all(
     dueTargets
-      .filter(({ dueProviders }) => dueProviders.length > 0)
-      .map(async ({ target, dueProviders }) => {
+      .filter(({ plan }) => plan.providers.some((provider) => provider.due))
+      .map(async ({ target, plan }) => {
+        const dueProviders = plan.providers.filter((provider) => provider.due);
+        const bucketSeconds = Math.min(
+          ...dueProviders.map((provider) => provider.cadenceSeconds),
+        );
+        const bucket = Math.floor(Date.now() / (bucketSeconds * 1_000));
         try {
           const summary = await syncOfficialSeasonCompetitionData({
             seasonId: target.seasonId,
             userId: null,
             idempotencyKey: `auto:${target.seasonId}:${bucket}`,
             includeProfiles: false,
-            providerKeys: dueProviders,
+            providerKeys: dueProviders.map((provider) => provider.providerKey),
           });
-          return { seasonId: target.seasonId, ok: true as const, summary };
+          return { seasonId: target.seasonId, ok: true as const, summary, schedule: plan };
         } catch (error) {
-          return { seasonId: target.seasonId, ok: false as const, error };
+          return { seasonId: target.seasonId, ok: false as const, error, schedule: plan };
         }
       }),
   );
+}
+
+type AutomaticSyncTarget = Awaited<ReturnType<typeof listActiveSeasonRuntimeConfigs>>[number];
+
+export async function getAutomaticSeasonSyncPlan(
+  target: AutomaticSyncTarget,
+  now = new Date(),
+) {
+  const live = await prisma.match.findFirst({
+    where: { seasonId: target.seasonId, status: 'LIVE' },
+    orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
+    select: { status: true, startsAt: true, stageId: true, roundId: true },
+  });
+  const scheduled =
+    live ??
+    (await prisma.match.findFirst({
+      where: {
+        seasonId: target.seasonId,
+        status: 'SCHEDULED',
+        startsAt: { gte: now },
+      },
+      orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
+      select: { status: true, startsAt: true, stageId: true, roundId: true },
+    }));
+  const signal = scheduled as SeasonMatchSignal | null;
+  const providers = await Promise.all(
+    target.providers.map(async (provider) => {
+      const latest = await prisma.providerSyncRun.findFirst({
+        where: {
+          seasonId: target.seasonId,
+          provider: provider.key,
+          status: { not: 'RUNNING' },
+          mode: 'APPLY',
+        },
+        orderBy: { startedAt: 'desc' },
+        select: { startedAt: true },
+      });
+      const cadence = resolveProviderCadence(provider, signal, now);
+      const nextRunAt = latest
+        ? new Date(latest.startedAt.getTime() + cadence.cadenceSeconds * 1_000)
+        : now;
+      return {
+        providerKey: provider.key,
+        ...cadence,
+        lastRunAt: latest?.startedAt.toISOString() ?? null,
+        nextRunAt: nextRunAt.toISOString(),
+        due: nextRunAt.getTime() <= now.getTime(),
+      };
+    }),
+  );
+  return {
+    evaluatedAt: now.toISOString(),
+    signal: signal
+      ? {
+          ...signal,
+          startsAt: signal.startsAt.toISOString(),
+        }
+      : null,
+    providers,
+  };
 }

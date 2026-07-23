@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../http/async-handler.js';
+import { AppError } from '../http/errors.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { adminQueryRouter } from '../modules/admin/admin-query.routes.js';
 import { adminResourceRouter } from '../modules/admin/admin-resource.routes.js';
@@ -37,7 +38,9 @@ import {
   adminRequestContext,
   authorizeAdminPreview,
   createAdminPreview,
+  executeSensitiveMutation,
   justificationSchema,
+  reinforcedConfirmationSchema,
   setAdminScope,
 } from '../modules/admin/admin-security.js';
 import {
@@ -45,9 +48,14 @@ import {
   prepareBrasileirao2026,
 } from '../modules/brasileirao/brasileirao-2026.service.js';
 import {
+  buildCompetitionFeatureFlags,
+  competitionFeatureKey,
   getCompetitionFeatureFlags,
-  updateCompetitionFeatureFlags,
+  inspectCompetitionFeatureFlagsValue,
 } from '../modules/competitions/competition-feature.service.js';
+import { assertCompetitionFeatureState } from '../modules/competitions/competition-feature-policy.js';
+import { dispatchOutboxEvent, enqueueOutboxEvent } from '../modules/events/outbox.js';
+import { redactProviderError } from '../modules/providers/provider-utils.js';
 import { isAuditedCompetitionFeatureMutation } from './admin-legacy-mutation.js';
 
 export const adminRouter = Router();
@@ -175,7 +183,12 @@ adminRouter.get(
   '/sync-logs',
   asyncHandler(async (_req, res) => {
     const logs = await prisma.apiSyncLog.findMany({ orderBy: { createdAt: 'desc' }, take: 50 });
-    res.json({ logs });
+    res.json({
+      logs: logs.map((log) => ({
+        ...log,
+        message: log.message ? redactProviderError(log.message) : null,
+      })),
+    });
   }),
 );
 
@@ -390,26 +403,137 @@ adminRouter.get(
   }),
 );
 
+const competitionFeatureMutationSchema = z
+  .object({
+    readEnabled: z.boolean(),
+    writeEnabled: z.boolean(),
+    uiEnabled: z.boolean(),
+    syncEnabled: z.boolean(),
+    reason: justificationSchema,
+  })
+  .strict();
+
+async function competitionFeaturePlan(
+  seasonId: string,
+  body: z.infer<typeof competitionFeatureMutationSchema>,
+) {
+  const [season, setting] = await Promise.all([
+    prisma.competitionSeason.findUnique({
+      where: { id: seasonId },
+      select: { id: true, status: true },
+    }),
+    prisma.appSetting.findUnique({ where: { key: competitionFeatureKey(seasonId) } }),
+  ]);
+  if (!season) throw new AppError(404, 'Temporada não encontrada.', 'SEASON_NOT_FOUND');
+  const previous = inspectCompetitionFeatureFlagsValue(seasonId, setting?.value, season.status);
+  const state = assertCompetitionFeatureState(season.status, body);
+  return { season, previous, state };
+}
+
+adminRouter.post(
+  '/seasons/:seasonId/features/preview',
+  asyncHandler(async (req, res) => {
+    const body = competitionFeatureMutationSchema.parse(req.body);
+    setAdminScope(req, { seasonId: req.params.seasonId });
+    const plan = await competitionFeaturePlan(req.params.seasonId, body);
+    res.json(
+      await createAdminPreview({
+        context: adminRequestContext(req),
+        action: 'COMPETITION_FEATURE_FLAGS_CHANGE',
+        scope: {
+          targetType: 'CompetitionSeason',
+          targetId: req.params.seasonId,
+          seasonId: req.params.seasonId,
+        },
+        justification: body.reason,
+        request: body,
+        preview: {
+          seasonStatus: plan.season.status,
+          previousState: plan.previous.state,
+          before: plan.previous.flags,
+          after: { ...body, state: plan.state },
+          rollback: 'Repita o fluxo auditado com as quatro flags do estado anterior.',
+        },
+        affectedCount: 1,
+      }),
+    );
+  }),
+);
+
 adminRouter.put(
   '/seasons/:seasonId/features',
   asyncHandler(async (req, res) => {
-    const body = z
-      .object({
-        readEnabled: z.boolean(),
-        writeEnabled: z.boolean(),
-        uiEnabled: z.boolean(),
-        syncEnabled: z.boolean(),
-        reason: z.string().trim().min(10).max(500),
-      })
+    const body = competitionFeatureMutationSchema
+      .extend(reinforcedConfirmationSchema.shape)
       .strict()
       .parse(req.body);
-    res.json(
-      await updateCompetitionFeatureFlags({
+    setAdminScope(req, { seasonId: req.params.seasonId });
+    const requestBody = {
+      readEnabled: body.readEnabled,
+      writeEnabled: body.writeEnabled,
+      uiEnabled: body.uiEnabled,
+      syncEnabled: body.syncEnabled,
+      reason: body.reason,
+    };
+    const response = await executeSensitiveMutation({
+      context: adminRequestContext(req),
+      action: 'SETTING_UPDATED',
+      operation: 'COMPETITION_FEATURE_FLAGS_CHANGE',
+      scope: {
+        targetType: 'CompetitionSeason',
+        targetId: req.params.seasonId,
         seasonId: req.params.seasonId,
-        actorId: req.session.user!.id,
-        ...body,
-      }),
-    );
+      },
+      justification: body.reason,
+      request: requestBody,
+      confirmation: body,
+      mutate: async (tx) => {
+        const [season, setting] = await Promise.all([
+          tx.competitionSeason.findUnique({
+            where: { id: req.params.seasonId },
+            select: { id: true, status: true },
+          }),
+          tx.appSetting.findUnique({
+            where: { key: competitionFeatureKey(req.params.seasonId) },
+          }),
+        ]);
+        if (!season) throw new AppError(404, 'Temporada não encontrada.', 'SEASON_NOT_FOUND');
+        const previous = inspectCompetitionFeatureFlagsValue(
+          req.params.seasonId,
+          setting?.value,
+          season.status,
+        );
+        const state = assertCompetitionFeatureState(season.status, requestBody);
+        const flags = buildCompetitionFeatureFlags({
+          actorId: req.session.user!.id,
+          ...requestBody,
+        });
+        await tx.appSetting.upsert({
+          where: { key: competitionFeatureKey(req.params.seasonId) },
+          create: { key: competitionFeatureKey(req.params.seasonId), value: flags },
+          update: { value: flags },
+        });
+        const event = await enqueueOutboxEvent(tx, {
+          type: 'competition.features.updated',
+          seasonId: req.params.seasonId,
+          poolSeasonId: null,
+          payload: flags,
+          idempotencyKey: `competition.features.updated:${adminRequestContext(req).idempotencyKey}`,
+        });
+        return {
+          before: { seasonStatus: season.status, state: previous.state, flags: previous.flags },
+          after: { seasonStatus: season.status, state, flags },
+          result: { flags, eventId: event.id },
+          affectedCount: 1,
+        };
+      },
+    });
+    await dispatchOutboxEvent(response.result.eventId);
+    res.json({
+      flags: response.result.flags,
+      affectedCount: response.affectedCount,
+      replayed: response.replayed,
+    });
   }),
 );
 
@@ -424,7 +548,12 @@ adminRouter.get(
       orderBy: { startedAt: 'desc' },
       take: 100,
     });
-    res.json({ runs });
+    res.json({
+      runs: runs.map((run) => ({
+        ...run,
+        errorMessage: run.errorMessage ? redactProviderError(run.errorMessage) : null,
+      })),
+    });
   }),
 );
 

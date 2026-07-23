@@ -1,7 +1,8 @@
 import { z } from 'zod';
-import { AppError } from '../../http/errors.js';
+import type { CompetitionSeasonStatus, Prisma } from '@prisma/client';
+import { logger } from '../../logger.js';
 import { prisma } from '../../prisma.js';
-import { dispatchOutboxEvent, enqueueOutboxEvent } from '../events/outbox.js';
+import { AppError } from '../../http/errors.js';
 import { WORLD_CUP_CONTEXT } from '../../domain/world-cup-context.js';
 
 export const competitionFeatureFlagsSchema = z
@@ -9,9 +10,7 @@ export const competitionFeatureFlagsSchema = z
     readEnabled: z.boolean(),
     writeEnabled: z.boolean(),
     uiEnabled: z.boolean(),
-    // Persisted records from before Prompt 4 retain scheduler compatibility.
-    // New seasons must always store this field explicitly and start disabled.
-    syncEnabled: z.boolean().default(true),
+    syncEnabled: z.boolean(),
     reason: z.string().trim().min(10).max(500),
     updatedAt: z.string().datetime(),
     updatedById: z.string().nullable(),
@@ -31,15 +30,97 @@ export const COMPETITION_FEATURES_FAIL_CLOSED_DEFAULTS: CompetitionFeatureFlags 
   updatedById: null,
 };
 
-function featureKey(seasonId: string) {
+const restoredDraftFeatureFlagsSchema = competitionFeatureFlagsSchema
+  .omit({ syncEnabled: true })
+  .strict()
+  .refine(
+    (flags) => flags.readEnabled && flags.writeEnabled && flags.uiEnabled,
+    'O estado restaurado exige read/write/ui habilitados.',
+  );
+
+export function competitionFeatureKey(seasonId: string) {
   return `competition-features:${seasonId}`;
 }
 
+export function inspectCompetitionFeatureFlagsValue(
+  seasonId: string,
+  value: Prisma.JsonValue | null | undefined,
+  status?: CompetitionSeasonStatus | null,
+) {
+  if (value == null) {
+    logger.warn({ seasonId, state: 'MISSING' }, 'competition feature flags failed closed');
+    return {
+      state: 'MISSING' as const,
+      flags: { ...COMPETITION_FEATURES_FAIL_CLOSED_DEFAULTS },
+    };
+  }
+  const parsed = competitionFeatureFlagsSchema.safeParse(value);
+  if (!parsed.success) {
+    const restored =
+      status === 'DRAFT' ? restoredDraftFeatureFlagsSchema.safeParse(value) : null;
+    if (restored?.success) {
+      logger.warn(
+        { seasonId, state: 'RESTORED_DRAFT' },
+        'legacy restored competition feature flags preserved without persistence',
+      );
+      return {
+        state: 'RESTORED_DRAFT' as const,
+        flags: {
+          ...restored.data,
+          syncEnabled: false,
+        },
+      };
+    }
+    logger.warn({ seasonId, state: 'INVALID' }, 'competition feature flags failed closed');
+    return {
+      state: 'INVALID' as const,
+      flags: {
+        ...COMPETITION_FEATURES_FAIL_CLOSED_DEFAULTS,
+        reason: 'Registro de feature flags inválido; exposição bloqueada por segurança.',
+      },
+    };
+  }
+  return { state: 'VALID' as const, flags: parsed.data };
+}
+
+export async function inspectCompetitionFeatureFlags(
+  seasonId: string,
+  knownStatus?: CompetitionSeasonStatus,
+) {
+  const [setting, status] = await Promise.all([
+    prisma.appSetting.findUnique({
+      where: { key: competitionFeatureKey(seasonId) },
+    }),
+    knownStatus
+      ? knownStatus
+      : prisma.competitionSeason
+          .findUnique({ where: { id: seasonId }, select: { status: true } })
+          .then((season) => season?.status ?? null),
+  ]);
+  return inspectCompetitionFeatureFlagsValue(seasonId, setting?.value, status);
+}
+
 export async function getCompetitionFeatureFlags(seasonId: string) {
-  const setting = await prisma.appSetting.findUnique({ where: { key: featureKey(seasonId) } });
-  return setting
-    ? competitionFeatureFlagsSchema.parse(setting.value)
-    : COMPETITION_FEATURES_FAIL_CLOSED_DEFAULTS;
+  return (await inspectCompetitionFeatureFlags(seasonId)).flags;
+}
+
+export function buildCompetitionFeatureFlags(input: {
+  actorId: string;
+  readEnabled: boolean;
+  writeEnabled: boolean;
+  uiEnabled: boolean;
+  syncEnabled: boolean;
+  reason: string;
+}) {
+  return competitionFeatureFlagsSchema.parse({
+    readEnabled: input.readEnabled,
+    writeEnabled: input.writeEnabled,
+    uiEnabled: input.uiEnabled,
+    syncEnabled: input.syncEnabled,
+    reason: input.reason,
+    updatedAt: new Date().toISOString(),
+    updatedById: input.actorId,
+  });
 }
 
 export async function assertCompetitionFeature(
@@ -62,53 +143,4 @@ export async function assertCompetitionFeature(
       'COMPETITION_FEATURE_DISABLED',
     );
   }
-}
-
-export async function updateCompetitionFeatureFlags(input: {
-  seasonId: string;
-  actorId: string;
-  readEnabled: boolean;
-  writeEnabled: boolean;
-  uiEnabled: boolean;
-  syncEnabled: boolean;
-  reason: string;
-}) {
-  const season = await prisma.competitionSeason.findUnique({
-    where: { id: input.seasonId },
-    select: { id: true },
-  });
-  if (!season) throw new AppError(404, 'Temporada não encontrada.', 'SEASON_NOT_FOUND');
-  const previous = await getCompetitionFeatureFlags(input.seasonId);
-  const value: CompetitionFeatureFlags = {
-    readEnabled: input.readEnabled,
-    writeEnabled: input.writeEnabled,
-    uiEnabled: input.uiEnabled,
-    syncEnabled: input.syncEnabled,
-    reason: input.reason,
-    updatedAt: new Date().toISOString(),
-    updatedById: input.actorId,
-  };
-  const result = await prisma.$transaction(async (tx) => {
-    await tx.appSetting.upsert({
-      where: { key: featureKey(input.seasonId) },
-      create: { key: featureKey(input.seasonId), value },
-      update: { value },
-    });
-    await tx.adminAuditLog.create({
-      data: {
-        actorId: input.actorId,
-        action: 'SETTING_UPDATED',
-        targetId: input.seasonId,
-        details: { setting: 'competition-features', previous, next: value },
-      },
-    });
-    return enqueueOutboxEvent(tx, {
-      type: 'competition.features.updated',
-      seasonId: input.seasonId,
-      poolSeasonId: null,
-      payload: value,
-    });
-  });
-  await dispatchOutboxEvent(result.id);
-  return { previous, flags: value };
 }

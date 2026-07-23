@@ -466,6 +466,14 @@ export interface CompetitionFeatureFlags {
   updatedById: string | null;
 }
 
+export interface AdminMutationPreview {
+  previewId: string;
+  affectedCount: number;
+  confirmation: string;
+  expiresAt: string | null;
+  preview: unknown;
+}
+
 export interface PublicKnockoutBracket {
   id: string;
   submittedAt: string;
@@ -515,16 +523,35 @@ export const api = {
     ),
   competitionFeatures: (seasonId: string) =>
     request<{ flags: CompetitionFeatureFlags }>(`/api/admin/seasons/${seasonId}/features`),
-  updateCompetitionFeatures: (
+  previewCompetitionFeatures: (
     seasonId: string,
     input: Pick<
       CompetitionFeatureFlags,
       'readEnabled' | 'writeEnabled' | 'uiEnabled' | 'syncEnabled' | 'reason'
     >,
   ) =>
+    request<AdminMutationPreview>(`/api/admin/seasons/${seasonId}/features/preview`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+      idempotencyKey:
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `feature-preview-${seasonId}-${Date.now()}`,
+    }),
+  updateCompetitionFeatures: (
+    seasonId: string,
+    input: Pick<
+      CompetitionFeatureFlags,
+      'readEnabled' | 'writeEnabled' | 'uiEnabled' | 'syncEnabled' | 'reason'
+    > & { previewId: string; confirmation: string },
+  ) =>
     request<{ flags: CompetitionFeatureFlags }>(`/api/admin/seasons/${seasonId}/features`, {
       method: 'PUT',
       body: JSON.stringify(input),
+      idempotencyKey:
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `feature-apply-${seasonId}-${Date.now()}`,
     }),
   matchDays: () =>
     request<{ matchDays: MatchDay[]; predictionCloseMinutes: number }>('/api/match-days'),

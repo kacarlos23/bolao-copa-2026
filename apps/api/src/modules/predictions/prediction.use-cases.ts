@@ -23,7 +23,8 @@ import {
   listPredictionRecords,
   listPublicMatchPredictionRecords,
 } from './prediction.repository.js';
-import { competitionFeatureFlagsSchema } from '../competitions/competition-feature.service.js';
+import { inspectCompetitionFeatureFlagsValue } from '../competitions/competition-feature.service.js';
+import { WORLD_CUP_CONTEXT } from '../../domain/world-cup-context.js';
 import { isPoolMatchScoreable } from './scoreability.js';
 import { recomputePoolSeasonEngagement } from '../engagement/engagement.service.js';
 import { matchScoreForPrediction } from '../scoring/match-scoring-basis.js';
@@ -133,7 +134,7 @@ export async function savePredictions(input: {
 }) {
   const result = await serializableTransaction(async (tx) => {
     const context = await resolvePoolSeasonContext(input, tx);
-    const [matchDay, setting, featureSetting] = await Promise.all([
+    const [matchDay, setting, featureSetting, season] = await Promise.all([
       tx.matchDay.findFirst({
         where: { id: input.body.matchDayId, seasonId: context.seasonId },
         select: { id: true },
@@ -146,11 +147,20 @@ export async function savePredictions(input: {
         where: { key: `competition-features:${context.seasonId}` },
         select: { key: true, value: true },
       }),
+      tx.competitionSeason.findUnique({
+        where: { id: context.seasonId },
+        select: { status: true },
+      }),
     ]);
+    const featureFlags = inspectCompetitionFeatureFlagsValue(
+      context.seasonId,
+      featureSetting?.value,
+      season?.status,
+    ).flags;
     if (
       context.systemRole !== 'ADMIN' &&
-      featureSetting?.key === `competition-features:${context.seasonId}` &&
-      !competitionFeatureFlagsSchema.parse(featureSetting.value).writeEnabled
+      context.seasonId !== WORLD_CUP_CONTEXT.seasonId &&
+      !featureFlags.writeEnabled
     ) {
       throw new AppError(
         404,

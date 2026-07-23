@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   automaticSyncs: vi.fn(),
+  outbox: vi.fn(),
+  adminJob: vi.fn(),
   info: vi.fn(),
   error: vi.fn(),
 }));
@@ -11,10 +13,13 @@ vi.mock('../modules/providers/season-result-sync.service.js', () => ({
 }));
 vi.mock('../logger.js', () => ({ logger: { info: mocks.info, error: mocks.error } }));
 vi.mock('../config.js', () => ({ config: { LIVE_POLL_SECONDS: 15 } }));
-vi.mock('../modules/events/outbox.js', () => ({ dispatchPendingOutboxEvents: vi.fn() }));
-vi.mock('../modules/admin/admin-job.service.js', () => ({ runNextAdminJob: vi.fn() }));
+vi.mock('../modules/events/outbox.js', () => ({ dispatchPendingOutboxEvents: mocks.outbox }));
+vi.mock('../modules/admin/admin-job.service.js', () => ({ runNextAdminJob: mocks.adminJob }));
+vi.mock('../modules/providers/provider-utils.js', () => ({
+  redactProviderError: () => 'offline',
+}));
 
-import { pollConfiguredSeasonProviders } from './scheduler.js';
+import { pollConfiguredSeasonProviders, startJobs, stopJobs } from './scheduler.js';
 
 describe('scheduler de providers por temporada', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -25,6 +30,7 @@ describe('scheduler de providers por temporada', () => {
         seasonId: 'season-hybrid',
         ok: true,
         summary: { changedMatches: 2, updatedProfiles: 0, runs: [] },
+        schedule: { providers: [] },
       },
       { seasonId: 'season-offline', ok: false, error: new Error('offline') },
     ]);
@@ -37,8 +43,25 @@ describe('scheduler de providers por temporada', () => {
       'automatic season provider sync finished',
     );
     expect(mocks.error).toHaveBeenCalledWith(
-      expect.objectContaining({ seasonId: 'season-offline' }),
+      expect.objectContaining({ seasonId: 'season-offline', error: 'offline' }),
       'automatic season provider sync failed',
     );
+  });
+
+  it('impede novos polls e aguarda o poll ativo durante shutdown', async () => {
+    let release!: () => void;
+    mocks.automaticSyncs.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        release = () => resolve([]);
+      }),
+    );
+    startJobs();
+    const stopping = stopJobs();
+    expect(mocks.automaticSyncs).toHaveBeenCalledOnce();
+    release();
+    await stopping;
+
+    await pollConfiguredSeasonProviders();
+    expect(mocks.automaticSyncs).toHaveBeenCalledOnce();
   });
 });

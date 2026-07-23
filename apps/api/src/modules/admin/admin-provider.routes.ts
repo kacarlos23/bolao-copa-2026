@@ -8,6 +8,7 @@ import { dispatchOutboxEvent, enqueueOutboxEvent } from '../events/outbox.js';
 import { recalculateScoresForMatch } from '../../services/ranking.service.js';
 import { recomputeTie } from '../ties/tie-recomputation.service.js';
 import { manualMatchOverrideSchema } from '../providers/manual-override.service.js';
+import { providerOperationalCadenceSchema } from '../providers/provider-cadence.js';
 import { syncOfficialSeasonCompetitionData } from '../providers/season-result-sync.service.js';
 import { getCompetitionFeatureFlags } from '../competitions/competition-feature.service.js';
 import {
@@ -20,6 +21,197 @@ import {
 } from './admin-security.js';
 
 export const adminProviderRouter = Router();
+
+const providerCadenceMutationSchema = z
+  .object({
+    cadenceSeconds: z.number().int().min(5).max(86_400),
+    operationalCadence: providerOperationalCadenceSchema,
+    justification: justificationSchema,
+  })
+  .strict();
+
+async function providerCadencePlan(
+  database: Pick<Prisma.TransactionClient, 'seasonProviderConfig' | 'stage' | 'round'>,
+  seasonId: string,
+  providerKey: string,
+  body: z.infer<typeof providerCadenceMutationSchema>,
+) {
+  const config = await database.seasonProviderConfig.findUnique({
+    where: { seasonId_providerKey: { seasonId, providerKey } },
+  });
+  if (!config) {
+    throw new AppError(
+      404,
+      'Provider não configurado para a temporada.',
+      'SEASON_PROVIDER_NOT_CONFIGURED',
+    );
+  }
+  for (const phase of body.operationalCadence.phases) {
+    const [stage, round] = await Promise.all([
+      phase.stageId
+        ? database.stage.findFirst({ where: { id: phase.stageId, seasonId } })
+        : null,
+      phase.roundId
+        ? database.round.findFirst({ where: { id: phase.roundId, seasonId } })
+        : null,
+    ]);
+    if ((phase.stageId && !stage) || (phase.roundId && !round)) {
+      throw new AppError(
+        400,
+        'A fase configurada não pertence à temporada.',
+        'PROVIDER_CADENCE_SCOPE_MISMATCH',
+      );
+    }
+    if (stage && round && round.stageId !== stage.id) {
+      throw new AppError(
+        400,
+        'A rodada configurada não pertence à fase informada.',
+        'PROVIDER_CADENCE_SCOPE_MISMATCH',
+      );
+    }
+  }
+  const settings =
+    config.settings && typeof config.settings === 'object' && !Array.isArray(config.settings)
+      ? config.settings
+      : {};
+  const previousCadence = providerOperationalCadenceSchema.safeParse(
+    settings.operationalCadence,
+  );
+  return {
+    config,
+    previousOperationalCadence: previousCadence.success ? previousCadence.data : null,
+    next: {
+      cadenceSeconds: body.cadenceSeconds,
+      settings: {
+        ...settings,
+        operationalCadence: body.operationalCadence,
+      } as Prisma.InputJsonValue,
+    },
+  };
+}
+
+adminProviderRouter.post(
+  '/seasons/:seasonId/providers/:providerKey/cadence/preview',
+  asyncHandler(async (req, res) => {
+    const body = providerCadenceMutationSchema.parse(req.body);
+    setAdminScope(req, { seasonId: req.params.seasonId });
+    const plan = await providerCadencePlan(
+      prisma,
+      req.params.seasonId,
+      req.params.providerKey,
+      body,
+    );
+    res.json(
+      await createAdminPreview({
+        context: adminRequestContext(req),
+        action: 'SEASON_PROVIDER_CADENCE_CHANGE',
+        scope: {
+          targetType: 'SeasonProviderConfig',
+          targetId: plan.config.id,
+          seasonId: req.params.seasonId,
+        },
+        justification: body.justification,
+        request: {
+          cadenceSeconds: body.cadenceSeconds,
+          operationalCadence: body.operationalCadence,
+        },
+        preview: {
+          before: {
+            cadenceSeconds: plan.config.cadenceSeconds,
+            operationalCadence: plan.previousOperationalCadence,
+          },
+          after: {
+            cadenceSeconds: plan.next.cadenceSeconds,
+            operationalCadence: body.operationalCadence,
+          },
+          rollback: 'Reaplique a cadência anterior pelo mesmo fluxo auditado.',
+        },
+        affectedCount: 1,
+      }),
+    );
+  }),
+);
+
+adminProviderRouter.put(
+  '/seasons/:seasonId/providers/:providerKey/cadence',
+  asyncHandler(async (req, res) => {
+    const body = providerCadenceMutationSchema
+      .extend(reinforcedConfirmationSchema.shape)
+      .strict()
+      .parse(req.body);
+    setAdminScope(req, { seasonId: req.params.seasonId });
+    const current = await prisma.seasonProviderConfig.findUnique({
+      where: {
+        seasonId_providerKey: {
+          seasonId: req.params.seasonId,
+          providerKey: req.params.providerKey,
+        },
+      },
+      select: { id: true },
+    });
+    if (!current) {
+      throw new AppError(
+        404,
+        'Provider não configurado para a temporada.',
+        'SEASON_PROVIDER_NOT_CONFIGURED',
+      );
+    }
+    const requestBody = {
+      cadenceSeconds: body.cadenceSeconds,
+      operationalCadence: body.operationalCadence,
+    };
+    const response = await executeSensitiveMutation({
+      context: adminRequestContext(req),
+      action: 'SEASON_PROVIDER_CONFIG_CHANGED',
+      operation: 'SEASON_PROVIDER_CADENCE_CHANGE',
+      scope: {
+        targetType: 'SeasonProviderConfig',
+        targetId: current.id,
+        seasonId: req.params.seasonId,
+      },
+      justification: body.justification,
+      request: requestBody,
+      confirmation: body,
+      mutate: async (tx) => {
+        const plan = await providerCadencePlan(
+          tx,
+          req.params.seasonId,
+          req.params.providerKey,
+          body,
+        );
+        const after = await tx.seasonProviderConfig.update({
+          where: { id: plan.config.id },
+          data: plan.next,
+        });
+        return {
+          before: {
+            id: plan.config.id,
+            seasonId: plan.config.seasonId,
+            providerKey: plan.config.providerKey,
+            cadenceSeconds: plan.config.cadenceSeconds,
+            operationalCadence: plan.previousOperationalCadence,
+          },
+          after: {
+            id: after.id,
+            seasonId: after.seasonId,
+            providerKey: after.providerKey,
+            cadenceSeconds: after.cadenceSeconds,
+            operationalCadence: body.operationalCadence,
+          },
+          result: {
+            id: after.id,
+            seasonId: after.seasonId,
+            providerKey: after.providerKey,
+            cadenceSeconds: after.cadenceSeconds,
+            operationalCadence: body.operationalCadence,
+          },
+          affectedCount: 1,
+        };
+      },
+    });
+    res.json(response);
+  }),
+);
 
 const competitionDataRefreshSchema = z
   .object({

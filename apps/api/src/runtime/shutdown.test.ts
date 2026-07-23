@@ -52,4 +52,29 @@ describe('runtime shutdown', () => {
     expect(disconnectPrisma).toHaveBeenCalledOnce();
     vi.useRealTimers();
   });
+
+  it('waits for in-flight jobs before disconnecting Prisma', async () => {
+    let releaseJobs!: () => void;
+    const stopJobs = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseJobs = resolve;
+        }),
+    );
+    const disconnectPrisma = vi.fn(async () => undefined);
+    const shutdown = createShutdownController({
+      server: { close: (callback) => callback?.() },
+      stopJobs,
+      closeSse: vi.fn(),
+      closeSessionStore: vi.fn(async () => undefined),
+      disconnectPrisma,
+    });
+
+    const result = shutdown();
+    await Promise.resolve();
+    expect(disconnectPrisma).not.toHaveBeenCalled();
+    releaseJobs();
+    await result;
+    expect(disconnectPrisma).toHaveBeenCalledOnce();
+  });
 });

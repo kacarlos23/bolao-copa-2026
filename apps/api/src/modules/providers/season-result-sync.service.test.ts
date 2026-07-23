@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   runFindUnique: vi.fn(),
   runFindFirst: vi.fn(),
+  matchFindFirst: vi.fn(),
   transaction: vi.fn(),
   runProviderSync: vi.fn(),
   registryCreate: vi.fn(),
@@ -18,6 +19,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../prisma.js', () => ({
   prisma: {
     providerSyncRun: { findUnique: mocks.runFindUnique, findFirst: mocks.runFindFirst },
+    match: { findFirst: mocks.matchFindFirst },
     $transaction: mocks.transaction,
   },
 }));
@@ -51,8 +53,12 @@ const providerConfig = {
   priority: 1,
   types: ['RESULTS', 'STANDINGS'] as Array<'RESULTS' | 'STANDINGS'>,
   enabled: true,
+  cadenceSeconds: 300,
   timeoutMs: 10_000,
   includeProfiles: false,
+  source: 'fixture://hybrid',
+  provenance: 'test',
+  settings: {},
 };
 
 function summary(type: 'RESULTS' | 'STANDINGS', updated: number, seasonId = 'hybrid-season') {
@@ -92,6 +98,7 @@ describe('sincronização configurada por temporada', () => {
     });
     mocks.runFindUnique.mockResolvedValue(null);
     mocks.runFindFirst.mockResolvedValue(null);
+    mocks.matchFindFirst.mockResolvedValue(null);
     mocks.registryCreate.mockReturnValue({
       provider: { name: providerConfig.key, source: 'fixture://hybrid' },
       afterSync: mocks.afterSync,

@@ -13,6 +13,12 @@ import {
   reinforcedConfirmationSchema,
   setAdminScope,
 } from './admin-security.js';
+import {
+  competitionFeatureKey,
+  getCompetitionFeatureFlags,
+  inspectCompetitionFeatureFlagsValue,
+} from '../competitions/competition-feature.service.js';
+import { assertCompetitionFeatureState } from '../competitions/competition-feature-policy.js';
 
 export const adminResourceRouter = Router();
 
@@ -39,11 +45,18 @@ adminResourceRouter.post('/seasons/:seasonId/status/preview', asyncHandler(async
   const body = seasonStatusInputSchema.parse(req.body);
   setAdminScope(req, { seasonId: req.params.seasonId });
   const impact = await seasonImpact(req.params.seasonId);
+  const flags = await getCompetitionFeatureFlags(req.params.seasonId);
+  const featureState = assertCompetitionFeatureState(body.status, flags);
   res.json(await createAdminPreview({
     context: adminRequestContext(req), action: 'SEASON_STATUS_CHANGE',
     scope: { targetType: 'CompetitionSeason', targetId: req.params.seasonId, seasonId: req.params.seasonId },
     justification: body.justification, request: { status: body.status },
-    preview: { before: { status: impact.season.status }, after: { status: body.status }, counts: impact.season._count, predictions: impact.season.poolSeasons },
+    preview: {
+      before: { status: impact.season.status, flags },
+      after: { status: body.status, featureState },
+      counts: impact.season._count,
+      predictions: impact.season.poolSeasons,
+    },
     affectedCount: impact.affectedCount,
   }));
 }));
@@ -57,9 +70,23 @@ adminResourceRouter.patch('/seasons/:seasonId/status', asyncHandler(async (req, 
     justification: body.justification, request: { status: body.status }, confirmation: body,
     mutate: async (tx) => {
       const before = await tx.competitionSeason.findUniqueOrThrow({ where: { id: req.params.seasonId } });
+      const setting = await tx.appSetting.findUnique({
+        where: { key: competitionFeatureKey(req.params.seasonId) },
+      });
+      const flags = inspectCompetitionFeatureFlagsValue(
+        req.params.seasonId,
+        setting?.value,
+        before.status,
+      ).flags;
+      const featureState = assertCompetitionFeatureState(body.status, flags);
       const after = await tx.competitionSeason.update({ where: { id: before.id }, data: { status: body.status } });
       const affectedCount = await tx.match.count({ where: { seasonId: before.id } });
-      return { before, after, result: after, affectedCount };
+      return {
+        before: { ...before, flags },
+        after: { ...after, flags, featureState },
+        result: after,
+        affectedCount,
+      };
     },
   });
   res.json(response);

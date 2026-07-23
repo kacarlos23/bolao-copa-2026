@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
-import { api, type CompetitionFeatureFlags } from './api';
+import { api, type AdminMutationPreview, type CompetitionFeatureFlags } from './api';
 import { normalizeCapabilities } from './app/CompetitionContext';
 
 const emptyFlags: CompetitionFeatureFlags = {
@@ -19,6 +19,7 @@ export function BrasileiraoCanaryAdmin() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [preview, setPreview] = useState<AdminMutationPreview | null>(null);
 
   async function load() {
     setLoading(true);
@@ -64,20 +65,43 @@ export function BrasileiraoCanaryAdmin() {
     }
   }
 
-  async function save() {
+  const requestedFlags = {
+    readEnabled: flags.readEnabled,
+    writeEnabled: flags.writeEnabled,
+    uiEnabled: flags.uiEnabled,
+    syncEnabled: flags.syncEnabled,
+    reason: 'Ensaio administrativo e rollback independente das flags',
+  };
+
+  async function previewSave() {
     if (!seasonId) return;
     setLoading(true);
     setError('');
     setMessage('');
     try {
+      const result = await api.previewCompetitionFeatures(seasonId, requestedFlags);
+      setPreview(result);
+      setMessage('Prévia pronta; revise a matriz e confirme a prova reforçada.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Não foi possível gerar a prévia.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function save() {
+    if (!seasonId || !preview) return;
+    setLoading(true);
+    setError('');
+    setMessage('');
+    try {
       const result = await api.updateCompetitionFeatures(seasonId, {
-        readEnabled: flags.readEnabled,
-        writeEnabled: flags.writeEnabled,
-        uiEnabled: flags.uiEnabled,
-        syncEnabled: flags.syncEnabled,
-        reason: 'Ensaio administrativo e rollback independente das flags',
+        ...requestedFlags,
+        previewId: preview.previewId,
+        confirmation: preview.confirmation,
       });
       setFlags(result.flags);
+      setPreview(null);
       setMessage('Flags salvas com auditoria.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Não foi possível salvar as flags.');
@@ -123,7 +147,10 @@ export function BrasileiraoCanaryAdmin() {
                 key={key}
                 accessibilityLabel={`Flag ${label}`}
                 accessibilityRole="button"
-                onPress={() => setFlags((current) => ({ ...current, [key]: !current[key] }))}
+                onPress={() => {
+                  setPreview(null);
+                  setFlags((current) => ({ ...current, [key]: !current[key] }));
+                }}
                 style={[styles.flag, flags[key] && styles.flagEnabled]}
               >
                 <Text style={[styles.flagLabel, flags[key] && styles.flagLabelEnabled]}>
@@ -138,11 +165,11 @@ export function BrasileiraoCanaryAdmin() {
           <View style={styles.actions}>
             <Pressable
               accessibilityRole="button"
-              onPress={() => void save()}
+              onPress={() => void previewSave()}
               style={styles.primaryButton}
               disabled={loading}
             >
-              <Text style={styles.primaryText}>Salvar flags</Text>
+              <Text style={styles.primaryText}>Gerar prévia</Text>
             </Pressable>
             <Pressable
               accessibilityRole="button"
@@ -154,12 +181,28 @@ export function BrasileiraoCanaryAdmin() {
                   uiEnabled: false,
                   syncEnabled: false,
                 }));
+                setPreview(null);
               }}
               style={styles.rollbackButton}
             >
               <Text style={styles.rollbackText}>Preparar rollback</Text>
             </Pressable>
           </View>
+          {preview ? (
+            <View style={styles.confirmation}>
+              <Text style={styles.copy}>
+                Confirmação reforçada: <Text style={styles.proof}>{preview.confirmation}</Text>
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => void save()}
+                style={styles.rollbackButton}
+                disabled={loading}
+              >
+                <Text style={styles.rollbackText}>Aplicar estado revisado</Text>
+              </Pressable>
+            </View>
+          ) : null}
         </>
       )}
       {message ? <Text style={styles.success}>{message}</Text> : null}
@@ -198,6 +241,8 @@ const styles = StyleSheet.create({
   flagState: { color: '#8198b4', fontSize: 11, fontWeight: '900' },
   flagLabelEnabled: { color: '#69e7a4' },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  confirmation: { borderTopColor: '#3d6289', borderTopWidth: 1, gap: 8, paddingTop: 10 },
+  proof: { color: '#f0c773', fontFamily: 'monospace', fontWeight: '900' },
   primaryButton: {
     alignItems: 'center',
     backgroundColor: '#34d17b',

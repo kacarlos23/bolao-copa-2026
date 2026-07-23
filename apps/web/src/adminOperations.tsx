@@ -27,14 +27,25 @@ type Season = {
   poolSeasons: PoolSeason[];
   _count: { matches: number; teams: number };
   featureFlags: CompetitionFeatureFlags;
+  featureFlagsState: 'VALID' | 'MISSING' | 'INVALID' | 'RESTORED_DRAFT';
+  nextJob: { id: string; type: string; status: string; createdAt: string } | null;
   refresh: {
     available: boolean;
     providers: Array<{
       providerKey: string;
+      priority: number;
       enabledTypes: string[];
+      cadenceSeconds: number;
+      timeoutMs: number;
       includeProfiles: boolean;
       source: string;
       provenance: string;
+      schedule: {
+        cadenceSeconds: number;
+        mode: 'LIVE' | 'SCHEDULED_NEAR' | 'IDLE';
+        nextRunAt: string;
+        due: boolean;
+      } | null;
     }>;
     lastRun: {
       provider: string;
@@ -319,7 +330,7 @@ export function AdminOperationsPanel() {
     }
   }
 
-  async function jobAction(job: AdminJob, action: 'pause' | 'retry') {
+  async function jobAction(job: AdminJob, action: 'pause' | 'resume' | 'retry') {
     setBusy(true);
     setError('');
     try {
@@ -327,7 +338,9 @@ export function AdminOperationsPanel() {
         method: 'POST',
         idempotencyKey: operationKey(`job-${action}`),
         body: JSON.stringify({
-          justification: `${action === 'pause' ? 'Pausa' : 'Reexecucao'} operacional solicitada apos inspecao do impacto`,
+          justification: `${
+            action === 'pause' ? 'Pausa' : action === 'resume' ? 'Retomada' : 'Reexecucao'
+          } operacional solicitada apos inspecao do impacto`,
         }),
       });
       await load();
@@ -427,7 +440,18 @@ export function AdminOperationsPanel() {
         {selectedSeason?.refresh.providers.map((provider) => (
           <View key={provider.providerKey} style={styles.provider}>
             <Text style={styles.seasonName}>{provider.providerKey}</Text>
+            <Text style={styles.meta}>
+              prioridade {provider.priority} · base {provider.cadenceSeconds}s · timeout{' '}
+              {provider.timeoutMs}ms
+            </Text>
             <Text style={styles.meta}>{provider.source}</Text>
+            <Text style={styles.meta}>
+              {provider.schedule
+                ? `${provider.schedule.mode} · próximo job ${new Date(
+                    provider.schedule.nextRunAt,
+                  ).toLocaleString('pt-BR')}`
+                : 'Scheduler inativo para o status atual'}
+            </Text>
           </View>
         ))}
         {selectedSeason ? (
@@ -435,7 +459,8 @@ export function AdminOperationsPanel() {
             Canário atual — leitura: {selectedSeason.featureFlags.readEnabled ? 'on' : 'off'};
             escrita: {selectedSeason.featureFlags.writeEnabled ? 'on' : 'off'}; UI:{' '}
             {selectedSeason.featureFlags.uiEnabled ? 'on' : 'off'}; automático:{' '}
-            {selectedSeason.featureFlags.syncEnabled ? 'on' : 'off'}.
+            {selectedSeason.featureFlags.syncEnabled ? 'on' : 'off'}. Registro:{' '}
+            {selectedSeason.featureFlagsState}.
           </Text>
         ) : null}
         <TextInput
@@ -648,7 +673,10 @@ export function AdminOperationsPanel() {
               {['QUEUED', 'RUNNING'].includes(job.status) ? (
                 <Button label="Pausar" tone="warn" onPress={() => void jobAction(job, 'pause')} />
               ) : null}
-              {['PAUSED', 'FAILED'].includes(job.status) ? (
+              {job.status === 'PAUSED' ? (
+                <Button label="Retomar" onPress={() => void jobAction(job, 'resume')} />
+              ) : null}
+              {job.status === 'FAILED' ? (
                 <Button label="Reexecutar" onPress={() => void jobAction(job, 'retry')} />
               ) : null}
             </View>
