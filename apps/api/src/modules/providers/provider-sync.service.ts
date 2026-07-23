@@ -265,12 +265,42 @@ function providerJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
-function seasonTeamMetadata(team: NormalizedTeam) {
+function metadataObject(value: unknown) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+export function providerSeasonTeamMetadata(team: NormalizedTeam) {
   const metadata = {
     ...(team.providerMetadata ?? {}),
     ...(team.federation ? { federation: team.federation } : {}),
   };
   return Object.keys(metadata).length > 0 ? providerJson(metadata) : undefined;
+}
+
+export function mergeSeasonTeamMetadata(team: NormalizedTeam, current: unknown) {
+  const providerMetadata = metadataObject(providerSeasonTeamMetadata(team));
+  const currentMetadata = metadataObject(current);
+  const qualificationTransfer = currentMetadata.qualificationTransfer;
+  const merged = {
+    ...providerMetadata,
+    ...(qualificationTransfer === undefined ? {} : { qualificationTransfer }),
+  };
+  return Object.keys(merged).length > 0 ? providerJson(merged) : undefined;
+}
+
+function comparableSeasonTeamMetadata(value: unknown) {
+  const providerOwned = { ...metadataObject(value) };
+  delete providerOwned.qualificationTransfer;
+  return Object.keys(providerOwned).length > 0 ? providerOwned : null;
+}
+
+export function providerSeasonTeamMetadataMatches(team: NormalizedTeam, current: unknown) {
+  return (
+    checksum(comparableSeasonTeamMetadata(current)) ===
+    checksum(providerSeasonTeamMetadata(team) ?? null)
+  );
 }
 
 async function findProviderMapping(
@@ -543,7 +573,7 @@ async function processTeam(
             seasonId: options.seasonId,
             teamId: saved.id,
             groupName: team.groupName,
-            metadata: seasonTeamMetadata(team),
+            metadata: providerSeasonTeamMetadata(team),
           },
         });
         if (mapping) {
@@ -594,7 +624,7 @@ async function processTeam(
               seasonId: options.seasonId,
               teamId: internal!.id,
               groupName: team.groupName,
-              metadata: seasonTeamMetadata(team),
+              metadata: providerSeasonTeamMetadata(team),
             },
           });
           if (!internal!.countryCode && team.countryCode) {
@@ -622,6 +652,7 @@ async function processTeam(
 
   const providerOwnedExternalId = `${provider.name}:${options.seasonId}:team:${team.externalId}`;
   const preserveGlobalIdentity = internal.externalId !== providerOwnedExternalId;
+  const currentSeasonTeam = seasonTeams.find((entry) => entry.team.id === internal!.id);
   const changed =
     (!preserveGlobalIdentity &&
       (internal.name !== team.name ||
@@ -629,10 +660,8 @@ async function processTeam(
         (team.type !== undefined && internal.type !== team.type) ||
         (team.crestUrl !== undefined && internal.crestUrl !== team.crestUrl) ||
         (team.countryCode !== undefined && internal.countryCode !== team.countryCode))) ||
-    seasonTeams.find((entry) => entry.team.id === internal!.id)?.groupName !==
-      (team.groupName ?? null) ||
-    checksum(seasonTeams.find((entry) => entry.team.id === internal!.id)?.metadata ?? null) !==
-      checksum(seasonTeamMetadata(team) ?? null);
+    currentSeasonTeam?.groupName !== (team.groupName ?? null) ||
+    !providerSeasonTeamMetadataMatches(team, currentSeasonTeam?.metadata);
   let eventId: string | undefined;
   if (changed && !isReadOnlySync(options)) {
     eventId = await prisma.$transaction(async (tx) => {
@@ -653,7 +682,7 @@ async function processTeam(
         where: { seasonId_teamId: { seasonId: options.seasonId, teamId: internal!.id } },
         data: {
           groupName: team.groupName ?? null,
-          metadata: seasonTeamMetadata(team),
+          metadata: mergeSeasonTeamMetadata(team, currentSeasonTeam?.metadata),
         },
       });
       await tx.providerEntityMapping.update({

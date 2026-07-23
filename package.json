@@ -37,6 +37,7 @@
     "test:budget": "node scripts/check-performance-budget.mjs",
     "test:flakiness": "node scripts/check-flakiness.mjs",
     "test:rehearsal": "node scripts/run-release-rehearsal.mjs",
+    "test:canary:cups-2026": "node scripts/run-cups-2026-test-canary.mjs",
     "test:go-live-gate": "node --test scripts/verify-go-live-evidence.test.mjs",
     "audit:dependencies": "node scripts/run-dependency-audit.mjs",
     "manifest:release": "node scripts/generate-release-manifest.mjs",

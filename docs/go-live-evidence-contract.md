@@ -21,8 +21,9 @@ ambiente protegido e nunca ser escrita em arquivo ou log.
 - `observability`: dashboard e prova de disparo e recuperação para database,
   provider, ranking, SSE, outbox e backup.
 - `operational-rehearsal`: backup sanitizado derivado de produção, restore
-  isolado com avatares, quatro hashes idênticos da Copa, flags desligadas com ID
-  de auditoria e rollback aprovado.
+  isolado com avatares, quatro hashes idênticos da Copa, `readEnabled`,
+  `writeEnabled`, `uiEnabled` e `syncEnabled` desligadas com ID de auditoria e
+  rollback aprovado.
 
 O relatório produzido em `output/release-gates/go-live-external.json` não copia
 o conteúdo das evidências nem a assinatura; registra somente o resultado e os

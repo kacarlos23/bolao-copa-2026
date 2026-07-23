@@ -92,7 +92,7 @@ try {
     VALUES ('stage9-sanitized-user', 'stage9-fixture', 'stage9-fixture', 'Fixture Sanitizada', 'not-a-real-password-hash', 'USER', 'ACTIVE', now());
     INSERT INTO "Competition" (id, slug, name, "updatedAt") VALUES ('competition-stage9-canary', 'stage9-canary', 'Canário fixture', now());
     INSERT INTO "CompetitionSeason" (id, "competitionId", slug, name, timezone, status, "updatedAt") VALUES ('season-stage9-canary', 'competition-stage9-canary', 'stage9-canary-2026', 'Canário 2026 fixture', 'America/Sao_Paulo', 'ACTIVE', now());
-    INSERT INTO "AppSetting" (key, value, "updatedAt") VALUES ('competition-features:season-stage9-canary', '{"readEnabled":true,"writeEnabled":true,"uiEnabled":true,"reason":"Fixture sanitizada para ensaio","updatedAt":"2026-07-15T12:00:00.000Z","updatedById":null}', now());
+    INSERT INTO "AppSetting" (key, value, "updatedAt") VALUES ('competition-features:season-stage9-canary', '{"readEnabled":true,"writeEnabled":true,"uiEnabled":true,"syncEnabled":true,"reason":"Fixture sanitizada para ensaio","updatedAt":"2026-07-15T12:00:00.000Z","updatedById":null}', now());
   `);
   await source.end();
 
@@ -165,7 +165,7 @@ try {
   });
   await restored.connect();
   await restored.query(
-    `UPDATE "AppSetting" SET value = jsonb_build_object('readEnabled', false, 'writeEnabled', false, 'uiEnabled', false, 'reason', 'Rollback ensaiado com fixture sanitizada', 'updatedAt', '2026-07-15T12:05:00.000Z', 'updatedById', NULL), "updatedAt" = now() WHERE key = 'competition-features:season-stage9-canary'`,
+    `UPDATE "AppSetting" SET value = jsonb_build_object('readEnabled', false, 'writeEnabled', false, 'uiEnabled', false, 'syncEnabled', false, 'reason', 'Rollback ensaiado com fixture sanitizada', 'updatedAt', '2026-07-15T12:05:00.000Z', 'updatedById', NULL), "updatedAt" = now() WHERE key = 'competition-features:season-stage9-canary'`,
   );
   const flags = await restored.query(
     `SELECT value FROM "AppSetting" WHERE key = 'competition-features:season-stage9-canary'`,
@@ -174,7 +174,8 @@ try {
   if (
     flags.rows[0]?.value?.readEnabled !== false ||
     flags.rows[0]?.value?.writeEnabled !== false ||
-    flags.rows[0]?.value?.uiEnabled !== false
+    flags.rows[0]?.value?.uiEnabled !== false ||
+    flags.rows[0]?.value?.syncEnabled !== false
   )
     throw new Error('Rollback por flags não desligou todos os caminhos.');
   await run('node', ['scripts/copa-snapshot.mjs', '--output', rollbackFile], {
@@ -187,7 +188,7 @@ try {
   status = 'passed';
   await writeFile(
     path.join(outputDir, 'migration-restore-rollback.json'),
-    `${JSON.stringify({ formatVersion: 1, suite: 'migration-restore-rollback', status, durationMs: Date.now() - startedAt, pii: false, backup: 'sanitized-local-fixture', avatarsRestored: true, migrationApplied: true, rollbackFlags: { readEnabled: false, writeEnabled: false, uiEnabled: false }, copaHashBefore: snapshotHash(before), copaHashAfter: snapshotHash(after), copaContentHashesPreserved: JSON.stringify(before.contentHashes) === JSON.stringify(after.contentHashes) }, null, 2)}\n`,
+    `${JSON.stringify({ formatVersion: 1, suite: 'migration-restore-rollback', status, durationMs: Date.now() - startedAt, pii: false, backup: 'sanitized-local-fixture', avatarsRestored: true, migrationApplied: true, rollbackFlags: { readEnabled: false, writeEnabled: false, uiEnabled: false, syncEnabled: false }, copaHashBefore: snapshotHash(before), copaHashAfter: snapshotHash(after), copaContentHashesPreserved: JSON.stringify(before.contentHashes) === JSON.stringify(after.contentHashes) }, null, 2)}\n`,
   );
 } finally {
   for (const name of [restoreName, sourceName]) {

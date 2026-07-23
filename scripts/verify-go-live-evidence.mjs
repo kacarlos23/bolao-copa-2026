@@ -211,7 +211,8 @@ function allFlagsOff(value) {
     object(value) &&
     value.readEnabled === false &&
     value.writeEnabled === false &&
-    value.uiEnabled === false
+    value.uiEnabled === false &&
+    value.syncEnabled === false
   );
 }
 

@@ -347,10 +347,9 @@ export async function prepareConmebolCup2026(input: {
       updatedAt: new Date().toISOString(),
       updatedById: input.actorId ?? null,
     };
-    await tx.appSetting.upsert({
-      where: { key: `competition-features:${season.id}` },
-      create: { key: `competition-features:${season.id}`, value: flags },
-      update: { value: flags },
+    await tx.appSetting.createMany({
+      data: [{ key: `competition-features:${season.id}`, value: flags }],
+      skipDuplicates: true,
     });
     if (input.actorId) {
       await tx.adminAuditLog.create({

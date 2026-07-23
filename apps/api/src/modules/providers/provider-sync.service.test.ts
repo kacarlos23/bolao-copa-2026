@@ -168,7 +168,12 @@ vi.mock('../events/outbox.js', () => ({
   dispatchOutboxEvent: vi.fn(),
 }));
 
-import { activeProviderSyncCount, runProviderSync } from './provider-sync.service.js';
+import {
+  activeProviderSyncCount,
+  mergeSeasonTeamMetadata,
+  providerSeasonTeamMetadataMatches,
+  runProviderSync,
+} from './provider-sync.service.js';
 
 function teamProvider(): CompetitionDataProvider {
   return {
@@ -180,6 +185,43 @@ function teamProvider(): CompetitionDataProvider {
     healthCheck: vi.fn(async () => ({ ok: true, checkedAt: new Date().toISOString() })),
   };
 }
+
+describe('SeasonTeam metadata ownership', () => {
+  const team = {
+    externalId: 'club-santos',
+    name: 'Santos FC',
+    code: 'SAN',
+    federation: 'CONMEBOL',
+    providerMetadata: { entryRoute: 'LIBERTADORES_GROUP_THIRD' },
+  };
+  const qualificationTransfer = {
+    route: 'LIBERTADORES_GROUP_THIRD_TO_SUDAMERICANA_PLAYOFFS',
+    status: 'CONFIRMED',
+  };
+
+  it('ignora o vínculo entre competições ao verificar metadata do provider', () => {
+    expect(
+      providerSeasonTeamMetadataMatches(team, {
+        entryRoute: 'LIBERTADORES_GROUP_THIRD',
+        federation: 'CONMEBOL',
+        qualificationTransfer,
+      }),
+    ).toBe(true);
+  });
+
+  it('preserva o vínculo entre competições ao atualizar metadata do provider', () => {
+    expect(
+      mergeSeasonTeamMetadata(team, {
+        staleProviderField: true,
+        qualificationTransfer,
+      }),
+    ).toEqual({
+      entryRoute: 'LIBERTADORES_GROUP_THIRD',
+      federation: 'CONMEBOL',
+      qualificationTransfer,
+    });
+  });
+});
 
 describe('auditable provider pipeline', () => {
   beforeEach(() => mocks.reset());

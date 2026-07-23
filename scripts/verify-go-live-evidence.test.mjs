@@ -74,7 +74,12 @@ function evidenceSet() {
       dashboardPanelUrl: `https://monitoring.example.test/panel/${name}`,
     })),
   });
-  const off = { readEnabled: false, writeEnabled: false, uiEnabled: false };
+  const off = {
+    readEnabled: false,
+    writeEnabled: false,
+    uiEnabled: false,
+    syncEnabled: false,
+  };
   const operational = common('operational-rehearsal', {
     backup: {
       kind: 'sanitized-production',
@@ -136,5 +141,18 @@ describe('go-live evidence integrity gate', () => {
     set.observability.signals[0].recoveredAt = set.observability.signals[0].alertFiredAt;
     set.observability.signature = signEvidence(set.observability, hmacKey);
     assert.match(verifyEvidenceSet(set, context)[2].errors.join(' '), /database/);
+  });
+
+  it('rejects operational evidence with sync still enabled', () => {
+    const set = evidenceSet();
+    set['operational-rehearsal'].flags.after.syncEnabled = true;
+    set['operational-rehearsal'].signature = signEvidence(
+      set['operational-rehearsal'],
+      hmacKey,
+    );
+    assert.match(
+      verifyEvidenceSet(set, context)[3].errors.join(' '),
+      /feature flag audit evidence is incomplete/,
+    );
   });
 });

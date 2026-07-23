@@ -87,7 +87,14 @@ try {
       (New-PgDatabaseUrl -DatabaseUrl $MaintenanceDatabaseUrl -DatabaseName $TempDatabaseName),
       "Process"
     )
-    & node (Join-Path $PSScriptRoot "copa-snapshot.mjs") --output $VerificationSnapshotFile
+    $snapshotArguments = @("--output", $VerificationSnapshotFile)
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedSnapshot)) {
+      $expectedSnapshotDocument = Get-Content -LiteralPath $ExpectedSnapshot -Raw | ConvertFrom-Json
+      if ($expectedSnapshotDocument.PSObject.Properties.Name -contains "businessContentHashes") {
+        $snapshotArguments = @("--backfill") + $snapshotArguments
+      }
+    }
+    & node (Join-Path $PSScriptRoot "copa-snapshot.mjs") @snapshotArguments
     if ($LASTEXITCODE -ne 0) {
       throw "O snapshot de verificacao do banco restaurado falhou."
     }

@@ -82,6 +82,19 @@ function jsonObject(value: Prisma.JsonValue | null | undefined) {
     : {};
 }
 
+export function hasCopaDoBrasilCapabilities(value: Prisma.JsonValue | null | undefined) {
+  const capabilities = jsonObject(value);
+  return (
+    capabilities.format === 'KNOCKOUT' &&
+    capabilities.knockout === true &&
+    capabilities.twoLegs === true &&
+    capabilities.liveScoring === true &&
+    capabilities.standings === false &&
+    JSON.stringify(capabilities.rankingScopes) ===
+      JSON.stringify(['OVERALL', 'STAGE', 'ROUND'])
+  );
+}
+
 export async function copaDoBrasilAdministrativeSmoke(seasonId: string) {
   const [
     season,
@@ -144,12 +157,6 @@ export async function copaDoBrasilAdministrativeSmoke(seasonId: string) {
     tiesByStatus.find((entry) => entry.status === status)?._count ?? 0;
   const legCount = (legs: number) =>
     tiesByLegs.find((entry) => entry.expectedLegs === legs)?._count ?? 0;
-  const capabilityList =
-    season.capabilities &&
-    typeof season.capabilities === 'object' &&
-    !Array.isArray(season.capabilities)
-      ? ((season.capabilities as { capabilityList?: unknown }).capabilityList ?? [])
-      : [];
   const passed =
     season.slug === COPA_DO_BRASIL_2026_SEASON_SLUG &&
     season.status === 'DRAFT' &&
@@ -159,7 +166,7 @@ export async function copaDoBrasilAdministrativeSmoke(seasonId: string) {
     season._count.rounds === 9 &&
     season._count.ties === 118 &&
     season._count.matches === 142 &&
-    JSON.stringify(capabilityList) === JSON.stringify(['KNOCKOUT', 'TWO_LEGS', 'LIVE_SCORING']) &&
+    hasCopaDoBrasilCapabilities(season.capabilities) &&
     entryPhaseCounts['1'] === 28 &&
     entryPhaseCounts['2'] === 74 &&
     entryPhaseCounts['3'] === 4 &&
