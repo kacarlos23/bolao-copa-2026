@@ -9,44 +9,53 @@ const policy = {
 };
 
 describe('PoolSeason scoreability gate', () => {
-  it('uses the temporal cutoff before the legacy round gate', () => {
-    expect(
-      isPoolMatchScoreable(policy, {
-        roundOrder: 19,
-        startsAt: new Date('2026-07-16T02:59:59.999Z'),
-      }),
-    ).toBe(false);
-
+  it('uses the round cutoff as the source of truth when it is configured', () => {
     expect(
       isPoolMatchScoreable(policy, {
         roundOrder: 19,
         startsAt: new Date('2026-07-16T22:30:00.000Z'),
       }),
-    ).toBe(true);
-  });
+    ).toBe(false);
 
-  it('accepts a postponed old-round match played after the pool opened', () => {
     expect(
       isPoolMatchScoreable(policy, {
-        roundOrder: 4,
-        startsAt: new Date('2026-07-17T22:30:00.000Z'),
+        roundOrder: 20,
+        startsAt: new Date('2026-07-16T02:59:59.999Z'),
       }),
     ).toBe(true);
   });
 
-  it('falls back to the round gate when no temporal cutoff is configured', () => {
-    const roundOnlyPolicy = { ...policy, scoreableFrom: null };
+  it('rejects a postponed old-round match played after the pool opened', () => {
+    expect(
+      isPoolMatchScoreable(policy, {
+        roundOrder: 19,
+        startsAt: new Date('2026-07-17T22:30:00.000Z'),
+      }),
+    ).toBe(false);
+  });
+
+  it('accepts a postponed round 20 match', () => {
+    expect(
+      isPoolMatchScoreable(policy, {
+        roundOrder: 20,
+        startsAt: new Date('2026-09-25T21:30:00.000Z'),
+      }),
+    ).toBe(true);
+  });
+
+  it('falls back to the temporal gate when no round cutoff is configured', () => {
+    const dateOnlyPolicy = { ...policy, startsAtRound: null, scoreableFromRound: null };
 
     expect(
-      isPoolMatchScoreable(roundOnlyPolicy, {
-        roundOrder: 19,
-        startsAt: new Date('2026-07-25T21:30:00.000Z'),
+      isPoolMatchScoreable(dateOnlyPolicy, {
+        roundOrder: null,
+        startsAt: new Date('2026-07-16T02:59:59.999Z'),
       }),
     ).toBe(false);
     expect(
-      isPoolMatchScoreable(roundOnlyPolicy, {
-        roundOrder: 20,
-        startsAt: new Date('2026-07-25T21:30:00.000Z'),
+      isPoolMatchScoreable(dateOnlyPolicy, {
+        roundOrder: null,
+        startsAt: new Date('2026-07-16T03:00:00.000Z'),
       }),
     ).toBe(true);
   });

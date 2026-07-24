@@ -117,4 +117,54 @@ describe('PremiumRanking', () => {
     fireEvent.click(screen.getByText('Sala de Troféus'));
     expect(screen.getByText('CONMEBOL Libertadores 2026')).toBeTruthy();
   });
+
+  it('keeps the premium ranking and fundraising KPI visible with zero scores', () => {
+    render(
+      <PremiumRanking
+        seasonName="Brasileirão Série A 2026"
+        ranking={[]}
+        roundRanking={[]}
+        currentUserId="user-1"
+        scope="overall"
+        onScopeChange={vi.fn()}
+        connection="live"
+        syncing={false}
+        lastSyncedAt={null}
+        onRefresh={vi.fn()}
+        awards={[]}
+        engagement={null}
+        tieBreakers={[]}
+        fundraisingCents={0}
+      />,
+    );
+
+    expect(screen.getByText('Corrida pelo topo')).toBeTruthy();
+    expect(screen.getByText('Valor arrecadado')).toBeTruthy();
+    expect(screen.getByText(/R\$\s*0,00/)).toBeTruthy();
+    expect(screen.getByText('Ação entre amigos para custear a viagem')).toBeTruthy();
+    expect(screen.getByText('0 participante(s)')).toBeTruthy();
+  });
+
+  it('formats the fundraising KPI with Brazilian thousands and cents', () => {
+    render(
+      <PremiumRanking
+        seasonName="Brasileirão Série A 2026"
+        ranking={[row(1, 'Ana', 0)]}
+        roundRanking={[]}
+        currentUserId="user-1"
+        scope="overall"
+        onScopeChange={vi.fn()}
+        connection="live"
+        syncing={false}
+        lastSyncedAt={null}
+        onRefresh={vi.fn()}
+        awards={[]}
+        engagement={null}
+        tieBreakers={[]}
+        fundraisingCents={125_000}
+      />,
+    );
+
+    expect(screen.getByText(/R\$\s*1\.250,00/)).toBeTruthy();
+  });
 });

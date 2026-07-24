@@ -17,6 +17,7 @@ import type { RankingRowDto } from '@bolao/shared';
 import { API_URL, type EngagementDashboard, type RankingAward } from '../../api';
 import type { ConnectionStatus } from '../../services/realtime';
 import { theme } from '../../theme/tokens';
+import { formatBrlCents } from '../../fundraising';
 
 export type PremiumRankingScope = 'overall' | 'stage' | 'round' | 'month' | 'turn-1' | 'turn-2';
 type StatusFilter = 'all' | 'live' | 'final';
@@ -483,6 +484,7 @@ export function PremiumRanking({
   awards,
   engagement,
   tieBreakers,
+  fundraisingCents = null,
 }: {
   seasonName: string;
   ranking: RankingRowDto[];
@@ -498,6 +500,7 @@ export function PremiumRanking({
   awards: RankingAward[];
   engagement: EngagementDashboard | null;
   tieBreakers: string[];
+  fundraisingCents?: number | null;
 }) {
   const { width } = useWindowDimensions();
   const compact = width < 768;
@@ -665,6 +668,16 @@ export function PremiumRanking({
 
       <View style={styles.statsGrid}>
         {[
+          ...(fundraisingCents != null
+            ? [
+                [
+                  'Valor arrecadado',
+                  formatBrlCents(fundraisingCents),
+                  'Ação entre amigos para custear a viagem',
+                  'fundraising',
+                ],
+              ]
+            : []),
           ['Participantes', String(ranking.length), 'na temporada'],
           [
             'SUA POSIÇÃO',
@@ -698,10 +711,18 @@ export function PremiumRanking({
             current ? `${roundPoints.get(current.userId) ?? 0} pts` : '—',
             scope === 'round' ? 'rodada selecionada' : 'rodada atual',
           ],
-        ].map(([label, value, detail]) => (
-          <View {...dataTarget('stat')} key={label} style={styles.statCard}>
-            <Text style={styles.statLabel}>{label}</Text>
-            <Text style={styles.statValue}>{value}</Text>
+        ].map(([label, value, detail, tone]) => (
+          <View
+            {...dataTarget('stat')}
+            key={label}
+            style={[styles.statCard, tone === 'fundraising' && styles.fundraisingStatCard]}
+          >
+            <Text style={[styles.statLabel, tone === 'fundraising' && styles.fundraisingStatLabel]}>
+              {label}
+            </Text>
+            <Text style={[styles.statValue, tone === 'fundraising' && styles.fundraisingStatValue]}>
+              {value}
+            </Text>
             <Text style={styles.statDetail}>{detail}</Text>
           </View>
         ))}
@@ -1048,6 +1069,12 @@ const styles = StyleSheet.create({
     minWidth: 150,
     padding: 15,
   },
+  fundraisingStatCard: {
+    backgroundColor: 'rgba(244, 214, 92, 0.12)',
+    borderColor: theme.color.gold,
+  },
+  fundraisingStatLabel: { color: theme.color.gold },
+  fundraisingStatValue: { color: theme.color.gold, fontSize: 23 },
   statLabel: {
     color: theme.color.textMuted,
     fontSize: 10,

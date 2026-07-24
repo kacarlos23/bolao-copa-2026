@@ -186,7 +186,7 @@ describe('scoped prediction write', () => {
     expect(mocks.outboxFindUnique).not.toHaveBeenCalled();
   });
 
-  it('accepts an old-round fixture rescheduled after the temporal cutoff', async () => {
+  it('rejects an old-round fixture rescheduled after the temporal cutoff', async () => {
     const tx = transactionClient('season-1', {
       roundOrder: 4,
       poolSeason: {
@@ -198,17 +198,16 @@ describe('scoped prediction write', () => {
     });
     mocks.transaction.mockImplementation(async (callback) => callback(tx));
 
-    await expect(savePredictions(input)).resolves.toMatchObject({
-      predictions: [expect.objectContaining({ matchId: 'match-1' })],
+    await expect(savePredictions(input)).rejects.toMatchObject({
+      code: 'PREDICTION_MATCH_NOT_SCOREABLE',
     });
-    expect(tx.prediction.upsert).toHaveBeenCalledOnce();
+    expect(tx.prediction.upsert).not.toHaveBeenCalled();
   });
 
   it('fails closed before writing when feature flags are missing', async () => {
     const tx = transactionClient();
-    tx.appSetting.findUnique.mockImplementation(
-      async ({ where }: { where: { key: string } }) =>
-        where.key.startsWith('competition-features:') ? null : { value: { minutes: 5 } },
+    tx.appSetting.findUnique.mockImplementation(async ({ where }: { where: { key: string } }) =>
+      where.key.startsWith('competition-features:') ? null : { value: { minutes: 5 } },
     );
     mocks.transaction.mockImplementation(async (callback) => callback(tx));
 
@@ -222,21 +221,20 @@ describe('scoped prediction write', () => {
   it('preserves restored DRAFT write access without persisting syncEnabled', async () => {
     const tx = transactionClient();
     tx.competitionSeason.findUnique.mockResolvedValue({ status: 'DRAFT' });
-    tx.appSetting.findUnique.mockImplementation(
-      async ({ where }: { where: { key: string } }) =>
-        where.key.startsWith('competition-features:')
-          ? {
-              key: where.key,
-              value: {
-                readEnabled: true,
-                writeEnabled: true,
-                uiEnabled: true,
-                reason: 'Estado restaurado preservado até decisão operacional.',
-                updatedAt: '2026-07-15T12:00:00.000Z',
-                updatedById: 'admin-1',
-              },
-            }
-          : { value: { minutes: 5 } },
+    tx.appSetting.findUnique.mockImplementation(async ({ where }: { where: { key: string } }) =>
+      where.key.startsWith('competition-features:')
+        ? {
+            key: where.key,
+            value: {
+              readEnabled: true,
+              writeEnabled: true,
+              uiEnabled: true,
+              reason: 'Estado restaurado preservado até decisão operacional.',
+              updatedAt: '2026-07-15T12:00:00.000Z',
+              updatedById: 'admin-1',
+            },
+          }
+        : { value: { minutes: 5 } },
     );
     mocks.transaction.mockImplementation(async (callback) => callback(tx));
 

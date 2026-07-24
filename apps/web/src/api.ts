@@ -43,7 +43,13 @@ export interface PoolSeasonRules {
     key: string;
     name: string;
     version: number;
-    rules: { exactScore: number; correctOutcome: number; oneTeamGoals: number; miss: number };
+    rules: {
+      exactScore: number;
+      correctOutcome: number;
+      oneTeamGoals: number;
+      miss: number;
+      addTeamGoalsBonusToCorrectOutcome?: boolean;
+    };
   };
   tieBreakers: {
     id: string;
@@ -474,6 +480,22 @@ export interface AdminMutationPreview {
   preview: unknown;
 }
 
+export interface Fundraising {
+  poolSeasonId: string;
+  amountCents: number;
+  description: string;
+  updatedAt: string | null;
+  updatedById: string | null;
+  lastJustification: string | null;
+}
+
+export interface AdminFundraisingOverview {
+  fundraising: Fundraising;
+  eligibleMatches: number;
+  activeParticipants: number;
+  estimatedContributionCents: number;
+}
+
 export interface PublicKnockoutBracket {
   id: string;
   submittedAt: string;
@@ -664,6 +686,47 @@ export const api = {
     }),
   seasonRules: (poolSlug: string, seasonId: string) =>
     request<PoolSeasonRules>(`/api/pools/${poolSlug}/seasons/${seasonId}/rules`),
+  seasonFundraising: (poolSlug: string, seasonId: string) =>
+    request<{ fundraising: Fundraising }>(
+      `/api/pools/${encodeURIComponent(poolSlug)}/seasons/${encodeURIComponent(seasonId)}/fundraising`,
+    ),
+  adminFundraising: (seasonId: string, poolSeasonId: string) =>
+    request<AdminFundraisingOverview>(
+      `/api/admin/fundraising?seasonId=${encodeURIComponent(seasonId)}&poolSeasonId=${encodeURIComponent(poolSeasonId)}`,
+    ),
+  previewFundraising: (input: {
+    seasonId: string;
+    poolSeasonId: string;
+    amountCents: number;
+    justification: string;
+  }) =>
+    request<AdminMutationPreview>('/api/admin/fundraising/preview', {
+      method: 'POST',
+      body: JSON.stringify(input),
+      idempotencyKey:
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `fundraising-preview-${input.poolSeasonId}-${Date.now()}`,
+    }),
+  updateFundraising: (input: {
+    seasonId: string;
+    poolSeasonId: string;
+    amountCents: number;
+    justification: string;
+    previewId: string;
+    confirmation: string;
+  }) =>
+    request<{ fundraising: Fundraising; affectedCount: number; replayed: boolean }>(
+      '/api/admin/fundraising',
+      {
+        method: 'PUT',
+        body: JSON.stringify(input),
+        idempotencyKey:
+          typeof crypto !== 'undefined' && 'randomUUID' in crypto
+            ? crypto.randomUUID()
+            : `fundraising-apply-${input.poolSeasonId}-${Date.now()}`,
+      },
+    ),
   seasonEngagement: (poolSlug: string, seasonId: string) =>
     request<EngagementDashboard>(`/api/pools/${poolSlug}/seasons/${seasonId}/engagement`),
   seasonAwards: (poolSlug: string, seasonId: string) =>

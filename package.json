@@ -51,6 +51,7 @@
     "backfill:world-cup-2026": "npm --workspace @bolao/api run backfill:world-cup-2026 --",
     "backfill:stage7-engagement": "npm --workspace @bolao/api run backfill:stage7-engagement",
     "load:brasileirao-2026": "npm --workspace @bolao/api run load:brasileirao-2026",
+    "reprocess:brasileirao-2026": "npm --workspace @bolao/api run reprocess:brasileirao-2026 --",
     "collect:sudamericana-2026": "npm --workspace @bolao/api run collect:sudamericana-2026 --",
     "load:sudamericana-2026": "npm --workspace @bolao/api run load:sudamericana-2026 --",
     "reconcile:sudamericana-2026": "npm --workspace @bolao/api run reconcile:sudamericana-2026 --",

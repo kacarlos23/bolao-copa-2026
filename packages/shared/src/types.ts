@@ -13,17 +13,14 @@ export interface ScoreInput {
   actualAwayScore: number;
 }
 
-export type ScoringCriterion =
-  | 'EXACT_SCORE'
-  | 'CORRECT_OUTCOME'
-  | 'ONE_TEAM_GOALS'
-  | 'MISS';
+export type ScoringCriterion = 'EXACT_SCORE' | 'CORRECT_OUTCOME' | 'ONE_TEAM_GOALS' | 'MISS';
 
 export interface ScoringRuleValues {
   exactScore: number;
   correctOutcome: number;
   oneTeamGoals: number;
   miss: number;
+  addTeamGoalsBonusToCorrectOutcome?: boolean;
 }
 
 export interface ScoringRuleSetInput {
@@ -37,6 +34,9 @@ export interface ScoringRuleSetInput {
 export interface ScoreBreakdown {
   criterion: ScoringCriterion;
   awardedPoints: number;
+  resultPoints: number;
+  teamGoalsBonusPoints: number;
+  totalPoints: number;
   exactScore: boolean;
   outcomeMatched: boolean;
   homeGoalsMatched: boolean;
@@ -50,12 +50,7 @@ export interface ScoreResult {
   breakdown: ScoreBreakdown;
 }
 
-export type TieBreakerField =
-  | 'points'
-  | 'exactScores'
-  | 'resultHits'
-  | 'oneGoalHits'
-  | 'misses';
+export type TieBreakerField = 'points' | 'exactScores' | 'resultHits' | 'oneGoalHits' | 'misses';
 
 export interface TieBreakerCriterion {
   field: TieBreakerField;

@@ -1,4 +1,4 @@
-import { compareByTieBreakers } from '@bolao/shared';
+import { compareByTieBreakers, scoreBreakdownHasTeamGoalsHit } from '@bolao/shared';
 import type { ScoreType, StageType } from '@prisma/client';
 import { z } from 'zod';
 
@@ -68,6 +68,7 @@ export interface AchievementScoreFact {
   matchId: string;
   points: number;
   scoreType: ScoreType;
+  breakdown?: unknown;
   isFinal: boolean;
 }
 
@@ -115,7 +116,7 @@ function rankingRows(scores: AchievementScoreFact[]) {
     row.points += score.points;
     if (score.scoreType === 'EXACT_SCORE') row.exactScores += 1;
     if (score.scoreType === 'RESULT') row.resultHits += 1;
-    if (score.scoreType === 'ONE_TEAM_GOALS') row.oneGoalHits += 1;
+    if (scoreBreakdownHasTeamGoalsHit(score.scoreType, score.breakdown)) row.oneGoalHits += 1;
     if (score.scoreType === 'MISS') row.misses += 1;
     rows.set(score.userId, row);
   }

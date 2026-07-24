@@ -185,6 +185,8 @@ enum AuditAction {
   JOB_PAUSED
   JOB_RETRIED
   SEASON_PROVIDER_CONFIG_CHANGED
+  FUNDRAISING_UPDATED
+  RANKING_REPROCESSED
 }
 
 enum AdminOperationStatus {
@@ -231,6 +233,7 @@ model User {
   rankingVisits           UserPoolSeasonVisit[]
   notifications           NotificationInbox[]
   notificationPreferences NotificationPreference[]
+  fundraisingUpdates      PoolSeasonFundraising[]          @relation("FundraisingUpdater")
 
   @@index([role, status])
   @@index([nickname])
@@ -474,6 +477,7 @@ model PoolSeason {
   rankingVisits              UserPoolSeasonVisit[]
   notifications              NotificationInbox[]
   notificationPreferences    NotificationPreference[]
+  fundraising                PoolSeasonFundraising?
 
   @@unique([poolId, seasonId])
   @@index([seasonId])
@@ -481,6 +485,19 @@ model PoolSeason {
   @@index([scoringRuleSetVersionId])
   @@index([tieBreakerRuleSetId])
   @@index([scoreableFrom])
+}
+
+model PoolSeasonFundraising {
+  poolSeasonId      String     @id
+  amountCents       Int        @default(0)
+  lastJustification String
+  updatedById       String?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  poolSeason        PoolSeason @relation(fields: [poolSeasonId], references: [id], onDelete: Cascade)
+  updatedBy         User?      @relation("FundraisingUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([updatedById, updatedAt])
 }
 
 model ScoringRuleSet {

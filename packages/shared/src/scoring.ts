@@ -14,6 +14,20 @@ export const INITIAL_SCORING_RULE_SET = Object.freeze({
   rules: Object.freeze({ exactScore: 15, correctOutcome: 3, oneTeamGoals: 1, miss: 0 }),
 }) satisfies ScoringRuleSetInput;
 
+export const BRASILEIRAO_2026_SCORING_RULE_SET = Object.freeze({
+  id: 'scoring-rule-set-version-brasileirao-6-3-plus-1-0-v1',
+  key: 'brasileirao-6-3-plus-1-0',
+  name: 'Brasileirão 6/3+1/1/0',
+  version: 1,
+  rules: Object.freeze({
+    exactScore: 6,
+    correctOutcome: 3,
+    oneTeamGoals: 1,
+    miss: 0,
+    addTeamGoalsBonusToCorrectOutcome: true,
+  }),
+}) satisfies ScoringRuleSetInput;
+
 export const INITIAL_TIE_BREAKERS = Object.freeze([
   { field: 'points', direction: 'desc', label: 'Mais pontos' },
   { field: 'exactScores', direction: 'desc', label: 'Mais placares exatos' },
@@ -29,10 +43,16 @@ function outcome(home: number, away: number): 'HOME' | 'AWAY' | 'DRAW' {
 }
 
 function assertRuleValues(rules: ScoringRuleValues) {
-  for (const value of Object.values(rules)) {
+  for (const value of [rules.exactScore, rules.correctOutcome, rules.oneTeamGoals, rules.miss]) {
     if (!Number.isSafeInteger(value) || value < 0) {
       throw new TypeError('Scoring rule points must be non-negative safe integers.');
     }
+  }
+  if (
+    rules.addTeamGoalsBonusToCorrectOutcome !== undefined &&
+    typeof rules.addTeamGoalsBonusToCorrectOutcome !== 'boolean'
+  ) {
+    throw new TypeError('The additive team-goals bonus flag must be boolean.');
   }
 }
 
@@ -50,12 +70,32 @@ export function calculatePredictionScore(
   const outcomeMatched = predictedOutcome === actualOutcome;
   const homeGoalsMatched = input.predictedHomeScore === input.actualHomeScore;
   const awayGoalsMatched = input.predictedAwayScore === input.actualAwayScore;
+  const teamGoalsMatched = homeGoalsMatched || awayGoalsMatched;
+  const resultPoints = !exactScore && outcomeMatched ? ruleSet.rules.correctOutcome : 0;
+  const teamGoalsBonusPoints =
+    !exactScore &&
+    teamGoalsMatched &&
+    (!outcomeMatched || ruleSet.rules.addTeamGoalsBonusToCorrectOutcome === true)
+      ? ruleSet.rules.oneTeamGoals
+      : 0;
   const result = exactScore
-    ? { points: ruleSet.rules.exactScore, scoreType: 'EXACT_SCORE' as const, criterion: 'EXACT_SCORE' as const }
+    ? {
+        points: ruleSet.rules.exactScore,
+        scoreType: 'EXACT_SCORE' as const,
+        criterion: 'EXACT_SCORE' as const,
+      }
     : outcomeMatched
-      ? { points: ruleSet.rules.correctOutcome, scoreType: 'RESULT' as const, criterion: 'CORRECT_OUTCOME' as const }
-      : homeGoalsMatched || awayGoalsMatched
-        ? { points: ruleSet.rules.oneTeamGoals, scoreType: 'ONE_TEAM_GOALS' as const, criterion: 'ONE_TEAM_GOALS' as const }
+      ? {
+          points: resultPoints + teamGoalsBonusPoints,
+          scoreType: 'RESULT' as const,
+          criterion: 'CORRECT_OUTCOME' as const,
+        }
+      : teamGoalsMatched
+        ? {
+            points: teamGoalsBonusPoints,
+            scoreType: 'ONE_TEAM_GOALS' as const,
+            criterion: 'ONE_TEAM_GOALS' as const,
+          }
         : { points: ruleSet.rules.miss, scoreType: 'MISS' as const, criterion: 'MISS' as const };
 
   return {
@@ -64,6 +104,9 @@ export function calculatePredictionScore(
     breakdown: {
       criterion: result.criterion,
       awardedPoints: result.points,
+      resultPoints,
+      teamGoalsBonusPoints,
+      totalPoints: result.points,
       exactScore,
       outcomeMatched,
       homeGoalsMatched,
@@ -71,6 +114,25 @@ export function calculatePredictionScore(
       rule: { ...ruleSet.rules },
     },
   };
+}
+
+export function scoreBreakdownHasTeamGoalsHit(
+  scoreType: ScoreResult['scoreType'],
+  breakdown: unknown,
+) {
+  if (scoreType === 'ONE_TEAM_GOALS') return true;
+  if (!breakdown || typeof breakdown !== 'object' || Array.isArray(breakdown)) return false;
+  const value = breakdown as Record<string, unknown>;
+  if (typeof value.teamGoalsBonusPoints === 'number') return value.teamGoalsBonusPoints > 0;
+  if (scoreType !== 'RESULT' || value.exactScore === true) return false;
+  const rule =
+    value.rule && typeof value.rule === 'object' && !Array.isArray(value.rule)
+      ? (value.rule as Record<string, unknown>)
+      : null;
+  return (
+    rule?.addTeamGoalsBonusToCorrectOutcome === true &&
+    (value.homeGoalsMatched === true || value.awayGoalsMatched === true)
+  );
 }
 
 export function compareByTieBreakers<T extends Record<TieBreakerCriterion['field'], number>>(

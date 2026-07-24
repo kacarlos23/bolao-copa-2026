@@ -17,6 +17,7 @@
     "backfill:world-cup-2026": "tsx prisma/backfill-world-cup-2026.ts",
     "backfill:stage7-engagement": "tsx src/scripts/backfill-stage7-engagement.ts",
     "load:brasileirao-2026": "tsx src/scripts/load-brasileirao-2026.ts",
+    "reprocess:brasileirao-2026": "tsx src/scripts/reprocess-brasileirao-2026.ts",
     "collect:sudamericana-2026": "tsx src/scripts/collect-sudamericana-2026.ts",
     "load:sudamericana-2026": "tsx src/scripts/load-sudamericana-2026.ts",
     "reconcile:sudamericana-2026": "tsx src/scripts/reconcile-sudamericana-2026.ts",

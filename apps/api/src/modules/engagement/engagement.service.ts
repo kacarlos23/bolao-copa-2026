@@ -65,6 +65,7 @@ export async function recomputePoolSeasonEngagement(poolSeasonId: string) {
           userId: true,
           points: true,
           scoreType: true,
+          breakdown: true,
           isFinal: true,
           calculationKey: true,
           match: {
@@ -114,7 +115,10 @@ export async function recomputePoolSeasonEngagement(poolSeasonId: string) {
           tie: { select: { expectedLegs: true } },
         },
       }),
-      tx.prediction.groupBy({ by: ['userId'], where: { poolSeasonId }, _count: { _all: true } }),
+      tx.prediction.findMany({
+        where: { poolSeasonId },
+        select: { userId: true, matchId: true },
+      }),
       tx.knockoutBracket.findMany({
         where: { poolSeasonId },
         select: { userId: true, _count: { select: { picks: true } } },
@@ -126,7 +130,6 @@ export async function recomputePoolSeasonEngagement(poolSeasonId: string) {
       if (!definitionsByKey.has(definition.key)) definitionsByKey.set(definition.key, definition);
     }
     const latestDefinitions = [...definitionsByKey.values()];
-    const predictionCounts = new Map(predictions.map((item) => [item.userId, item._count._all]));
     const bracketComplete = new Set(
       brackets.filter((item) => item._count.picks === 32).map((item) => item.userId),
     );
@@ -149,6 +152,11 @@ export async function recomputePoolSeasonEngagement(poolSeasonId: string) {
     const scoreableMatchIds = new Set(
       achievementMatches.filter((match) => match.scoreable).map((match) => match.matchId),
     );
+    const predictionCounts = new Map<string, number>();
+    for (const prediction of predictions) {
+      if (!scoreableMatchIds.has(prediction.matchId)) continue;
+      predictionCounts.set(prediction.userId, (predictionCounts.get(prediction.userId) ?? 0) + 1);
+    }
     const achievementScores: AchievementScoreFact[] = regularScores.map((score) => ({
       seasonId: score.match.seasonId ?? poolSeason.seasonId,
       poolSeasonId,
@@ -156,6 +164,7 @@ export async function recomputePoolSeasonEngagement(poolSeasonId: string) {
       matchId: score.match.id,
       points: score.points,
       scoreType: score.scoreType,
+      breakdown: score.breakdown,
       isFinal: score.isFinal,
     }));
     const roundMatches = new Map<string, AchievementMatchFact[]>();

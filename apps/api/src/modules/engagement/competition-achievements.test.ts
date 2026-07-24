@@ -130,6 +130,36 @@ describe('configured cup achievements', () => {
     expect(corrected).toMatchObject({ satisfied: false, progress: { points: 0 } });
   });
 
+  it('uses the breakdown goal bonus as a ranking tie-break for achievements', () => {
+    const criterion = { type: 'scopeLeader', scope: { stageType: 'KNOCKOUT' } } as const;
+    const matches = [match({ matchId: 'final' })];
+    const scores = [
+      score({
+        matchId: 'final',
+        points: 4,
+        scoreType: 'RESULT',
+        breakdown: { teamGoalsBonusPoints: 1 },
+      }),
+      score({
+        matchId: 'final',
+        userId: 'user-b',
+        points: 4,
+        scoreType: 'RESULT',
+        breakdown: { teamGoalsBonusPoints: 0 },
+      }),
+    ];
+
+    expect(
+      deriveConfiguredAchievementFact({
+        ...context,
+        criterion,
+        matches,
+        scores,
+        seasonFinished: false,
+      }),
+    ).toMatchObject({ satisfied: true, progress: { points: 4 } });
+  });
+
   it('awards two exact final legs once, independent of a penalty decision', () => {
     const matches = [
       match({

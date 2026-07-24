@@ -1,4 +1,5 @@
 import { Prisma, type RoundStatus } from '@prisma/client';
+import { BRASILEIRAO_2026_SCORING_RULE_SET } from '@bolao/shared';
 import { AppError } from '../../http/errors.js';
 import { prisma } from '../../prisma.js';
 import { dispatchOutboxEvent, enqueueOutboxEvent } from '../events/outbox.js';
@@ -21,9 +22,9 @@ export const BRASILEIRAO_2026_TIE_BREAK_VERSION = 'cbf-rec-2026-art-15-v1';
 
 export function brasileirao2026PredictionPolicy() {
   return {
-    scoreableFromRound: null,
-    scoreableFrom: new Date(BRASILEIRAO_2026_SCOREABLE_FROM.getTime()),
-    startsAtRound: null,
+    scoreableFromRound: BRASILEIRAO_2026_STARTS_AT_ROUND,
+    scoreableFrom: null,
+    startsAtRound: BRASILEIRAO_2026_STARTS_AT_ROUND,
     historicalMatchesScoreable: false,
   } as const;
 }
@@ -108,6 +109,7 @@ export async function prepareBrasileirao2026(input: {
         capabilities: {
           format: 'LEAGUE',
           standings: true,
+          fundraising: true,
           knockout: false,
           rankingScopes: ['OVERALL', 'ROUND', 'MONTH', 'TURN'],
         },
@@ -118,6 +120,7 @@ export async function prepareBrasileirao2026(input: {
         capabilities: {
           format: 'LEAGUE',
           standings: true,
+          fundraising: true,
           knockout: false,
           rankingScopes: ['OVERALL', 'ROUND', 'MONTH', 'TURN'],
         },
@@ -263,19 +266,19 @@ export async function prepareBrasileirao2026(input: {
       );
     }
     const scoringRuleSet = await tx.scoringRuleSet.upsert({
-      where: { key_version: { key: 'brasileirao-serie-a', version: 1 } },
+      where: { key_version: { key: 'brasileirao-serie-a', version: 2 } },
       create: {
         key: 'brasileirao-serie-a',
-        name: 'Bolão Brasileirão Série A',
-        version: 1,
-        rules: { exactScore: 15, outcome: 3, oneTeamGoals: 1, miss: 0 },
+        name: BRASILEIRAO_2026_SCORING_RULE_SET.name,
+        version: 2,
+        rules: BRASILEIRAO_2026_SCORING_RULE_SET.rules,
         tieBreakers: ['points', 'exactScores', 'resultHits', 'oneGoalHits', 'fewerMisses', 'name'],
         effectiveAt: BRASILEIRAO_2026_SCOREABLE_FROM,
         metadata: { source: 'packages/shared/src/scoring.ts' },
       },
       update: {
-        name: 'Bolão Brasileirão Série A',
-        rules: { exactScore: 15, outcome: 3, oneTeamGoals: 1, miss: 0 },
+        name: BRASILEIRAO_2026_SCORING_RULE_SET.name,
+        rules: BRASILEIRAO_2026_SCORING_RULE_SET.rules,
         tieBreakers: ['points', 'exactScores', 'resultHits', 'oneGoalHits', 'fewerMisses', 'name'],
         effectiveAt: BRASILEIRAO_2026_SCOREABLE_FROM,
       },
@@ -296,17 +299,17 @@ export async function prepareBrasileirao2026(input: {
         poolId: pool.id,
         seasonId: season.id,
         scoringRuleSetId: scoringRuleSet.id,
-        scoringRuleSetVersionId: 'scoring-rule-set-version-15-3-1-0-v1',
+        scoringRuleSetVersionId: BRASILEIRAO_2026_SCORING_RULE_SET.id,
         tieBreakerRuleSetId: 'tie-breaker-classic-v1',
         ...predictionPolicy,
-        metadata: { policyVersion: 'brasileirao-2026-v2-temporal', canary: true },
+        metadata: { policyVersion: 'brasileirao-2026-v3-round-20', canary: true },
       },
       update: {
         scoringRuleSetId: scoringRuleSet.id,
-        scoringRuleSetVersionId: 'scoring-rule-set-version-15-3-1-0-v1',
+        scoringRuleSetVersionId: BRASILEIRAO_2026_SCORING_RULE_SET.id,
         tieBreakerRuleSetId: 'tie-breaker-classic-v1',
         ...predictionPolicy,
-        metadata: { policyVersion: 'brasileirao-2026-v2-temporal', canary: true },
+        metadata: { policyVersion: 'brasileirao-2026-v3-round-20', canary: true },
       },
     });
 

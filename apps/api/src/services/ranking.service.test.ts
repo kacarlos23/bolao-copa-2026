@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildAwardWinner,
+  buildRankingRows,
   compareRankingRows,
+  rankingMatchFilter,
   rankingSnapshotRetentionCutoff,
+  scoreableRankingMatchFilter,
   type RankingAwardScoreInput,
   type RankingRowBase,
 } from './ranking.service.js';
@@ -98,6 +101,37 @@ describe('ranking snapshot retention', () => {
   });
 });
 
+describe('round-20 ranking reset', () => {
+  it('applies the round gate to the overall ranking and bounds the second turn', () => {
+    expect(
+      scoreableRankingMatchFilter({
+        scoreableFromRound: 20,
+        startsAtRound: 20,
+        scoreableFrom: new Date('2026-07-16T03:00:00.000Z'),
+        historicalMatchesScoreable: false,
+      }),
+    ).toEqual({ round: { order: { gte: 20 } } });
+    expect(rankingMatchFilter('all', { scope: 'turn', turn: 2 })).toEqual({
+      round: { order: { gte: 20, lte: 38 } },
+    });
+  });
+
+  it('keeps active participants tied in first place when nobody has a score', () => {
+    const rows = buildRankingRows(
+      [
+        { id: 'user-b', nickname: 'Bia', avatarUrl: null, scores: [], knockoutScores: [] },
+        { id: 'user-a', nickname: 'Ana', avatarUrl: null, scores: [], knockoutScores: [] },
+      ],
+      'all',
+    );
+
+    expect(rows).toEqual([
+      expect.objectContaining({ userId: 'user-a', rank: 1, points: 0, played: 0 }),
+      expect.objectContaining({ userId: 'user-b', rank: 1, points: 0, played: 0 }),
+    ]);
+  });
+});
+
 describe('award winners', () => {
   it('aggregates scoped scores before choosing the winner', () => {
     const winner = buildAwardWinner([
@@ -113,6 +147,24 @@ describe('award winners', () => {
       resultHits: 1,
       oneGoalHits: 1,
     });
+  });
+
+  it('counts an additive goal bonus even when the primary score type is RESULT', () => {
+    const winner = buildAwardWinner([
+      awardScore({
+        userId: 'u1',
+        nickname: 'Ana',
+        points: 4,
+        scoreType: 'RESULT',
+        breakdown: {
+          teamGoalsBonusPoints: 1,
+          outcomeMatched: true,
+          awayGoalsMatched: true,
+        },
+      }),
+    ]);
+
+    expect(winner).toMatchObject({ resultHits: 1, oneGoalHits: 1 });
   });
 
   it('uses goals and fewer misses as scoped award tie-breaks', () => {
@@ -131,6 +183,5 @@ describe('award winners', () => {
         awardScore({ userId: 'u2', nickname: 'Bia', points: 10, scoreType: 'RESULT' }),
       ])?.nickname,
     ).toBe('Bia');
-
   });
 });

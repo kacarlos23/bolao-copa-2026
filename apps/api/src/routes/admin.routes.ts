@@ -57,10 +57,12 @@ import { assertCompetitionFeatureState } from '../modules/competitions/competiti
 import { dispatchOutboxEvent, enqueueOutboxEvent } from '../modules/events/outbox.js';
 import { redactProviderError } from '../modules/providers/provider-utils.js';
 import { isAuditedCompetitionFeatureMutation } from './admin-legacy-mutation.js';
+import { adminFundraisingRouter } from '../modules/fundraising/fundraising.routes.js';
 
 export const adminRouter = Router();
 
 adminRouter.use(requireAdmin);
+adminRouter.use(adminFundraisingRouter);
 adminRouter.use(adminQueryRouter);
 adminRouter.use(adminResourceRouter);
 adminRouter.use(adminProviderRouter);

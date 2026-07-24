@@ -16,8 +16,13 @@ import {
 } from './api';
 import { errorMessage, request } from './services/api-client';
 import { civilDateKey, prioritizeAdminMatches } from './adminOperations.logic';
+import { FundraisingAdmin } from './features/admin/FundraisingAdmin';
 
-type PoolSeason = { id: string; scoringRuleSetVersionId: string | null; pool: { name: string } };
+type PoolSeason = {
+  id: string;
+  scoringRuleSetVersionId: string | null;
+  pool: { name: string; slug: string };
+};
 type Season = {
   id: string;
   name: string;
@@ -391,6 +396,29 @@ export function AdminOperationsPanel() {
           </Pressable>
         ))}
       </ScrollView>
+      {selectedSeason?.poolSeasons.length ? (
+        <ScrollView
+          horizontal
+          contentContainerStyle={styles.seasons}
+          showsHorizontalScrollIndicator={false}
+          accessibilityLabel="Bolões da temporada"
+        >
+          {selectedSeason.poolSeasons.map((poolSeason) => (
+            <Pressable
+              key={poolSeason.id}
+              accessibilityRole="button"
+              onPress={() => {
+                setPoolSeasonId(poolSeason.id);
+                setPreview(null);
+              }}
+              style={[styles.season, poolSeason.id === selectedPool?.id && styles.selected]}
+            >
+              <Text style={styles.seasonName}>{poolSeason.pool.name}</Text>
+              <Text style={styles.meta}>{poolSeason.id}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      ) : null}
       <View style={styles.grid}>
         <Module
           title="Temporadas e rodadas"
@@ -429,6 +457,7 @@ export function AdminOperationsPanel() {
           }
         />
       </View>
+      <FundraisingAdmin seasonId={selectedSeason?.id ?? ''} poolSeasonId={selectedPool?.id ?? ''} />
       <Module
         title="Atualizar informações da competição"
         description={

@@ -284,6 +284,7 @@ export function SeasonWorkspace({
   const season = context.season;
   const competitionSlug = context.competition?.slug ?? '';
   const supportsStandings = context.capabilityConfig.standings === true;
+  const supportsFundraising = context.capabilityConfig.fundraising === true;
   const supportsKnockout = context.capabilities.has('KNOCKOUT');
   const rankingScopes = enabledRankingScopes(context.capabilityConfig);
   const supportsRoundRanking = rankingScopes.has('ROUND');
@@ -303,6 +304,7 @@ export function SeasonWorkspace({
   const [rules, setRules] = useState<PoolSeasonRules | null>(null);
   const [engagement, setEngagement] = useState<EngagementDashboard | null>(null);
   const [awards, setAwards] = useState<RankingAward[]>([]);
+  const [fundraisingCents, setFundraisingCents] = useState<number | null>(null);
   const [scope, setScope] = useState<RankingScope>('overall');
   const [draft, setDraft] = useState<DraftState>({ items: {} });
   const [poolSeasonId, setPoolSeasonId] = useState('');
@@ -368,6 +370,7 @@ export function SeasonWorkspace({
     setStandingsByGroup([]);
     setRanking([]);
     setRoundRanking([]);
+    setFundraisingCents(null);
     setTies([]);
     setPredictionMonth(civilMonthKey(new Date(), season.timezone));
     setSelectedDayKey('');
@@ -434,6 +437,7 @@ export function SeasonWorkspace({
           rulesResult,
           engagementResult,
           awardsResult,
+          fundraisingResult,
         ] = await Promise.all([
           api.seasonMatches(season.id, roundId),
           supportsStandings
@@ -460,6 +464,9 @@ export function SeasonWorkspace({
           api.seasonRules(POOL_SLUG, season.id),
           api.seasonEngagement(POOL_SLUG, season.id),
           api.seasonAwards(POOL_SLUG, season.id).catch(() => ({ awards: [] })),
+          supportsFundraising
+            ? api.seasonFundraising(POOL_SLUG, season.id).catch(() => ({ fundraising: null }))
+            : Promise.resolve({ fundraising: null }),
         ]);
         return {
           matchesResult,
@@ -471,6 +478,7 @@ export function SeasonWorkspace({
           rulesResult,
           engagementResult,
           awardsResult,
+          fundraisingResult,
         };
       })();
       if (!active) return;
@@ -494,6 +502,7 @@ export function SeasonWorkspace({
       setRules(result.rulesResult);
       setEngagement(result.engagementResult);
       setAwards(result.awardsResult.awards);
+      setFundraisingCents(result.fundraisingResult.fundraising?.amountCents ?? null);
       dispatch({ type: 'hydrate', values });
       setError('');
       setStatus(result.matchesResult.matches.length ? 'success' : 'empty');
@@ -518,6 +527,7 @@ export function SeasonWorkspace({
         'ranking.updated',
         'match.updated',
         'provider.sync.completed',
+        'fundraising.updated',
       ],
       onEvent: () => {
         void load(true);
@@ -540,6 +550,7 @@ export function SeasonWorkspace({
     supportsStandings,
     supportsKnockout,
     supportsRoundRanking,
+    supportsFundraising,
   ]);
 
   useEffect(() => {
@@ -892,6 +903,14 @@ export function SeasonWorkspace({
               </Text>
             ))}
           </View>
+          {rules.scoring.rules.addTeamGoalsBonusToCorrectOutcome ? (
+            <Text style={styles.rulesHelp}>
+              Resultado correto vale {rules.scoring.rules.correctOutcome} pontos e soma{' '}
+              {rules.scoring.rules.oneTeamGoals} ponto quando os gols de uma das equipes também
+              forem acertados. O placar exato vale exatamente {rules.scoring.rules.exactScore}{' '}
+              pontos.
+            </Text>
+          ) : null}
           <Text style={styles.tieBreakText}>
             Desempate: {rules.tieBreakers.criteria.map((item) => item.label).join(' → ')}.
           </Text>
@@ -1212,30 +1231,23 @@ export function SeasonWorkspace({
 
       {section === 'ranking' || section === 'all' ? (
         <View style={styles.rankingSection}>
-          {ranking.length ? (
-            <PremiumRanking
-              seasonName={season?.name ?? 'Competição'}
-              ranking={ranking}
-              roundRanking={roundRanking}
-              currentUserId={currentUserId}
-              scope={scope}
-              onScopeChange={setScope}
-              availableScopes={rankingScopes}
-              connection={connection}
-              syncing={syncing}
-              lastSyncedAt={lastSyncedAt}
-              onRefresh={() => void refreshOfficialResults()}
-              awards={awards}
-              engagement={engagement}
-              tieBreakers={rules?.tieBreakers.criteria.map((item) => item.label) ?? []}
-            />
-          ) : (
-            <AsyncState
-              status="empty"
-              emptyTitle="Ranking ainda vazio"
-              emptyMessage="Faça seus palpites; os pontos aparecem após resultados elegíveis."
-            />
-          )}
+          <PremiumRanking
+            seasonName={season?.name ?? 'Competição'}
+            ranking={ranking}
+            roundRanking={roundRanking}
+            currentUserId={currentUserId}
+            scope={scope}
+            onScopeChange={setScope}
+            availableScopes={rankingScopes}
+            connection={connection}
+            syncing={syncing}
+            lastSyncedAt={lastSyncedAt}
+            onRefresh={() => void refreshOfficialResults()}
+            awards={awards}
+            engagement={engagement}
+            tieBreakers={rules?.tieBreakers.criteria.map((item) => item.label) ?? []}
+            fundraisingCents={supportsFundraising ? (fundraisingCents ?? 0) : null}
+          />
         </View>
       ) : null}
 

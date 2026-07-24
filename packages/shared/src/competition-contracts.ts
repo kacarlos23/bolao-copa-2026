@@ -41,6 +41,7 @@ export const competitionCapabilitiesSchema = z
     knockoutBracket: z.boolean().optional(),
     liveScoring: z.boolean().optional(),
     standings: z.boolean().optional(),
+    fundraising: z.boolean().optional(),
     knockout: z.boolean().optional(),
     twoLegs: z.boolean().optional(),
     rounds: z.number().int().positive().optional(),

@@ -24,6 +24,7 @@ import { requestContext } from './middleware/request-context.js';
 import { competitionRouter } from './modules/competitions/competition.routes.js';
 import { seasonRouter } from './modules/seasons/season.routes.js';
 import { poolRouter } from './modules/pools/pool.routes.js';
+import { publicFundraisingRouter } from './modules/fundraising/fundraising.routes.js';
 import { AppError } from './http/errors.js';
 
 const pinoHttp = pinoHttpModule as unknown as (options: {
@@ -86,6 +87,7 @@ export function createApp(options: { sessionStore?: Store } = {}) {
   app.use('/api/auth', authRouter);
   app.use('/api/competitions', competitionRouter);
   app.use('/api/seasons', seasonRouter);
+  app.use('/api/pools', publicFundraisingRouter);
   app.use('/api/pools', poolRouter);
   app.use('/api/match-days', matchDayRouter);
   app.use('/api/ranking', rankingRouter);

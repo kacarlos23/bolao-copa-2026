@@ -45,7 +45,9 @@ function parseRules(row: {
     !Number.isSafeInteger(rules.exactScore) ||
     !Number.isSafeInteger(rules.correctOutcome) ||
     !Number.isSafeInteger(rules.oneTeamGoals) ||
-    !Number.isSafeInteger(rules.miss)
+    !Number.isSafeInteger(rules.miss) ||
+    (rules.addTeamGoalsBonusToCorrectOutcome !== undefined &&
+      typeof rules.addTeamGoalsBonusToCorrectOutcome !== 'boolean')
   ) {
     throw new Error(`Invalid scoring rule version ${row.id}.`);
   }
