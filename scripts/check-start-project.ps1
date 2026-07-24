@@ -196,7 +196,10 @@ function Ensure-App8080() {
       Write-Step "Nada escutando na porta $Port. Iniciando API com web dist"
     }
 
-    $command = "set PORT=$Port&& set SERVE_WEB_DIST=true&& set WEB_DIST_PATH=../web/dist&& set WEB_ORIGIN=http://localhost:$Port&& node dist/src/server.js"
+    # WEB_ORIGIN is loaded from apps/api/.env by dotenv. Do not override it
+    # here: production mutations must accept the public HTTPS origin used by
+    # the browser, while local environments can keep their own .env value.
+    $command = "set PORT=$Port&& set SERVE_WEB_DIST=true&& set WEB_DIST_PATH=../web/dist&& node dist/src/server.js"
     Start-Process -FilePath "cmd.exe" `
       -ArgumentList @("/c", $command) `
       -WorkingDirectory $ApiDir `

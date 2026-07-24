@@ -36,14 +36,29 @@ export function enabledServerRankingScopes(capabilities: unknown) {
   );
 }
 
+function capabilityRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 async function assertRankingScope(context: RankingContext, query: Partial<RankingQuery>) {
   const scope = declaredScope(query);
   if (scope === 'OVERALL') return;
   const season = await prisma.competitionSeason.findUnique({
     where: { id: context.seasonId },
-    select: { capabilities: true },
+    select: {
+      capabilities: true,
+      competition: { select: { capabilities: true } },
+    },
   });
-  if (!season || !enabledServerRankingScopes(season.capabilities).has(scope)) {
+  const capabilities = season
+    ? {
+        ...capabilityRecord(season.competition?.capabilities),
+        ...capabilityRecord(season.capabilities),
+      }
+    : null;
+  if (!season || !enabledServerRankingScopes(capabilities).has(scope)) {
     throw new AppError(
       400,
       `O escopo ${scope} não está habilitado para esta temporada.`,

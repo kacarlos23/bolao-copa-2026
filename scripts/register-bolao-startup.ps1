@@ -1,5 +1,7 @@
 param(
-  [string]$TaskName = "Bolao Copa 2026 - Inicializar"
+  [string]$TaskName = "Bolao Copa 2026 - Inicializar",
+  [ValidateRange(1, 60)]
+  [int]$WatchdogMinutes = 5
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,7 +19,11 @@ $action = New-ScheduledTaskAction `
   -Execute "$env:SystemRoot\System32\cmd.exe" `
   -Argument "/d /c $quotedBatchFile --silent" `
   -WorkingDirectory $root
-$trigger = New-ScheduledTaskTrigger -AtLogOn -User $userId
+$logonTrigger = New-ScheduledTaskTrigger -AtLogOn -User $userId
+$watchdogTrigger = New-ScheduledTaskTrigger `
+  -Once `
+  -At (Get-Date).AddMinutes(1) `
+  -RepetitionInterval (New-TimeSpan -Minutes $WatchdogMinutes)
 $principal = New-ScheduledTaskPrincipal `
   -UserId $userId `
   -LogonType Interactive `
@@ -34,12 +40,13 @@ $settings.Hidden = $true
 $task = Register-ScheduledTask `
   -TaskName $TaskName `
   -Action $action `
-  -Trigger $trigger `
+  -Trigger @($logonTrigger, $watchdogTrigger) `
   -Principal $principal `
   -Settings $settings `
-  -Description "Inicializa PostgreSQL, API, frontend e sincronizacao do Bolao Copa 2026 sem duplicar processos." `
+  -Description "Inicializa e monitora PostgreSQL, API, frontend e sincronizacao do Bolao Copa 2026 sem duplicar processos." `
   -Force
 
 Write-Host "Tarefa automatica registrada: $($task.TaskName)"
 Write-Host "Usuario: $userId"
 Write-Host "Acao: $batchFile --silent"
+Write-Host "Watchdog: a cada $WatchdogMinutes minuto(s)"

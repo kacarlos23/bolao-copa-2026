@@ -76,6 +76,30 @@ describe('ranking scopes declared by season capabilities', () => {
     expect(mocks.ranking).not.toHaveBeenCalled();
   });
 
+  it('inherits ROUND from competition capabilities when the season only overrides other fields', async () => {
+    mocks.season.mockResolvedValue({
+      capabilities: { workspace: 'WORLD_CUP_LEGACY' },
+      competition: {
+        capabilities: {
+          format: 'GROUPS',
+          groupStage: true,
+          rankingScopes: ['OVERALL', 'STAGE', 'ROUND'],
+        },
+      },
+    });
+    mocks.round.mockResolvedValue({ id: 'round-1' });
+
+    await expect(
+      getPoolRanking(rankingContext, 'all', {
+        page: 1,
+        pageSize: 100,
+        scope: 'round',
+        roundId: 'round-1',
+      }),
+    ).resolves.toMatchObject({ ranking: [] });
+    expect(mocks.ranking).toHaveBeenCalledOnce();
+  });
+
   it('rejects a stage from another season before calculating the ranking', async () => {
     mocks.season.mockResolvedValue({
       capabilities: {
