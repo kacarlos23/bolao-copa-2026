@@ -35,6 +35,9 @@ const EXPO_ROUTER_HYDRATION_SCRIPT_HASH = "'sha256-67fhrP0+BkBqmgGGXTtgiVO/9EQs3
 
 export function createApp(options: { sessionStore?: Store } = {}) {
   const app = express();
+  // Older local runs started the API from apps/api and stored avatars there.
+  // Keep those files readable while new production runs store uploads from the workspace root.
+  const legacyAvatarUploadDir = path.resolve(process.cwd(), 'apps', 'api', 'uploads', 'avatars');
 
   app.set('trust proxy', 1);
   app.use(requestContext);
@@ -100,7 +103,17 @@ export function createApp(options: { sessionStore?: Store } = {}) {
   app.use('/api', (_req, _res, next) => {
     next(new AppError(404, 'Rota de API não encontrada.', 'API_ROUTE_NOT_FOUND'));
   });
-  app.use('/uploads/avatars', express.static(avatarUploadDir));
+  app.use(
+    '/uploads/avatars',
+    (_req, res, next) => {
+      // The Expo web server runs on a different local port during development.
+      // Helmet's default same-origin policy otherwise blocks valid avatar responses.
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      next();
+    },
+    express.static(avatarUploadDir),
+    express.static(legacyAvatarUploadDir),
+  );
 
   if (config.SERVE_WEB_DIST) {
     const webDistPath = path.resolve(process.cwd(), config.WEB_DIST_PATH);
