@@ -1,6 +1,7 @@
 import { Suspense, useEffect, type ReactNode, type RefObject } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   ScrollView,
   StyleSheet,
   useWindowDimensions,
@@ -50,7 +51,7 @@ export function RoutedWorkspace({
 }) {
   const context = useCompetition();
   const { width } = useWindowDimensions();
-  const compact = width < 768;
+  const compact = width < theme.breakpoint.compact;
 
   useEffect(() => {
     if (!context.competitions.length || !competitionSlug) return;
@@ -108,12 +109,16 @@ export function RoutedWorkspace({
         }}
       />
       <ScrollView
-        {...({ tabIndex: -1 } as never)}
+        {...({ tabIndex: -1 } as object)}
         ref={scrollRef}
         nativeID="conteudo-principal"
         role="main"
         style={styles.scroll}
-        contentContainerStyle={[styles.content, compact && styles.contentCompact]}
+        contentContainerStyle={[
+          styles.content,
+          compact && styles.contentCompact,
+          compact && Platform.OS === 'web' ? contentCompactWeb : undefined,
+        ]}
         onScroll={onScroll}
         scrollEventThrottle={16}
       >
@@ -134,17 +139,21 @@ const styles = StyleSheet.create({
   content: {
     flexGrow: 1,
     marginHorizontal: 'auto',
-    maxWidth: 1280,
-    paddingBottom: 40,
+    maxWidth: theme.size.contentMax,
+    paddingBottom: theme.space.xxxl,
     paddingHorizontal: theme.space.xl,
     paddingTop: theme.space.xl,
     width: '100%',
   },
   contentCompact: {
-    paddingBottom: 28,
+    paddingBottom: theme.size.bottomNavigation + theme.space.xxl,
     paddingHorizontal: theme.space.md,
     paddingTop: theme.space.lg,
   },
   reveal: { minHeight: 320, width: '100%' },
   loader: { marginTop: 72 },
 });
+
+const contentCompactWeb = {
+  paddingBottom: `calc(${theme.size.bottomNavigation + theme.space.xxl}px + env(safe-area-inset-bottom))`,
+} as never;

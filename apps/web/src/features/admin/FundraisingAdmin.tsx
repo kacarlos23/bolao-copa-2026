@@ -164,7 +164,7 @@ export function FundraisingAdmin({
           onPress={() => void createPreview()}
           style={[styles.button, (busy || !seasonId || !poolSeasonId) && styles.disabled]}
         >
-          <Text style={styles.buttonText}>Gerar prévia</Text>
+          <Text style={styles.buttonText}>Revisar valor</Text>
         </Pressable>
       </View>
       {preview ? (
@@ -205,43 +205,51 @@ export function FundraisingAdmin({
 
 const styles = StyleSheet.create({
   module: {
-    backgroundColor: '#08284b',
+    backgroundColor: theme.color.surfaceRaised,
     borderColor: theme.color.gold,
-    borderRadius: 13,
+    borderRadius: theme.radius.md,
     borderWidth: 1,
-    gap: 8,
-    padding: 16,
+    gap: theme.space.sm,
+    padding: theme.space.lg,
   },
   header: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   kicker: { color: theme.color.gold, fontSize: 10, fontWeight: '900', letterSpacing: 1.1 },
-  title: { color: '#f5f9ff', fontSize: 18, fontWeight: '900', marginTop: 3 },
+  title: { color: theme.color.text, fontSize: 18, fontWeight: '900', marginTop: 3 },
   current: { color: theme.color.gold, fontSize: 30, fontWeight: '900' },
-  copy: { color: '#b5c5d9', lineHeight: 20 },
-  estimate: { color: '#8fa5bd', fontSize: 12, lineHeight: 18 },
-  label: { color: '#f5f9ff', fontSize: 12, fontWeight: '800', marginTop: 4 },
+  copy: { color: theme.color.textMuted, lineHeight: 20 },
+  estimate: { color: theme.color.textSubtle, fontSize: 12, lineHeight: 18 },
+  label: { color: theme.color.text, fontSize: 12, fontWeight: '800', marginTop: 4 },
   input: {
-    backgroundColor: '#061d38',
-    borderColor: '#315b83',
-    borderRadius: 10,
+    backgroundColor: theme.color.canvas,
+    borderColor: theme.color.borderStrong,
+    borderRadius: theme.radius.sm,
     borderWidth: 1,
-    color: '#f5f9ff',
-    minHeight: 42,
-    padding: 11,
+    color: theme.color.text,
+    minHeight: theme.touchTarget,
+    outlineColor: theme.color.focus,
+    padding: theme.space.md,
   },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   button: {
     alignItems: 'center',
     backgroundColor: theme.color.accent,
-    borderRadius: 9,
+    borderRadius: theme.radius.sm,
+    justifyContent: 'center',
+    minHeight: theme.touchTarget,
     paddingHorizontal: 13,
     paddingVertical: 10,
   },
   buttonText: { color: theme.color.accentInk, fontWeight: '900' },
   saveButton: { backgroundColor: 'transparent', borderColor: theme.color.gold, borderWidth: 1 },
   saveText: { color: theme.color.gold, fontWeight: '900' },
-  confirm: { borderTopColor: '#315b83', borderTopWidth: 1, gap: 8, paddingTop: 10 },
+  confirm: {
+    borderTopColor: theme.color.border,
+    borderTopWidth: 1,
+    gap: theme.space.sm,
+    paddingTop: theme.space.md,
+  },
   proof: { color: theme.color.gold, fontFamily: 'monospace', fontWeight: '900' },
   disabled: { opacity: 0.45 },
-  success: { color: '#69e7a4', fontWeight: '700' },
-  error: { color: '#ff8878', fontWeight: '700' },
+  success: { color: theme.color.success, fontWeight: '700' },
+  error: { color: theme.color.danger, fontWeight: '700' },
 });

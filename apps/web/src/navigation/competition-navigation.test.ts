@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { CompetitionCapabilities } from '@bolao/shared';
 import { normalizeCapabilities } from '../app/CompetitionContext';
 import {
   competitionSectionEnabled,
@@ -14,7 +15,7 @@ describe('navegação por capabilities', () => {
       standings: true,
       knockout: true,
       twoLegs: true,
-      rankingScopes: ['OVERALL', 'ROUND'] as const,
+      rankingScopes: ['OVERALL', 'ROUND'] as CompetitionCapabilities['rankingScopes'],
     };
     const capabilities = normalizeCapabilities(config, null);
     expect(competitionSectionsForCapabilities(capabilities, config)).toEqual([
@@ -34,7 +35,7 @@ describe('navegação por capabilities', () => {
     const config = {
       format: 'KNOCKOUT' as const,
       knockout: true,
-      rankingScopes: ['OVERALL'] as const,
+      rankingScopes: ['OVERALL'] as CompetitionCapabilities['rankingScopes'],
     };
     const capabilities = normalizeCapabilities(config, null);
     expect(competitionSectionsForCapabilities(capabilities, config)).not.toContain('standings');

@@ -4,6 +4,12 @@ import type { User } from '../../api';
 import { useCompetition } from '../../app/CompetitionContext';
 import { AsyncState } from '../../components/AsyncState';
 import {
+  Card,
+  ResponsiveContainer,
+  SectionHeader,
+  StatusChip,
+} from '../../components/DesignSystem';
+import {
   pathForCompetition,
   pathForScreen,
   type AppScreen,
@@ -11,6 +17,27 @@ import {
 } from '../../navigation/routes';
 import { RouteLink } from '../../navigation/RouteLink';
 import { theme } from '../../theme/tokens';
+
+const seasonStatus: Record<
+  'DRAFT' | 'ACTIVE' | 'FINISHED' | 'ARCHIVED',
+  { label: string; tone: 'accent' | 'neutral' | 'warning' }
+> = {
+  DRAFT: { label: 'Rascunho', tone: 'warning' },
+  ACTIVE: { label: 'Em andamento', tone: 'accent' },
+  FINISHED: { label: 'Encerrada', tone: 'neutral' },
+  ARCHIVED: { label: 'Arquivada', tone: 'neutral' },
+};
+
+function competitionFormat(capabilities: ReadonlySet<string>) {
+  if (capabilities.has('LEAGUE')) return 'Pontos corridos';
+  if (capabilities.has('GROUPS') && capabilities.has('KNOCKOUT')) {
+    return 'Grupos e mata-mata';
+  }
+  if (capabilities.has('TWO_LEGS')) return 'Confrontos de ida e volta';
+  if (capabilities.has('GROUPS')) return 'Fase de grupos';
+  if (capabilities.has('KNOCKOUT')) return 'Mata-mata';
+  return 'Temporada';
+}
 
 export function HomeScreen({
   user,
@@ -23,8 +50,11 @@ export function HomeScreen({
 }) {
   const context = useCompetition();
   const { width } = useWindowDimensions();
-  const compact = width < 768;
+  const compact = width < theme.breakpoint.compact;
   const competitionSlug = context.competition?.slug;
+  const selectedSeason = context.season;
+  const selectedStatus = selectedSeason ? seasonStatus[selectedSeason.status] : null;
+  const format = competitionFormat(context.capabilities);
 
   const actions: Array<{
     screen?: AppScreen;
@@ -34,120 +64,168 @@ export function HomeScreen({
     icon: keyof typeof Ionicons.glyphMap;
   }> = [
     {
-      section: 'predictions',
-      label: 'Fazer palpites',
-      description: 'Preencha os jogos abertos e acompanhe o salvamento de cada placar.',
-      icon: 'create-outline',
+      section: 'games',
+      label: 'Ver jogos',
+      description: 'Consulte o calendário e os resultados da competição selecionada.',
+      icon: 'calendar-outline',
     },
     {
       section: 'ranking',
-      label: 'Ver minha disputa',
-      description: 'Confira posição, rival mais próximo, movimento e desempates.',
+      label: 'Abrir ranking',
+      description: 'Confira a classificação do bolão e os critérios de desempate.',
       icon: 'podium-outline',
     },
     {
       screen: 'competitions',
-      label: 'Trocar competição',
+      label: 'Trocar campeonato',
       description: 'Escolha outro campeonato e mantenha cada disputa em seu próprio contexto.',
       icon: 'trophy-outline',
     },
   ];
+  const availableActions = selectedSeason ? actions : actions.filter((item) => !item.section);
 
   return (
-    <View style={styles.page}>
-      <View style={[styles.intro, compact && styles.introCompact]}>
-        <View style={styles.introCopy}>
-          <Text style={styles.eyebrow}>OLÁ, {user.nickname.toUpperCase()}</Text>
-          <Text
-            role="heading"
-            aria-level={1}
-            style={[styles.title, compact && styles.titleCompact]}
-          >
-            Seu bolão, sem perder o jogo.
-          </Text>
-          <Text style={styles.subtitle}>
-            Um ponto de partida para palpitar, acompanhar a rodada e evoluir no ranking.
-          </Text>
-        </View>
-
-        <AsyncState
-          status={
-            context.error
-              ? 'error'
-              : context.loading
-                ? 'loading'
-                : context.season
-                  ? 'success'
-                  : 'empty'
-          }
-          error={context.error}
-          emptyTitle="Escolha uma competição"
-          emptyMessage="Abra a central para começar."
-          onRetry={context.retry}
-          skeletonLines={2}
-        >
-          <View style={styles.continueArea}>
-            <Text style={styles.continueEyebrow}>CONTINUAR EM</Text>
-            <Text style={styles.continueTitle}>{context.season?.name}</Text>
-            <Text style={styles.continueMeta}>
-              {[...context.capabilities].join(' · ') || 'Temporada ativa'}
-            </Text>
-            <RouteLink
-              href={competitionSlug ? pathForCompetition(competitionSlug, 'predictions') : pathForScreen('competitions')}
-              onActivate={() => {
-                if (competitionSlug) onNavigateCompetition(competitionSlug, 'predictions');
-                else onNavigate('competitions');
-              }}
-              style={styles.primaryAction}
-            >
-              <Text style={styles.primaryActionText}>Abrir palpites</Text>
-              <Ionicons name="arrow-forward" size={18} color={theme.color.accentInk} />
-            </RouteLink>
-            <RouteLink
-              href={competitionSlug ? pathForCompetition(competitionSlug) : pathForScreen('competitions')}
-              onActivate={() => {
-                if (competitionSlug) onNavigateCompetition(competitionSlug, 'overview');
-                else onNavigate('competitions');
-              }}
-              style={styles.secondaryAction}
-            >
-              <Text style={styles.secondaryActionText}>Ver competição</Text>
-            </RouteLink>
-          </View>
-        </AsyncState>
+    <ResponsiveContainer style={styles.page}>
+      <View style={styles.heading}>
+        <Text style={styles.eyebrow}>OLÁ, {user.nickname.toLocaleUpperCase('pt-BR')}</Text>
+        <Text role="heading" aria-level={1} style={[styles.title, compact && styles.titleCompact]}>
+          Visão geral
+        </Text>
+        <Text style={styles.subtitle}>
+          Continue na temporada selecionada ou acesse outro campeonato.
+        </Text>
       </View>
 
-      <View style={styles.loop} accessibilityLabel="Como funciona a disputa">
-        {[
-          ['01', 'Palpite', 'Escolha os placares'],
-          ['02', 'Acompanhe', 'Veja resultados e pontos'],
-          ['03', 'Avance', 'Suba no ranking'],
-        ].map(([number, label, description], index) => (
-          <View
-            key={number}
-            style={[
-              styles.loopItem,
-              index > 0 && (compact ? styles.loopDividerCompact : styles.loopDivider),
-            ]}
+      <AsyncState
+        status={
+          context.error
+            ? 'error'
+            : context.loading
+              ? 'loading'
+              : selectedSeason
+                ? 'success'
+                : 'empty'
+        }
+        error={context.error}
+        emptyTitle="Escolha uma competição"
+        emptyMessage="Abra a central de competições para selecionar uma temporada."
+        onRetry={context.retry}
+        skeletonLines={3}
+      >
+        {selectedSeason ? (
+          <Card
+            accessibilityLabel={`Competição atual: ${selectedSeason.name}`}
+            style={styles.seasonPanel}
           >
-            <Text style={styles.loopNumber}>{number}</Text>
-            <View>
-              <Text style={styles.loopLabel}>{label}</Text>
-              <Text style={styles.loopDescription}>{description}</Text>
+            <View style={[styles.seasonLayout, compact && styles.seasonLayoutCompact]}>
+              <View style={[styles.seasonBody, compact && styles.seasonBodyCompact]}>
+                <View style={[styles.seasonIcon, compact && styles.seasonIconCompact]}>
+                  <Ionicons
+                    name="trophy-outline"
+                    size={compact ? 26 : 32}
+                    color={theme.color.accentInk}
+                  />
+                </View>
+                <View style={styles.seasonCopy}>
+                  <View style={styles.seasonTopline}>
+                    <Text style={styles.seasonEyebrow}>COMPETIÇÃO ATUAL</Text>
+                    {selectedStatus ? (
+                      <StatusChip label={selectedStatus.label} tone={selectedStatus.tone} />
+                    ) : null}
+                  </View>
+                  <Text
+                    role="heading"
+                    aria-level={2}
+                    style={[styles.seasonTitle, compact && styles.seasonTitleCompact]}
+                  >
+                    {selectedSeason.name}
+                  </Text>
+                  {context.competition?.name &&
+                  context.competition.name !== selectedSeason.name ? (
+                    <Text style={styles.competitionName}>{context.competition.name}</Text>
+                  ) : null}
+                  <View style={styles.seasonMeta}>
+                    {selectedSeason.year ? (
+                      <View style={styles.metaItem}>
+                        <Ionicons
+                          name="calendar-outline"
+                          size={15}
+                          color={theme.color.textSubtle}
+                        />
+                        <Text style={styles.metaText}>Temporada {selectedSeason.year}</Text>
+                      </View>
+                    ) : null}
+                    <View style={styles.metaItem}>
+                      <Ionicons
+                        name="football-outline"
+                        size={15}
+                        color={theme.color.textSubtle}
+                      />
+                      <Text style={styles.metaText}>{format}</Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+              <View style={[styles.seasonActions, compact && styles.seasonActionsCompact]}>
+                <Text style={styles.actionHint}>PRÓXIMA AÇÃO</Text>
+                <RouteLink
+                  href={
+                    competitionSlug
+                      ? pathForCompetition(competitionSlug, 'predictions')
+                      : pathForScreen('competitions')
+                  }
+                  accessibilityLabel={`Abrir palpites de ${selectedSeason.name}`}
+                  onActivate={() => {
+                    if (competitionSlug) onNavigateCompetition(competitionSlug, 'predictions');
+                    else onNavigate('competitions');
+                  }}
+                  style={({ pressed }) => [
+                    styles.primaryAction,
+                    pressed && styles.primaryActionPressed,
+                  ]}
+                >
+                  <Ionicons name="create-outline" size={18} color={theme.color.accentInk} />
+                  <Text style={styles.primaryActionText}>Abrir palpites</Text>
+                  <Ionicons name="arrow-forward" size={17} color={theme.color.accentInk} />
+                </RouteLink>
+                <RouteLink
+                  href={
+                    competitionSlug
+                      ? pathForCompetition(competitionSlug)
+                      : pathForScreen('competitions')
+                  }
+                  onActivate={() => {
+                    if (competitionSlug) onNavigateCompetition(competitionSlug, 'overview');
+                    else onNavigate('competitions');
+                  }}
+                  style={({ pressed }) => [
+                    styles.secondaryAction,
+                    pressed && styles.secondaryActionPressed,
+                  ]}
+                >
+                  <Text style={styles.secondaryActionText}>Ver competição</Text>
+                </RouteLink>
+              </View>
             </View>
-          </View>
-        ))}
-      </View>
+          </Card>
+        ) : null}
+      </AsyncState>
 
       <View style={styles.paths}>
-        <Text style={styles.sectionEyebrow}>ATALHOS</Text>
-        <Text role="heading" aria-level={2} style={styles.sectionTitle}>
-          O que você quer fazer?
-        </Text>
+        <SectionHeader
+          eyebrow={selectedSeason ? 'ACESSOS DA TEMPORADA' : 'COMPETIÇÕES'}
+          title={selectedSeason ? 'Navegue pelo bolão' : 'Selecione seu campeonato'}
+          description={
+            selectedSeason
+              ? 'Atalhos para as áreas já disponíveis na competição selecionada.'
+              : 'A central reúne somente as competições publicadas para o seu bolão.'
+          }
+        />
         <View style={styles.actionList}>
-          {actions.map((item) => (
+          {availableActions.map((item) => (
             <RouteLink
               key={item.section ?? item.screen}
+              accessibilityLabel={item.label}
               href={
                 item.section && competitionSlug
                   ? pathForCompetition(competitionSlug, item.section)
@@ -174,62 +252,118 @@ export function HomeScreen({
           ))}
         </View>
       </View>
-    </View>
+    </ResponsiveContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  page: { gap: 42, marginHorizontal: 'auto', maxWidth: 1120, paddingBottom: 64, width: '100%' },
-  intro: {
-    alignItems: 'stretch',
-    flexDirection: 'row',
-    gap: 64,
-    justifyContent: 'space-between',
-    paddingTop: 28,
-  },
-  introCompact: { flexDirection: 'column', gap: theme.space.xl, paddingTop: 8 },
-  introCopy: { flex: 1, justifyContent: 'center', maxWidth: 620 },
+  page: { gap: theme.space.xxxl, maxWidth: 1120, paddingBottom: 64 },
+  heading: { maxWidth: 680, paddingTop: theme.space.sm },
   eyebrow: { color: theme.color.accent, fontSize: 10, fontWeight: '900', letterSpacing: 1.35 },
   title: {
     color: theme.color.text,
-    fontSize: 42,
+    fontSize: 36,
     fontWeight: '900',
-    letterSpacing: -1.15,
-    lineHeight: 49,
-    marginTop: 8,
+    letterSpacing: -0.85,
+    lineHeight: 43,
+    marginTop: theme.space.xs,
   },
-  titleCompact: { fontSize: 32, lineHeight: 38 },
+  titleCompact: { fontSize: 30, lineHeight: 36 },
   subtitle: {
     color: theme.color.textMuted,
-    fontSize: 16,
-    lineHeight: 24,
-    marginTop: 12,
-    maxWidth: 560,
+    fontSize: theme.font.size.md,
+    lineHeight: 21,
+    marginTop: theme.space.sm,
+    maxWidth: 620,
   },
-  continueArea: {
-    backgroundColor: theme.color.surface,
+  seasonPanel: {
+    borderColor: theme.color.borderStrong,
     borderLeftColor: theme.color.accent,
-    borderLeftWidth: 4,
-    justifyContent: 'center',
-    minHeight: 230,
-    padding: theme.space.xl,
-    width: 330,
-    maxWidth: '100%',
+    borderLeftWidth: 3,
+    overflow: 'hidden',
+    padding: 0,
   },
-  continueEyebrow: {
+  seasonLayout: { alignItems: 'stretch', flexDirection: 'row' },
+  seasonLayoutCompact: { flexDirection: 'column' },
+  seasonBody: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    gap: theme.space.xl,
+    minWidth: 0,
+    padding: theme.space.xl,
+  },
+  seasonBodyCompact: {
+    alignItems: 'flex-start',
+    gap: theme.space.lg,
+    padding: theme.space.lg,
+  },
+  seasonIcon: {
+    alignItems: 'center',
+    backgroundColor: theme.color.accent,
+    borderRadius: theme.radius.lg,
+    height: 68,
+    justifyContent: 'center',
+    width: 68,
+  },
+  seasonIconCompact: { borderRadius: theme.radius.md, height: 54, width: 54 },
+  seasonCopy: { flex: 1, minWidth: 0 },
+  seasonTopline: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.space.sm,
+  },
+  seasonEyebrow: {
     color: theme.color.accent,
-    fontSize: 9,
+    fontSize: theme.font.size.xs,
     fontWeight: '900',
     letterSpacing: 1.2,
   },
-  continueTitle: {
+  seasonTitle: {
     color: theme.color.text,
-    fontSize: 20,
+    fontSize: 28,
     fontWeight: '900',
-    lineHeight: 25,
-    marginTop: 6,
+    letterSpacing: -0.55,
+    lineHeight: 34,
+    marginTop: theme.space.sm,
   },
-  continueMeta: { color: theme.color.textMuted, fontSize: 10, fontWeight: '800', marginTop: 6 },
+  seasonTitleCompact: { fontSize: 22, lineHeight: 28 },
+  competitionName: {
+    color: theme.color.textMuted,
+    fontSize: theme.font.size.md,
+    marginTop: theme.space.xs,
+  },
+  seasonMeta: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.space.lg,
+    marginTop: theme.space.lg,
+  },
+  metaItem: { alignItems: 'center', flexDirection: 'row', gap: 6 },
+  metaText: { color: theme.color.textSubtle, fontSize: theme.font.size.sm, fontWeight: '600' },
+  seasonActions: {
+    borderLeftColor: theme.color.border,
+    borderLeftWidth: 1,
+    justifyContent: 'center',
+    padding: theme.space.xl,
+    width: 260,
+  },
+  seasonActionsCompact: {
+    borderLeftWidth: 0,
+    borderTopColor: theme.color.border,
+    borderTopWidth: 1,
+    padding: theme.space.lg,
+    width: '100%',
+  },
+  actionHint: {
+    color: theme.color.textSubtle,
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1.1,
+    marginBottom: theme.space.sm,
+  },
   primaryAction: {
     alignItems: 'center',
     backgroundColor: theme.color.accent,
@@ -237,44 +371,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     justifyContent: 'center',
-    marginTop: theme.space.lg,
     minHeight: theme.touchTarget,
     paddingHorizontal: theme.space.lg,
   },
-  primaryActionText: { color: theme.color.accentInk, fontSize: 12, fontWeight: '900' },
-  secondaryAction: { alignItems: 'center', justifyContent: 'center', minHeight: theme.touchTarget },
-  secondaryActionText: { color: theme.color.textMuted, fontSize: 11, fontWeight: '800' },
-  loop: {
+  primaryActionPressed: {
+    backgroundColor: theme.color.accentStrong,
+    transform: [{ scale: 0.985 }],
+  },
+  primaryActionText: { color: theme.color.accentInk, flex: 1, fontSize: 12, fontWeight: '900' },
+  secondaryAction: {
+    alignItems: 'center',
+    borderColor: theme.color.border,
+    borderRadius: theme.radius.sm,
+    borderWidth: 1,
+    justifyContent: 'center',
+    marginTop: theme.space.sm,
+    minHeight: theme.touchTarget,
+  },
+  secondaryActionPressed: { backgroundColor: theme.color.surfaceHover },
+  secondaryActionText: { color: theme.color.text, fontSize: 11, fontWeight: '800' },
+  paths: { maxWidth: 860 },
+  actionList: {
     borderBottomColor: theme.color.borderMuted,
     borderBottomWidth: 1,
-    borderTopColor: theme.color.borderMuted,
-    borderTopWidth: 1,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-  loopItem: {
-    alignItems: 'center',
-    flex: 1,
-    flexDirection: 'row',
-    gap: 12,
-    minWidth: 220,
-    paddingHorizontal: theme.space.lg,
-    paddingVertical: theme.space.xl,
-  },
-  loopDivider: { borderLeftColor: theme.color.borderMuted, borderLeftWidth: 1 },
-  loopDividerCompact: { borderTopColor: theme.color.borderMuted, borderTopWidth: 1 },
-  loopNumber: { color: theme.color.gold, fontSize: 21, fontWeight: '900' },
-  loopLabel: { color: theme.color.text, fontSize: 13, fontWeight: '900' },
-  loopDescription: { color: theme.color.textMuted, fontSize: 11, marginTop: 2 },
-  paths: { maxWidth: 820 },
-  sectionEyebrow: {
-    color: theme.color.accent,
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 1.2,
-  },
-  sectionTitle: { color: theme.color.text, fontSize: 24, fontWeight: '900', marginTop: 4 },
-  actionList: {
     borderTopColor: theme.color.borderMuted,
     borderTopWidth: 1,
     marginTop: theme.space.lg,
@@ -285,12 +404,20 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     flexDirection: 'row',
     gap: theme.space.md,
-    minHeight: 82,
-    paddingVertical: theme.space.md,
+    minHeight: 76,
+    paddingHorizontal: theme.space.xs,
+    paddingVertical: theme.space.sm,
   },
-  actionRowPressed: { backgroundColor: 'rgba(114, 183, 242, 0.07)' },
-  actionIcon: { alignItems: 'center', height: 44, justifyContent: 'center', width: 44 },
+  actionRowPressed: { backgroundColor: theme.color.surfaceHover },
+  actionIcon: {
+    alignItems: 'center',
+    backgroundColor: theme.color.accentMuted,
+    borderRadius: theme.radius.md,
+    height: 44,
+    justifyContent: 'center',
+    width: 44,
+  },
   actionCopy: { flex: 1 },
-  actionLabel: { color: theme.color.text, fontSize: 14, fontWeight: '900' },
+  actionLabel: { color: theme.color.text, fontSize: theme.font.size.md, fontWeight: '900' },
   actionDescription: { color: theme.color.textMuted, fontSize: 12, lineHeight: 18, marginTop: 3 },
 });

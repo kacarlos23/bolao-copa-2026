@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Animated, Easing, type StyleProp, type ViewStyle } from 'react-native';
+import { Animated, Easing, Platform, View, type StyleProp, type ViewStyle } from 'react-native';
 
 export function usePrefersReducedMotion() {
   const [reduced, setReduced] = useState(
@@ -30,6 +30,7 @@ export function SoftReveal({
   const progress = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
+    if (Platform.OS === 'web') return undefined;
     progress.setValue(reducedMotion ? 1 : 0);
     Animated.timing(progress, {
       toValue: 1,
@@ -37,7 +38,16 @@ export function SoftReveal({
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
+    return undefined;
   }, [duration, progress, reducedMotion]);
+
+  if (Platform.OS === 'web') {
+    return (
+      <View {...({ className: 'soft-reveal' } as object)} style={style}>
+        {children}
+      </View>
+    );
+  }
 
   return (
     <Animated.View
@@ -79,14 +89,16 @@ export function DrawerReveal({
   useEffect(() => {
     if (open) setRendered(true);
 
-    Animated.timing(progress, {
+    const animation = Animated.timing(progress, {
       toValue: open ? 1 : 0,
       duration: reducedMotion ? 0 : open ? 210 : 160,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
-    }).start(({ finished }) => {
+    });
+    animation.start(({ finished }) => {
       if (finished && !open) setRendered(false);
     });
+    return () => animation.stop();
   }, [open, progress, reducedMotion]);
 
   if (!rendered) return null;

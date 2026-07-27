@@ -9,7 +9,7 @@ export const predictionPresentation: Record<
     label: 'Placar exato',
     shortLabel: 'Exato',
     backgroundColor: 'rgba(52, 209, 123, 0.18)',
-    borderColor: theme.color.accent,
+    borderColor: theme.color.success,
   },
   RESULT: {
     label: 'Resultado correto',

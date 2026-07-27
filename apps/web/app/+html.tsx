@@ -5,6 +5,10 @@ export default function Root({ children }: { children: ReactNode }) {
   return (
     <html lang="pt-BR" translate="no" className="notranslate">
       <head>
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1, viewport-fit=cover"
+        />
         <meta name="google" content="notranslate" />
         <ScrollViewStyleReset />
       </head>

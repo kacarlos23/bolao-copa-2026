@@ -121,7 +121,7 @@ export function CompetitionHero({
               syncing && styles.dimmed,
             ]}
           >
-            <Text style={[styles.refreshButtonText, { color: resolved.accent }]}>
+            <Text style={styles.refreshButtonText}>
               {syncing ? 'Atualizando…' : 'Atualizar'}
             </Text>
           </Pressable>
@@ -439,9 +439,24 @@ export function MatchPredictionCard({
     minute: '2-digit',
   }).format(new Date(match.startsAt));
   const canDiscard = item?.dirty.home || item?.dirty.away;
+  const hasFilledScore = value.home !== '' && value.away !== '';
+  const registered = hasFilledScore && (!item || item.status === 'clean' || item.status === 'saved');
+  const syncLabel =
+    saveStatusLabel(item) ||
+    (registered
+      ? 'Palpite registrado'
+      : open
+        ? 'Aguardando preenchimento'
+        : 'Sem palpite registrado');
   return (
     <View
-      style={styles.predictionCard}
+      style={[
+        styles.predictionCard,
+        registered && styles.predictionCardRegistered,
+        item?.status === 'dirty' && styles.predictionCardDirty,
+        item?.status === 'failed' && styles.predictionCardFailed,
+        !open && styles.predictionCardClosed,
+      ]}
       accessibilityLabel={`${match.homeTeam.name} contra ${match.awayTeam.name}`}
     >
       <View style={styles.predictionMeta}>
@@ -473,6 +488,7 @@ export function MatchPredictionCard({
               side="home"
               value={value.home}
               editable={open}
+              showLabel={false}
               error={item?.status === 'failed' ? item.error : undefined}
               onChange={(next) => onEdit('home', next)}
             />
@@ -482,6 +498,7 @@ export function MatchPredictionCard({
               side="away"
               value={value.away}
               editable={open}
+              showLabel={false}
               onChange={(next) => onEdit('away', next)}
             />
           </View>
@@ -502,7 +519,7 @@ export function MatchPredictionCard({
             accessibilityLiveRegion="polite"
             style={[styles.syncState, item?.status === 'failed' && styles.errorText]}
           >
-            {saveStatusLabel(item)}
+            {syncLabel}
           </Text>
           {canDiscard ? (
             <Pressable
@@ -521,7 +538,7 @@ export function MatchPredictionCard({
             style={[styles.saveButton, (!open || item?.status === 'saving') && styles.dimmed]}
           >
             <Text style={styles.saveButtonText}>
-              {item?.status === 'saving' ? 'Salvando…' : 'Salvar'}
+              {item?.status === 'saving' ? 'Salvando…' : 'Salvar palpite'}
             </Text>
           </Pressable>
         </View>
@@ -578,7 +595,7 @@ const styles = StyleSheet.create({
     minHeight: theme.touchTarget,
     paddingHorizontal: theme.space.lg,
   },
-  refreshButtonText: { fontSize: 12, fontWeight: '900' },
+  refreshButtonText: { color: theme.color.text, fontSize: 12, fontWeight: '900' },
   dimmed: { opacity: 0.5 },
   selector: { gap: theme.space.xs },
   selectorLabel: {
@@ -696,11 +713,18 @@ const styles = StyleSheet.create({
   penalties: { color: theme.color.gold, fontSize: 8, fontWeight: '900' },
   aggregate: { color: theme.color.gold, fontSize: 11, fontWeight: '900', textAlign: 'right' },
   predictionCard: {
-    borderBottomColor: theme.color.borderMuted,
-    borderBottomWidth: 1,
+    backgroundColor: theme.color.surfaceRaised,
+    borderColor: theme.color.border,
+    borderLeftWidth: 3,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
     gap: theme.space.sm,
-    paddingVertical: theme.space.lg,
+    padding: theme.space.lg,
   },
+  predictionCardRegistered: { borderLeftColor: theme.color.success },
+  predictionCardDirty: { borderLeftColor: theme.color.warning },
+  predictionCardFailed: { borderLeftColor: theme.color.danger },
+  predictionCardClosed: { backgroundColor: theme.color.surface, opacity: 0.92 },
   predictionMeta: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   predictionSchedule: { alignItems: 'center', flexDirection: 'row', gap: theme.space.sm },
   roundLabel: { color: theme.color.textMuted, fontSize: 11, fontWeight: '800' },
@@ -729,7 +753,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   scoreInputs: { alignItems: 'flex-start', flexDirection: 'row', gap: 4 },
-  versus: { color: theme.color.textMuted, fontSize: 18, fontWeight: '900', marginTop: 28 },
+  versus: { color: theme.color.textMuted, fontSize: 18, fontWeight: '900', marginTop: 10 },
   officialScore: { color: theme.color.text, fontSize: 22, fontWeight: '900' },
   unavailableReason: {
     color: theme.color.textMuted,

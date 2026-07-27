@@ -1,6 +1,7 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { SeasonDto } from '@bolao/shared';
+import { ResponsiveContainer } from '../components/DesignSystem';
 import { competitionSectionsForCapabilities } from '../navigation/competition-navigation';
 import { pathForCompetition, pathForScreen, type CompetitionSection } from '../navigation/routes';
 import { RouteLink } from '../navigation/RouteLink';
@@ -46,179 +47,232 @@ export function CompetitionSubnav({
   onSelectSeason?: (seasonId: string) => void;
 }) {
   const context = useCompetition();
+  const { width } = useWindowDimensions();
+  const compact = width < theme.breakpoint.compact;
   if (!section || !competitionSlug) return null;
+
   const items = competitionSectionsForCapabilities(
     context.capabilities,
     context.capabilityConfig,
-  ).map((enabledSection) => itemBySection[enabledSection as keyof typeof itemBySection]);
+  ).flatMap((enabledSection) => {
+    const item = itemBySection[enabledSection as keyof typeof itemBySection];
+    return item ? [item] : [];
+  });
   const title = competitionName ?? 'Competição';
   const legacy = context.capabilityConfig.workspace === 'WORLD_CUP_LEGACY';
   const currentSection = section.startsWith('team-')
     ? 'Time'
-    : (itemBySection[section]?.label ?? 'Visão geral');
+    : (itemBySection[section as keyof typeof itemBySection]?.label ?? 'Visão geral');
 
   return (
     <View style={styles.shell}>
-      <View
-        accessibilityRole="navigation"
-        accessibilityLabel="Caminho de navegação"
-        style={styles.breadcrumbs}
-      >
-        <RouteLink
-          href={pathForScreen('competitions')}
-          accessibilityLabel="Voltar à lista"
-          onActivate={onChangeCompetition}
-        >
-          <Text style={styles.breadcrumbLink}>Competições</Text>
-        </RouteLink>
-        <Text accessibilityElementsHidden style={styles.breadcrumbSeparator}>
-          /
-        </Text>
-        <RouteLink
-          href={pathForCompetition(competitionSlug)}
-          accessibilityLabel={`Abrir ${title}`}
-          onActivate={() => onNavigate('overview')}
-        >
-          <Text style={styles.breadcrumbLink} numberOfLines={1}>
-            {title}
-          </Text>
-        </RouteLink>
-        {section !== 'overview' ? (
-          <>
-            <Text accessibilityElementsHidden style={styles.breadcrumbSeparator}>
-              /
-            </Text>
-            <Text aria-current="page" numberOfLines={1} style={styles.breadcrumbCurrent}>
-              {currentSection}
-            </Text>
-          </>
-        ) : null}
-      </View>
-      <View style={styles.contextRow}>
-        <View style={styles.contextText}>
-          <View style={styles.eyebrowRow}>
-            <Text style={styles.eyebrow}>COMPETIÇÃO</Text>
-            {legacy ? <Text style={styles.legacyBadge}>LEGADO</Text> : null}
-          </View>
-          <Text style={styles.title} numberOfLines={1}>
-            {title}
-          </Text>
-        </View>
-        <RouteLink
-          href={pathForScreen('competitions')}
-          accessibilityLabel="Trocar competição"
-          onActivate={onChangeCompetition}
-          style={styles.allButton}
-        >
-          <Ionicons name="swap-horizontal-outline" size={17} color={theme.color.textMuted} />
-          <Text style={styles.allButtonText}>Trocar</Text>
-        </RouteLink>
-      </View>
-      {seasons.length > 1 ? (
-        <View style={styles.seasonRow} accessibilityLabel="Temporadas disponíveis">
-          <Text style={styles.seasonLabel}>TEMPORADA</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.seasonRail}
+      <ResponsiveContainer style={[styles.inner, compact && styles.innerCompact]}>
+        {!compact ? (
+          <View
+            {...({ role: 'navigation' } as object)}
+            accessibilityLabel="Caminho de navegação"
+            style={styles.breadcrumbs}
           >
-            {seasons.map((season) => {
-              const selected = season.id === selectedSeasonId;
-              return (
-                <Pressable
-                  key={season.id}
-                  {...({ 'aria-pressed': selected } as never)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${season.name}${selected ? ', atual' : ''}`}
-                  onPress={() => onSelectSeason?.(season.id)}
-                  style={[styles.seasonButton, selected && styles.seasonButtonActive]}
-                >
-                  <Text style={[styles.seasonText, selected && styles.seasonTextActive]}>
-                    {season.year ?? season.name}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </View>
-      ) : null}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.rail}
-        role="navigation"
-        accessibilityLabel={`Seções de ${title}`}
-      >
-        {items.map((item) => {
-          const selected =
-            item.section === section || (item.section === 'teams' && section.startsWith('team-'));
-          return (
             <RouteLink
-              key={item.section}
-              {...({ 'aria-current': selected ? 'page' : undefined } as never)}
-              href={pathForCompetition(competitionSlug, item.section)}
-              accessibilityLabel={item.label}
-              accessibilityState={{ selected }}
-              onActivate={() => onNavigate(item.section)}
-              style={[styles.item, selected && styles.itemActive]}
+              href={pathForScreen('competitions')}
+              accessibilityLabel="Voltar à lista"
+              onActivate={onChangeCompetition}
+              style={({ pressed }) => pressed && styles.linkPressed}
             >
-              <Ionicons
-                name={item.icon}
-                size={16}
-                color={selected ? theme.color.accentInk : theme.color.textMuted}
-              />
-              <Text style={[styles.itemText, selected && styles.itemTextActive]}>{item.label}</Text>
+              <Text style={styles.breadcrumbLink}>Competições</Text>
             </RouteLink>
-          );
-        })}
-      </ScrollView>
+            <Ionicons name="chevron-forward" size={12} color={theme.color.textSubtle} />
+            <RouteLink
+              href={pathForCompetition(competitionSlug)}
+              accessibilityLabel={`Abrir ${title}`}
+              onActivate={() => onNavigate('overview')}
+              style={({ pressed }) => pressed && styles.linkPressed}
+            >
+              <Text style={styles.breadcrumbLink} numberOfLines={1}>
+                {title}
+              </Text>
+            </RouteLink>
+            {section !== 'overview' ? (
+              <>
+                <Ionicons name="chevron-forward" size={12} color={theme.color.textSubtle} />
+                <Text aria-current="page" numberOfLines={1} style={styles.breadcrumbCurrent}>
+                  {currentSection}
+                </Text>
+              </>
+            ) : null}
+          </View>
+        ) : null}
+
+        <View style={styles.contextRow}>
+          <View style={styles.contextText}>
+            <View style={styles.eyebrowRow}>
+              <Text style={styles.eyebrow}>COMPETIÇÃO ATIVA</Text>
+              {legacy ? <Text style={styles.legacyBadge}>LEGADO</Text> : null}
+            </View>
+            <Text style={[styles.title, compact && styles.titleCompact]} numberOfLines={1}>
+              {title}
+            </Text>
+          </View>
+          <RouteLink
+            href={pathForScreen('competitions')}
+            accessibilityLabel="Trocar competição"
+            onActivate={onChangeCompetition}
+            style={({ pressed }) => [styles.changeButton, pressed && styles.changeButtonPressed]}
+          >
+            <Ionicons name="swap-horizontal-outline" size={17} color={theme.color.textMuted} />
+            {!compact ? <Text style={styles.changeButtonText}>Trocar</Text> : null}
+          </RouteLink>
+        </View>
+
+        {seasons.length > 1 ? (
+          <View style={styles.seasonRow} accessibilityLabel="Temporadas disponíveis">
+            <Text style={styles.seasonLabel}>TEMPORADA</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.seasonRail}
+            >
+              {seasons.map((season) => {
+                const selected = season.id === selectedSeasonId;
+                return (
+                  <Pressable
+                    key={season.id}
+                    {...({ 'aria-pressed': selected } as object)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${season.name}${selected ? ', atual' : ''}`}
+                    onPress={() => onSelectSeason?.(season.id)}
+                    style={({ pressed }) => [
+                      styles.seasonButton,
+                      selected && styles.seasonButtonActive,
+                      pressed && styles.seasonButtonPressed,
+                    ]}
+                  >
+                    <Text style={[styles.seasonText, selected && styles.seasonTextActive]}>
+                      {season.year ?? season.name}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        ) : null}
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.rail}
+          role="navigation"
+          accessibilityLabel={`Seções de ${title}`}
+          style={styles.railScroll}
+        >
+          {items.map((item) => {
+            const selected =
+              item.section === section || (item.section === 'teams' && section.startsWith('team-'));
+            return (
+              <RouteLink
+                key={item.section}
+                {...({ 'aria-current': selected ? 'page' : undefined } as object)}
+                href={pathForCompetition(competitionSlug, item.section)}
+                accessibilityLabel={item.label}
+                accessibilityState={{ selected }}
+                onActivate={() => onNavigate(item.section)}
+                style={({ pressed }) => [
+                  styles.item,
+                  selected && styles.itemActive,
+                  pressed && styles.itemPressed,
+                ]}
+              >
+                <Ionicons
+                  name={item.icon}
+                  size={16}
+                  color={selected ? theme.color.accent : theme.color.textMuted}
+                />
+                <Text style={[styles.itemText, selected && styles.itemTextActive]}>
+                  {item.label}
+                </Text>
+              </RouteLink>
+            );
+          })}
+        </ScrollView>
+      </ResponsiveContainer>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   shell: {
+    backgroundColor: theme.color.surface,
     borderBottomColor: theme.color.borderMuted,
     borderBottomWidth: 1,
-    gap: theme.space.md,
-    marginHorizontal: 'auto',
-    maxWidth: 1280,
-    paddingHorizontal: theme.space.xl,
-    paddingVertical: theme.space.md,
     width: '100%',
   },
-  breadcrumbs: { alignItems: 'center', flexDirection: 'row', gap: 6, minHeight: 24 },
-  breadcrumbLink: { color: theme.color.info, fontSize: 12, fontWeight: '800' },
-  breadcrumbSeparator: { color: theme.color.textMuted, fontSize: 12 },
+  inner: {
+    gap: theme.space.sm,
+    paddingHorizontal: theme.space.xl,
+    paddingVertical: theme.space.sm,
+  },
+  innerCompact: {
+    gap: 6,
+    paddingHorizontal: theme.space.md,
+    paddingVertical: 7,
+  },
+  breadcrumbs: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: theme.space.xs,
+    minHeight: 20,
+  },
+  breadcrumbLink: {
+    color: theme.color.textSubtle,
+    fontSize: theme.font.size.xs,
+    fontWeight: '800',
+  },
   breadcrumbCurrent: {
     color: theme.color.textMuted,
     flexShrink: 1,
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: theme.font.size.xs,
+    fontWeight: '800',
   },
+  linkPressed: { opacity: 0.72 },
   contextRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 12,
+    gap: theme.space.md,
     justifyContent: 'space-between',
   },
   contextText: { flex: 1, minWidth: 0 },
   eyebrowRow: { alignItems: 'center', flexDirection: 'row', gap: 7 },
-  eyebrow: { color: theme.color.accent, fontSize: 9, fontWeight: '900', letterSpacing: 1.25 },
+  eyebrow: {
+    color: theme.color.accent,
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1.15,
+  },
   legacyBadge: {
-    backgroundColor: 'rgba(244, 214, 92, 0.14)',
+    backgroundColor: theme.color.warningMuted,
     borderRadius: theme.radius.pill,
-    color: theme.color.gold,
+    color: theme.color.warning,
     fontSize: 8,
     fontWeight: '900',
     overflow: 'hidden',
     paddingHorizontal: 7,
-    paddingVertical: 3,
+    paddingVertical: 2,
   },
-  title: { color: theme.color.text, fontSize: 16, fontWeight: '900', marginTop: 3 },
-  seasonRow: { alignItems: 'center', flexDirection: 'row', gap: 10 },
+  title: {
+    color: theme.color.text,
+    fontSize: 16,
+    fontWeight: '900',
+    letterSpacing: -0.15,
+    marginTop: 2,
+  },
+  titleCompact: { fontSize: 14 },
+  seasonRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: theme.space.sm,
+  },
   seasonLabel: {
-    color: theme.color.textMuted,
+    color: theme.color.textSubtle,
     fontSize: 8,
     fontWeight: '900',
     letterSpacing: 1,
@@ -231,32 +285,52 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     justifyContent: 'center',
     minHeight: theme.touchTarget,
-    paddingHorizontal: 12,
+    paddingHorizontal: theme.space.md,
   },
-  seasonButtonActive: { backgroundColor: theme.color.accent, borderColor: theme.color.accent },
-  seasonText: { color: theme.color.textMuted, fontSize: 10, fontWeight: '900' },
-  seasonTextActive: { color: theme.color.accentInk },
-  allButton: {
+  seasonButtonActive: {
+    backgroundColor: theme.color.accentMuted,
+    borderColor: theme.color.accent,
+  },
+  seasonButtonPressed: { backgroundColor: theme.color.surfacePressed },
+  seasonText: { color: theme.color.textMuted, fontSize: theme.font.size.xs, fontWeight: '900' },
+  seasonTextActive: { color: theme.color.accent },
+  changeButton: {
     alignItems: 'center',
-    borderColor: theme.color.borderMuted,
+    borderColor: theme.color.border,
     borderRadius: theme.radius.sm,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 6,
+    justifyContent: 'center',
     minHeight: theme.touchTarget,
-    paddingHorizontal: 12,
+    minWidth: theme.touchTarget,
+    paddingHorizontal: theme.space.md,
   },
-  allButtonText: { color: theme.color.textMuted, fontSize: 11, fontWeight: '800' },
-  rail: { gap: 5 },
+  changeButtonPressed: { backgroundColor: theme.color.surfacePressed },
+  changeButtonText: {
+    color: theme.color.textMuted,
+    fontSize: theme.font.size.xs,
+    fontWeight: '800',
+  },
+  railScroll: {
+    borderTopColor: theme.color.borderMuted,
+    borderTopWidth: 1,
+  },
+  rail: { gap: theme.space.xs },
   item: {
     alignItems: 'center',
-    borderRadius: theme.radius.sm,
+    borderBottomColor: 'transparent',
+    borderBottomWidth: 2,
     flexDirection: 'row',
     gap: 6,
     minHeight: theme.touchTarget,
-    paddingHorizontal: 12,
+    paddingHorizontal: theme.space.md,
   },
-  itemActive: { backgroundColor: theme.color.accent },
-  itemText: { color: theme.color.textMuted, fontSize: 11, fontWeight: '800' },
-  itemTextActive: { color: theme.color.accentInk },
+  itemActive: {
+    backgroundColor: theme.color.accentMuted,
+    borderBottomColor: theme.color.accent,
+  },
+  itemPressed: { backgroundColor: theme.color.surfacePressed },
+  itemText: { color: theme.color.textMuted, fontSize: theme.font.size.xs, fontWeight: '800' },
+  itemTextActive: { color: theme.color.accent },
 });

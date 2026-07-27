@@ -3,20 +3,63 @@
 @tailwind utilities;
 
 :root {
-  scrollbar-color: rgba(70, 139, 190, 0.78) transparent;
+  color-scheme: dark;
+  scrollbar-color: rgba(116, 135, 155, 0.62) transparent;
   scrollbar-width: thin;
+}
+
+html,
+body,
+#root {
+  background: #061426;
+  min-height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(circle at 50% -20%, rgba(116, 71, 232, 0.11), transparent 38%),
+    #061426;
+  background-attachment: fixed;
+  color: #f4f7fb;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  margin: 0;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 }
 
 * {
   box-sizing: border-box;
-  scrollbar-color: rgba(70, 139, 190, 0.78) transparent;
+  scrollbar-color: rgba(116, 135, 155, 0.62) transparent;
   scrollbar-width: thin;
 }
 
+::selection {
+  background: rgba(168, 230, 0, 0.28);
+  color: #f4f7fb;
+}
+
+@keyframes soft-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.soft-reveal {
+  animation: soft-reveal 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 .skip-link {
-  background: #ffffff;
+  background: #a8e600;
   border-radius: 0 0 8px 8px;
-  color: #00143a;
+  color: #101a00;
   font-weight: 800;
   left: 16px;
   padding: 12px 16px;
@@ -28,7 +71,7 @@
 }
 
 .skip-link:focus {
-  outline: 3px solid #34d17b;
+  outline: 3px solid #d8ff5f;
   outline-offset: 2px;
   transform: translateY(0);
 }
@@ -45,7 +88,7 @@
   [role='tab'],
   [tabindex='0']
 ):focus-visible {
-  outline: 3px solid #ffffff !important;
+  outline: 3px solid #d8ff5f !important;
   outline-offset: 3px !important;
 }
 
@@ -55,6 +98,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .soft-reveal {
+    animation: none;
+  }
+
   *,
   *::before,
   *::after {
@@ -76,30 +123,33 @@
 }
 
 *::-webkit-scrollbar-thumb {
-  background-color: rgba(70, 139, 190, 0.78);
-  background-image: linear-gradient(
-    180deg,
-    rgba(81, 157, 219, 0.82),
-    rgba(32, 171, 116, 0.78) 58%,
-    rgba(220, 184, 45, 0.68)
-  );
+  background-color: rgba(116, 135, 155, 0.62);
   border: 2px solid transparent;
   border-radius: 999px;
   background-clip: content-box;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(102, 178, 229, 0.9);
-  background-image: linear-gradient(
-    180deg,
-    rgba(102, 178, 229, 0.94),
-    rgba(43, 202, 136, 0.9) 58%,
-    rgba(255, 211, 31, 0.82)
-  );
+  background-color: rgba(168, 230, 0, 0.68);
 }
 
 *::-webkit-scrollbar-button {
   display: none;
   width: 0;
   height: 0;
+}
+
+@media (hover: hover) {
+  :where(button, [role='button'], [role='link'], [role='tab']) {
+    transition:
+      background-color 120ms ease,
+      border-color 120ms ease,
+      color 120ms ease,
+      opacity 120ms ease,
+      transform 120ms ease;
+  }
+
+  :where(button, [role='button'], [role='link'], [role='tab']):active {
+    transform: translateY(1px);
+  }
 }

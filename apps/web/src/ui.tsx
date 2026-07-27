@@ -1,20 +1,21 @@
 import type { ReactNode } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { theme } from './theme/tokens';
 
 export function Shell({ children }: { children: ReactNode }) {
-  return <View className="min-h-screen bg-slate-950 px-4 py-5 md:px-8">{children}</View>;
+  return <View style={styles.shell}>{children}</View>;
 }
 
 export function Panel({ children }: { children: ReactNode }) {
-  return <View className="rounded-lg border border-slate-800 bg-panel p-4 shadow-sm">{children}</View>;
+  return <View style={styles.panel}>{children}</View>;
 }
 
 export function Title({ children }: { children: ReactNode }) {
-  return <Text className="text-2xl font-bold text-white md:text-3xl">{children}</Text>;
+  return <Text style={styles.title}>{children}</Text>;
 }
 
 export function Label({ children }: { children: ReactNode }) {
-  return <Text className="mb-2 text-sm font-semibold text-slate-300">{children}</Text>;
+  return <Text style={styles.label}>{children}</Text>;
 }
 
 export function Field({
@@ -30,13 +31,13 @@ export function Field({
 }) {
   return (
     <TextInput
-      className="rounded-md border border-slate-700 bg-slate-900 px-3 py-3 text-base text-white outline-none"
       value={value}
       onChangeText={onChangeText}
       secureTextEntry={secureTextEntry}
       placeholder={placeholder}
-      placeholderTextColor="#64748b"
+      placeholderTextColor={theme.color.textSubtle}
       autoCapitalize="none"
+      style={styles.field}
     />
   );
 }
@@ -52,37 +53,128 @@ export function Button({
   variant?: 'primary' | 'secondary' | 'danger';
   disabled?: boolean;
 }) {
-  const color =
-    variant === 'danger'
-      ? 'bg-coral'
-      : variant === 'secondary'
-        ? 'bg-slate-800'
-        : 'bg-grass';
-
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled: Boolean(disabled) }}
       disabled={disabled}
       onPress={onPress}
-      className={`items-center rounded-md px-4 py-3 ${disabled ? 'bg-slate-700 opacity-60' : color}`}
+      style={[
+        styles.button,
+        variant === 'secondary' && styles.buttonSecondary,
+        variant === 'danger' && styles.buttonDanger,
+        disabled && styles.disabled,
+      ]}
     >
-      <Text className="font-semibold text-white">{children}</Text>
+      <Text
+        style={[
+          styles.buttonText,
+          variant === 'secondary' && styles.buttonSecondaryText,
+          variant === 'danger' && styles.buttonDangerText,
+        ]}
+      >
+        {children}
+      </Text>
     </Pressable>
   );
 }
 
-export function StatusPill({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'live' | 'final' | 'warn' }) {
-  const color =
-    tone === 'live'
-      ? 'border-coral bg-coral/20 text-red-100'
-      : tone === 'final'
-        ? 'border-grass bg-grass/20 text-green-100'
-        : tone === 'warn'
-          ? 'border-gold bg-gold/20 text-yellow-100'
-          : 'border-slate-700 bg-slate-800 text-slate-200';
-
+export function StatusPill({
+  children,
+  tone = 'neutral',
+}: {
+  children: ReactNode;
+  tone?: 'neutral' | 'live' | 'final' | 'warn';
+}) {
   return (
-    <View className={`rounded-full border px-3 py-1 ${color}`}>
-      <Text className="text-xs font-semibold text-white">{children}</Text>
+    <View
+      style={[
+        styles.pill,
+        tone === 'live' && styles.pillLive,
+        tone === 'final' && styles.pillFinal,
+        tone === 'warn' && styles.pillWarn,
+      ]}
+    >
+      <Text
+        style={[
+          styles.pillText,
+          tone === 'live' && styles.pillLiveText,
+          tone === 'final' && styles.pillFinalText,
+          tone === 'warn' && styles.pillWarnText,
+        ]}
+      >
+        {children}
+      </Text>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  shell: {
+    backgroundColor: theme.color.canvas,
+    flex: 1,
+    minHeight: '100%',
+    padding: theme.space.xl,
+  },
+  panel: {
+    backgroundColor: theme.color.surfaceRaised,
+    borderColor: theme.color.border,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    padding: theme.space.lg,
+  },
+  title: { color: theme.color.text, fontSize: 28, fontWeight: '900' },
+  label: {
+    color: theme.color.textMuted,
+    fontSize: theme.font.size.sm,
+    fontWeight: '800',
+    marginBottom: theme.space.sm,
+  },
+  field: {
+    backgroundColor: theme.color.surface,
+    borderColor: theme.color.border,
+    borderRadius: theme.radius.sm,
+    borderWidth: 1,
+    color: theme.color.text,
+    minHeight: theme.touchTarget,
+    paddingHorizontal: theme.space.md,
+  },
+  button: {
+    alignItems: 'center',
+    backgroundColor: theme.color.accent,
+    borderColor: theme.color.accent,
+    borderRadius: theme.radius.sm,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: theme.touchTarget,
+    paddingHorizontal: theme.space.lg,
+  },
+  buttonSecondary: {
+    backgroundColor: 'transparent',
+    borderColor: theme.color.border,
+  },
+  buttonDanger: {
+    backgroundColor: theme.color.dangerMuted,
+    borderColor: theme.color.danger,
+  },
+  buttonText: { color: theme.color.accentInk, fontWeight: '900' },
+  buttonSecondaryText: { color: theme.color.text },
+  buttonDangerText: { color: theme.color.danger },
+  disabled: { opacity: 0.48 },
+  pill: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(116, 135, 155, 0.11)',
+    borderColor: theme.color.borderMuted,
+    borderRadius: theme.radius.pill,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  pillText: { color: theme.color.textMuted, fontSize: theme.font.size.xs, fontWeight: '900' },
+  pillLive: { backgroundColor: theme.color.dangerMuted, borderColor: theme.color.danger },
+  pillLiveText: { color: theme.color.danger },
+  pillFinal: { backgroundColor: theme.color.successMuted, borderColor: theme.color.success },
+  pillFinalText: { color: theme.color.success },
+  pillWarn: { backgroundColor: theme.color.warningMuted, borderColor: theme.color.warning },
+  pillWarnText: { color: theme.color.warning },
+});

@@ -1,11 +1,18 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RankingRowDto } from '@bolao/shared';
+import type { EngagementDashboard, RankingAward } from '../../api';
 import { PremiumRanking } from './PremiumRanking';
 
-vi.mock('@expo/vector-icons', () => ({
-  Ionicons: ({ name }: { name: string }) => <span>{name}</span>,
-}));
+vi.mock('@expo/vector-icons', () => {
+  const Icon = ({ name }: { name: string }) => <span>{name}</span>;
+  return { default: Icon, Ionicons: Icon };
+});
+
+function setViewport(width: number) {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+  window.dispatchEvent(new Event('resize'));
+}
 
 function row(rank: number, nickname: string, points: number): RankingRowDto {
   return {
@@ -34,9 +41,13 @@ function row(rank: number, nickname: string, points: number): RankingRowDto {
 }
 
 describe('PremiumRanking', () => {
-  afterEach(cleanup);
+  beforeEach(() => setViewport(1366));
+  afterEach(() => {
+    cleanup();
+    setViewport(1366);
+  });
 
-  it('renderiza pódio, indicadores, filtros, radar e destaque do usuário', () => {
+  it('renderiza pódio, indicadores, filtros e destaque do usuário', () => {
     const ranking = [row(1, 'Ana', 30), row(2, 'Bruno', 24), row(3, 'Carla', 20)];
     render(
       <PremiumRanking
@@ -58,7 +69,6 @@ describe('PremiumRanking', () => {
 
     expect(screen.getByText('Corrida pelo topo')).toBeTruthy();
     expect(screen.getByText('SUA POSIÇÃO')).toBeTruthy();
-    expect(screen.getByText('RADAR DO RANKING')).toBeTruthy();
     expect(screen.getAllByText('VOCÊ').length).toBeGreaterThan(0);
   });
 
@@ -166,5 +176,174 @@ describe('PremiumRanking', () => {
     );
 
     expect(screen.getByText(/R\$\s*1\.250,00/)).toBeTruthy();
+  });
+
+  it('preserva a ordem do backend, movimento, filtros, escopos e critérios reais', () => {
+    const ranking = [
+      row(2, 'Bruno', 24),
+      row(1, 'Ana', 30),
+      {
+        ...row(3, 'Carla', 20),
+        movement: {
+          delta: -2,
+          fromRank: 1,
+          toRank: 3,
+          isProvisional: true,
+          changedAt: '2026-07-16T12:00:00.000Z',
+        },
+      },
+    ];
+    const onScopeChange = vi.fn();
+    render(
+      <PremiumRanking
+        seasonName="Brasileirão Série A 2026"
+        ranking={ranking}
+        roundRanking={[
+          { ...ranking[0], points: 7 },
+          { ...ranking[1], points: 5 },
+          { ...ranking[2], points: 2 },
+        ]}
+        currentUserId="user-2"
+        scope="overall"
+        availableScopes={new Set(['OVERALL', 'ROUND'])}
+        onScopeChange={onScopeChange}
+        connection="live"
+        syncing={false}
+        lastSyncedAt={null}
+        onRefresh={vi.fn()}
+        awards={[]}
+        engagement={null}
+        tieBreakers={['Placar exato', 'Resultado correto']}
+      />,
+    );
+
+    const renderedRows = screen.getAllByTestId(/^ranking-row-/);
+    expect(renderedRows.map((item) => item.getAttribute('data-testid'))).toEqual([
+      'ranking-row-user-2',
+      'ranking-row-user-1',
+      'ranking-row-user-3',
+    ]);
+    expect(
+      within(screen.getByTestId('ranking-row-user-3')).getByLabelText(
+        'Movimento caiu 2 posições',
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText('Critérios de desempate')).toBeTruthy();
+    expect(screen.getByText(/Placar exato → Resultado correto/)).toBeTruthy();
+    expect(screen.queryByText('Turno 1')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rodada' }));
+    expect(onScopeChange).toHaveBeenCalledWith('round');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ao vivo' }));
+    expect(screen.getAllByTestId(/^ranking-row-/)).toHaveLength(1);
+    expect(screen.getByTestId('ranking-row-user-2')).toBeTruthy();
+  });
+
+  it('usa lista compacta sem tabela larga em 320 px e mantém as métricas da linha', () => {
+    setViewport(320);
+    const ranking = [row(1, 'Ana', 30), row(2, 'Bruno', 24), row(3, 'Carla', 20)];
+    render(
+      <PremiumRanking
+        seasonName="Brasileirão Série A 2026"
+        ranking={ranking}
+        roundRanking={ranking.map((item, index) => ({ ...item, points: 9 - index }))}
+        currentUserId="user-2"
+        scope="overall"
+        onScopeChange={vi.fn()}
+        connection="live"
+        syncing={false}
+        lastSyncedAt={null}
+        onRefresh={vi.fn()}
+        awards={[]}
+        engagement={null}
+        tieBreakers={[]}
+      />,
+    );
+
+    expect(screen.getByTestId('ranking-list-compact')).toBeTruthy();
+    expect(screen.queryByTestId('ranking-table-desktop')).toBeNull();
+    const currentRow = within(screen.getByTestId('ranking-row-user-2'));
+    expect(currentRow.getByText('Bruno · Você')).toBeTruthy();
+    expect(currentRow.getByText('24')).toBeTruthy();
+    expect(currentRow.getByText('8')).toBeTruthy();
+    expect(currentRow.getByText('Provisório')).toBeTruthy();
+    expect(currentRow.getByLabelText('Movimento estável 0 posições')).toBeTruthy();
+  });
+
+  it('mantém awards, conquistas e sequências retornados pela API', () => {
+    const ranking = [row(1, 'Ana', 30)];
+    const awards: RankingAward[] = [
+      {
+        key: 'overall',
+        title: 'Campeã geral',
+        subtitle: 'Maior pontuação consolidada',
+        scope: 'OVERALL',
+        tier: 'major',
+        status: 'locked',
+        icon: 'trophy',
+        winner: {
+          userId: 'user-1',
+          nickname: 'Ana',
+          avatarUrl: null,
+          points: 30,
+          exactScores: 2,
+          resultHits: 1,
+          oneGoalHits: 0,
+          misses: 0,
+        },
+      },
+    ];
+    const engagement: EngagementDashboard = {
+      achievements: [
+        {
+          id: 'achievement-1',
+          progress: { current: 3, target: 5 },
+          isProvisional: false,
+          achievedAt: null,
+          revokedAt: null,
+          definition: {
+            key: 'regularidade',
+            version: 1,
+            name: 'Regularidade',
+            description: 'Pontuar em cinco rodadas.',
+            rarity: 'COMMON',
+          },
+        },
+      ],
+      streaks: [{ type: 'RESULT_HIT', currentCount: 2, bestCount: 4 }],
+      notifications: [],
+      preferences: {
+        inAppEnabled: true,
+        pushEnabled: false,
+        emailEnabled: false,
+        quietHoursEnabled: false,
+        timezone: 'America/Sao_Paulo',
+      },
+    };
+    render(
+      <PremiumRanking
+        seasonName="Brasileirão Série A 2026"
+        ranking={ranking}
+        roundRanking={ranking}
+        currentUserId="user-1"
+        scope="overall"
+        onScopeChange={vi.fn()}
+        connection="live"
+        syncing={false}
+        lastSyncedAt={null}
+        onRefresh={vi.fn()}
+        awards={awards}
+        engagement={engagement}
+        tieBreakers={[]}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('Sala de Troféus'));
+    expect(screen.getByText('Campeã geral')).toBeTruthy();
+    expect(screen.getAllByText('Ana').length).toBeGreaterThan(0);
+    expect(screen.getByText('Regularidade')).toBeTruthy();
+    expect(screen.getByText('3/5')).toBeTruthy();
+    expect(screen.getByText('2 atual · 4 melhor')).toBeTruthy();
   });
 });

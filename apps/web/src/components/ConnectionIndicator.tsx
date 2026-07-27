@@ -27,5 +27,5 @@ const styles = StyleSheet.create({
   live: { backgroundColor: theme.color.accent },
   reconnecting: { backgroundColor: theme.color.warning },
   offline: { backgroundColor: theme.color.danger },
-  label: { color: theme.color.textMuted, fontSize: 12, fontWeight: '800' },
+  label: { color: theme.color.text, fontSize: 12, fontWeight: '800' },
 });

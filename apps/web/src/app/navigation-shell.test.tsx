@@ -19,7 +19,19 @@ vi.mock('./CompetitionContext', () => ({
   }),
 }));
 
-afterEach(cleanup);
+function setViewport(width: number) {
+  Object.defineProperty(window, 'innerWidth', {
+    configurable: true,
+    value: width,
+    writable: true,
+  });
+  window.dispatchEvent(new Event('resize'));
+}
+
+afterEach(() => {
+  cleanup();
+  setViewport(1024);
+});
 
 const user = {
   id: 'user-tarmac',
@@ -31,6 +43,7 @@ const user = {
 
 describe('shell de navegação', () => {
   it('usa Bolão Sirel e mantém a Copa fora da navegação global', () => {
+    setViewport(1280);
     render(
       <AppHeader
         user={user}
@@ -46,6 +59,37 @@ describe('shell de navegação', () => {
     expect(screen.queryByText('Copa')).toBeNull();
     expect(screen.getByRole('link', { name: 'Início' }).getAttribute('aria-current')).toBe('page');
     expect(screen.getAllByRole('link')).toHaveLength(5);
+  });
+
+  it('usa navegação inferior fixa com os quatro destinos reais no mobile', () => {
+    setViewport(375);
+    const onNavigatePrimary = vi.fn();
+    render(
+      <AppHeader
+        user={user}
+        screen="home"
+        onNavigatePrimary={onNavigatePrimary}
+        onRefresh={vi.fn()}
+        onUserChange={vi.fn()}
+        onLogout={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId('desktop-primary-navigation')).toBeNull();
+    const navigation = screen.getByTestId('mobile-primary-navigation');
+    expect(window.getComputedStyle(navigation).position).toBe('fixed');
+    const links = screen.getAllByRole('link').filter((link) => navigation.contains(link));
+    expect(links.map((link) => link.getAttribute('aria-label'))).toEqual([
+      'Início',
+      'Competições',
+      'Palpites',
+      'Ranking',
+    ]);
+    expect(links).toHaveLength(4);
+    expect(screen.getByRole('link', { name: 'Início' }).getAttribute('aria-current')).toBe('page');
+
+    fireEvent.click(screen.getByRole('link', { name: 'Palpites' }));
+    expect(onNavigatePrimary).toHaveBeenCalledWith('predictions');
   });
 
   it('abre a Copa como competição legada com subpáginas próprias', () => {

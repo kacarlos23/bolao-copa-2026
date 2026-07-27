@@ -51,7 +51,7 @@ describe('FundraisingAdmin', () => {
     fireEvent.change(screen.getByLabelText('Valor arrecadado'), {
       target: { value: '150,50' },
     });
-    fireEvent.click(screen.getByText('Gerar prévia'));
+    fireEvent.click(screen.getByText('Revisar valor'));
     await screen.findByText(/Digite exatamente/);
     fireEvent.change(screen.getByLabelText('Confirmação do valor arrecadado'), {
       target: { value: 'CONFIRMAR 1 ABCDEF123456' },
@@ -71,7 +71,7 @@ describe('FundraisingAdmin', () => {
     fireEvent.change(screen.getByLabelText('Valor arrecadado'), {
       target: { value: '-1' },
     });
-    fireEvent.click(screen.getByText('Gerar prévia'));
+    fireEvent.click(screen.getByText('Revisar valor'));
 
     expect((await screen.findByRole('alert')).textContent).toContain('Informe um valor válido');
     expect(api.previewFundraising).not.toHaveBeenCalled();

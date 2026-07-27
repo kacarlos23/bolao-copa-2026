@@ -50,7 +50,7 @@ function SourceStatus({ profile }: { profile: TeamProfileDto }) {
         Dados de {profile.source.label} · coleta de {formatCollectedAt(profile.source.collectedAt)}
       </Text>
       <Pressable
-        {...({ href: profile.source.url, target: '_blank', rel: 'noreferrer' } as never)}
+        {...({ href: profile.source.url, target: '_blank', rel: 'noreferrer' } as object)}
         accessibilityRole="link"
         accessibilityLabel={`Abrir fonte oficial de ${profile.team.name} em nova aba`}
         style={styles.sourceLink}
@@ -495,7 +495,7 @@ export function TeamProfileScreen({
             </View>
             <SourceStatus profile={profile} />
             <View
-              accessibilityRole="navigation"
+              {...({ role: 'navigation' } as object)}
               accessibilityLabel={`Seções do perfil de ${profile.team.name}`}
             >
               <ScrollView
@@ -508,7 +508,7 @@ export function TeamProfileScreen({
                   return (
                     <RouteLink
                       key={item.section}
-                      {...({ 'aria-current': active ? 'page' : undefined } as never)}
+                      {...({ 'aria-current': active ? 'page' : undefined } as object)}
                       href={
                         competitionSlug
                           ? pathForCompetitionTeam(competitionSlug, teamId, item.section)

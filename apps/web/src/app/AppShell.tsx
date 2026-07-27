@@ -27,12 +27,11 @@ const styles = StyleSheet.create({
 });
 
 const webBackground = {
-  backgroundAttachment: 'fixed',
   backgroundImage: [
-    'radial-gradient(900px 520px at 50% -10%, rgba(39, 133, 214, 0.16), transparent 64%)',
-    'linear-gradient(145deg, #001033 0%, #00224f 52%, #00163c 100%)',
+    'radial-gradient(720px 360px at 50% -12%, rgba(168, 230, 0, 0.055), transparent 68%)',
+    'linear-gradient(180deg, #030c17 0%, #061426 28%, #061426 100%)',
   ].join(', '),
   backgroundRepeat: 'no-repeat',
   backgroundSize: 'cover',
-  minHeight: '100vh',
+  minHeight: '100dvh',
 } as never;

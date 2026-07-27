@@ -75,6 +75,24 @@ function formatMatchHour(value: string, timezone: string) {
   }).format(new Date(value));
 }
 
+function formatMatchDateTime(value: string, timezone: string) {
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone: timezone,
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value));
+}
+
+function matchStatusLabel(status: MatchDto['status']) {
+  if (status === 'LIVE') return 'Ao vivo';
+  if (status === 'FINISHED') return 'Encerrado';
+  if (status === 'POSTPONED') return 'Adiado';
+  if (status === 'CANCELLED') return 'Cancelado';
+  return 'Agendado';
+}
+
 function civilKeyDate(value: string) {
   return new Date(`${value}T12:00:00.000Z`);
 }
@@ -354,6 +372,14 @@ export function SeasonWorkspace({
   const selectedPredictionDay = predictionDays.find((day) => day.key === selectedDayKey);
   const selectedDayMatches = selectedPredictionDay?.matches ?? [];
   const todayKey = civilDateKey(new Date(), timezone);
+  const matchesByDay = useMemo(() => {
+    const grouped = new Map<string, MatchDto[]>();
+    for (const match of matches) {
+      const key = civilDateKey(match.startsAt, timezone);
+      grouped.set(key, [...(grouped.get(key) ?? []), match]);
+    }
+    return [...grouped].map(([key, items]) => ({ key, matches: items }));
+  }, [matches, timezone]);
 
   function dispatch(action: Parameters<typeof draftReducer>[1]) {
     setDraft((current) => draftReducer(current, action));
@@ -851,6 +877,28 @@ export function SeasonWorkspace({
         ) && draft.items[match.id]?.status === 'dirty',
     )
     .map((match) => match.id);
+  const selectedDayOpenMatches = selectedDayMatches.filter((match) =>
+    isPredictionOpen(
+      match,
+      rounds.find((round) => round.id === match.roundId),
+      rules,
+    ),
+  );
+  const selectedDayFilledCount = selectedDayMatches.filter((match) => {
+    const value = draft.items[match.id]?.value;
+    return Boolean(value && value.home !== '' && value.away !== '');
+  }).length;
+  const selectedDayPendingCount = selectedDayOpenMatches.filter((match) => {
+    const value = draft.items[match.id]?.value;
+    return !value || value.home === '' || value.away === '';
+  }).length;
+  const nextPredictionDeadline = selectedDayOpenMatches
+    .map(
+      (match) =>
+        match.predictionClosesAt ??
+        new Date(new Date(match.startsAt).getTime() - 5 * 60_000).toISOString(),
+    )
+    .sort()[0];
 
   const sectionSubtitle: Record<SeasonWorkspaceSection, string> = {
     all: 'Palpites, classificação e ranking no mesmo contexto de temporada.',
@@ -972,23 +1020,85 @@ export function SeasonWorkspace({
               <Text style={styles.sectionEyebrow}>JOGOS</Text>
               <Text style={styles.sectionTitle}>{selectedRound?.name ?? 'Calendário'}</Text>
             </View>
-            {matches.map((match) => (
-              <View key={match.id} style={styles.fixtureRow}>
-                <View style={styles.matchIdentity}>
-                  <TeamBadge team={match.homeTeam} kind="crest" size={34} />
-                  <Text style={styles.matchTeam}>{match.homeTeam.name}</Text>
+            <View style={styles.fixtureList}>
+              {matchesByDay.map((day) => (
+                <View key={day.key} style={styles.fixtureGroup}>
+                  <View style={styles.fixtureDateRow}>
+                    <Text style={styles.fixtureDate}>{formatDayTitle(day.key)}</Text>
+                    <Text style={styles.fixtureDateCount}>
+                      {day.matches.length} {day.matches.length === 1 ? 'jogo' : 'jogos'}
+                    </Text>
+                  </View>
+                  {day.matches.map((match) => {
+                    const item = draft.items[match.id];
+                    const hasPrediction = Boolean(
+                      item && item.value.home !== '' && item.value.away !== '',
+                    );
+                    const predictionRegistered =
+                      hasPrediction && (item?.status === 'clean' || item?.status === 'saved');
+                    const availability = predictionAvailability(
+                      match,
+                      rounds.find((round) => round.id === match.roundId),
+                      rules,
+                    );
+                    const predictionState = hasPrediction
+                      ? item?.status === 'saving'
+                        ? 'Salvando palpite'
+                        : item?.status === 'dirty' || item?.status === 'failed'
+                          ? 'Palpite não salvo'
+                          : 'Palpite registrado'
+                      : availability.open
+                        ? 'Palpite pendente'
+                        : null;
+                    return (
+                      <View key={match.id} style={styles.fixtureRow}>
+                        <View style={styles.matchIdentity}>
+                          <TeamBadge team={match.homeTeam} kind="crest" size={34} />
+                          <Text style={styles.matchTeam}>{match.homeTeam.name}</Text>
+                        </View>
+                        <View style={styles.matchResult}>
+                          <Text style={styles.matchScore}>
+                            {score(match) ?? formatMatchHour(match.startsAt, timezone)}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.fixtureStatus,
+                              match.status === 'LIVE' && styles.fixtureStatusLive,
+                              match.status === 'FINISHED' && styles.fixtureStatusFinished,
+                              (match.status === 'POSTPONED' || match.status === 'CANCELLED') &&
+                                styles.fixtureStatusWarning,
+                            ]}
+                          >
+                            {matchStatusLabel(match.status)}
+                          </Text>
+                          {match.venue?.name ? (
+                            <Text numberOfLines={1} style={styles.matchVenue}>
+                              {match.venue.name}
+                            </Text>
+                          ) : null}
+                          {predictionState ? (
+                            <Text
+                              style={[
+                                styles.fixturePrediction,
+                                predictionRegistered && styles.fixturePredictionRegistered,
+                              ]}
+                            >
+                              {predictionState}
+                            </Text>
+                          ) : null}
+                        </View>
+                        <View style={[styles.matchIdentity, styles.matchIdentityAway]}>
+                          <Text style={[styles.matchTeam, styles.matchTeamAway]}>
+                            {match.awayTeam.name}
+                          </Text>
+                          <TeamBadge team={match.awayTeam} kind="crest" size={34} />
+                        </View>
+                      </View>
+                    );
+                  })}
                 </View>
-                <Text style={styles.matchScore}>
-                  {score(match) ?? formatMatchHour(match.startsAt, timezone)}
-                </Text>
-                <View style={[styles.matchIdentity, styles.matchIdentityAway]}>
-                  <Text style={[styles.matchTeam, styles.matchTeamAway]}>
-                    {match.awayTeam.name}
-                  </Text>
-                  <TeamBadge team={match.awayTeam} kind="crest" size={34} />
-                </View>
-              </View>
-            ))}
+              ))}
+            </View>
           </View>
         </AsyncState>
       ) : null}
@@ -1106,6 +1216,33 @@ export function SeasonWorkspace({
                       {selectedDayMatches.length === 1 ? 'jogo' : 'jogos'}
                     </Text>
                   </View>
+                  {selectedDayMatches.length ? (
+                    <View style={styles.predictionSummary} accessibilityLabel="Resumo dos palpites do dia">
+                      <View style={styles.predictionSummaryMetric}>
+                        <Text style={styles.predictionSummaryValue}>
+                          {selectedDayFilledCount}/{selectedDayMatches.length}
+                        </Text>
+                        <Text style={styles.predictionSummaryLabel}>Preenchidos</Text>
+                      </View>
+                      <View style={styles.predictionSummaryMetric}>
+                        <Text style={styles.predictionSummaryValue}>
+                          {selectedDayPendingCount}
+                        </Text>
+                        <Text style={styles.predictionSummaryLabel}>Pendentes abertos</Text>
+                      </View>
+                      <View style={styles.predictionSummaryMetric}>
+                        <Text style={styles.predictionSummaryValue}>
+                          {selectedDayOpenMatches.length}
+                        </Text>
+                        <Text style={styles.predictionSummaryLabel}>Jogos abertos</Text>
+                      </View>
+                      <Text style={styles.predictionDeadline}>
+                        {nextPredictionDeadline
+                          ? `Próximo prazo: ${formatMatchDateTime(nextPredictionDeadline, timezone)}`
+                          : 'Nenhum palpite aberto nesta data.'}
+                      </Text>
+                    </View>
+                  ) : null}
                   <View style={styles.matchList}>
                     {selectedDayMatches.map((match) => {
                       const item = draft.items[match.id];
@@ -1466,7 +1603,26 @@ const styles = StyleSheet.create({
     width: 390,
     maxWidth: '100%',
   },
-  standingsPage: { gap: theme.space.lg, maxWidth: 920, width: '100%' },
+  standingsPage: { gap: theme.space.lg, maxWidth: 1040, width: '100%' },
+  fixtureList: {
+    backgroundColor: theme.color.surface,
+    borderColor: theme.color.border,
+    borderRadius: theme.radius.lg,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  fixtureGroup: { paddingHorizontal: theme.space.lg },
+  fixtureDateRow: {
+    alignItems: 'center',
+    borderBottomColor: theme.color.borderMuted,
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: theme.touchTarget,
+    paddingTop: theme.space.sm,
+  },
+  fixtureDate: { color: theme.color.text, fontSize: 12, fontWeight: '900' },
+  fixtureDateCount: { color: theme.color.textMuted, fontSize: 10, fontWeight: '700' },
   fixtureRow: {
     alignItems: 'center',
     borderBottomColor: theme.color.borderMuted,
@@ -1480,13 +1636,30 @@ const styles = StyleSheet.create({
   matchIdentityAway: { justifyContent: 'flex-end' },
   matchTeam: { color: theme.color.text, flex: 1, fontSize: 12, fontWeight: '800' },
   matchTeamAway: { textAlign: 'right' },
+  matchResult: { alignItems: 'center', gap: 4, maxWidth: 132, minWidth: 88 },
   matchScore: {
-    color: theme.color.gold,
-    fontSize: 13,
+    color: theme.color.text,
+    fontSize: 14,
     fontWeight: '900',
-    minWidth: 76,
     textAlign: 'center',
   },
+  fixtureStatus: {
+    color: theme.color.textMuted,
+    fontSize: 9,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  fixtureStatusLive: { color: theme.color.danger },
+  fixtureStatusFinished: { color: theme.color.success },
+  fixtureStatusWarning: { color: theme.color.warning },
+  matchVenue: {
+    color: theme.color.textSubtle,
+    fontSize: 9,
+    maxWidth: 120,
+    textAlign: 'center',
+  },
+  fixturePrediction: { color: theme.color.warning, fontSize: 9, fontWeight: '800', textAlign: 'center' },
+  fixturePredictionRegistered: { color: theme.color.success },
   sectionHeading: {
     alignItems: 'flex-end',
     flexDirection: 'row',
@@ -1502,7 +1675,36 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { color: theme.color.text, fontSize: 21, fontWeight: '900', marginTop: 3 },
   sectionMeta: { color: theme.color.textMuted, fontSize: 12 },
-  matchList: { gap: 1, marginTop: theme.space.md },
+  predictionSummary: {
+    alignItems: 'center',
+    backgroundColor: theme.color.surface,
+    borderColor: theme.color.border,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.space.lg,
+    marginTop: theme.space.md,
+    padding: theme.space.md,
+  },
+  predictionSummaryMetric: { minWidth: 88 },
+  predictionSummaryValue: { color: theme.color.accent, fontSize: 18, fontWeight: '900' },
+  predictionSummaryLabel: {
+    color: theme.color.textMuted,
+    fontSize: 9,
+    fontWeight: '800',
+    marginTop: 2,
+    textTransform: 'uppercase',
+  },
+  predictionDeadline: {
+    color: theme.color.textMuted,
+    flex: 1,
+    fontSize: 11,
+    fontWeight: '700',
+    minWidth: 190,
+    textAlign: 'right',
+  },
+  matchList: { gap: theme.space.sm, marginTop: theme.space.md },
   matchRow: {
     borderBottomColor: theme.color.borderMuted,
     borderBottomWidth: 1,

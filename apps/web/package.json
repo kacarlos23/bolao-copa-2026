@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "expo start --web --port 8080",
     "build": "node scripts/build-production.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint . --ext .ts,.tsx",
     "test": "vitest run",
     "test:e2e": "node scripts/run-e2e.mjs",
@@ -33,6 +34,7 @@
     "@babel/core": "^7.28.5",
     "@playwright/test": "^1.61.1",
     "@testing-library/react": "^16.3.2",
+    "@types/node": "^22.19.0",
     "@types/react": "~19.1.10",
     "@types/react-dom": "~19.1.7",
     "jsdom": "^29.1.1",

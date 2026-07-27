@@ -56,7 +56,7 @@ export function UnsavedChangesModal({
           <View style={styles.actions}>
             <Pressable
               ref={continueRef}
-              {...({ tabIndex: 0 } as never)}
+              {...({ tabIndex: 0 } as object)}
               accessibilityRole="button"
               onPress={() => close(onContinue)}
               style={[styles.button, styles.secondary]}
@@ -87,7 +87,7 @@ export function UnsavedChangesModal({
 const styles = StyleSheet.create({
   backdrop: {
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 9, 28, 0.82)',
+    backgroundColor: theme.color.overlay,
     flex: 1,
     justifyContent: 'center',
     padding: theme.space.lg,
@@ -116,6 +116,6 @@ const styles = StyleSheet.create({
   },
   secondary: { borderColor: theme.color.border },
   secondaryText: { color: theme.color.text, fontSize: 12, fontWeight: '800' },
-  danger: { backgroundColor: 'rgba(255, 107, 89, 0.12)', borderColor: theme.color.danger },
+  danger: { backgroundColor: theme.color.dangerMuted, borderColor: theme.color.danger },
   dangerText: { color: theme.color.danger, fontSize: 12, fontWeight: '900' },
 });

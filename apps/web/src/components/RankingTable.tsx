@@ -75,7 +75,7 @@ export function RankingTable({
             return (
               <View
                 key={row.userId}
-                accessibilityRole="listitem"
+                {...({ role: 'listitem' } as object)}
                 style={[styles.mobileRow, mine && styles.mine]}
                 accessibilityLabel={`${row.rank}º, ${row.nickname}, ${row.points} pontos, ${movementLabel(delta)}`}
               >
@@ -92,7 +92,7 @@ export function RankingTable({
       ) : (
         <ScrollView horizontal contentContainerStyle={styles.tableScroller}>
           <View style={styles.table} accessibilityRole="list">
-            <View style={[styles.row, styles.header]} accessibilityRole="listitem">
+            <View style={[styles.row, styles.header]} {...({ role: 'listitem' } as object)}>
               <Text style={[styles.cell, styles.position]}>#</Text>
               <Text style={[styles.cell, styles.player]}>Participante</Text>
               <Text style={styles.cell}>Mov.</Text>
@@ -107,10 +107,20 @@ export function RankingTable({
               const delta = previousRank == null ? null : previousRank - row.rank;
               const round = roundRanking.find((item) => item.userId === row.userId);
               return (
-                <View key={row.userId} accessibilityRole="listitem" style={[styles.row, mine && styles.mine]}>
+                <View
+                  key={row.userId}
+                  {...({ role: 'listitem' } as object)}
+                  style={[styles.row, mine && styles.mine]}
+                >
                   <Text style={[styles.cell, styles.position]}>{row.rank}</Text>
                   <Text style={[styles.cell, styles.player, styles.stickyPlayer]}>{row.nickname}{mine ? ' · Você' : ''}</Text>
-                  <Text style={styles.cell}>{delta > 0 ? `↑ ${delta}` : delta < 0 ? `↓ ${Math.abs(delta)}` : '—'}</Text>
+                  <Text style={styles.cell}>
+                    {delta != null && delta > 0
+                      ? `↑ ${delta}`
+                      : delta != null && delta < 0
+                        ? `↓ ${Math.abs(delta)}`
+                        : '—'}
+                  </Text>
                   <Text style={styles.cell}>{round?.points ?? '—'}</Text>
                   <Text style={styles.cell}>{row.exactScores}</Text>
                   <Text style={styles.cell}>{row.resultHits}</Text>

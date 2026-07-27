@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { api, type AdminMutationPreview, type CompetitionFeatureFlags } from './api';
 import { normalizeCapabilities } from './app/CompetitionContext';
+import { theme } from './theme/tokens';
 
 const emptyFlags: CompetitionFeatureFlags = {
   readEnabled: false,
@@ -117,7 +118,7 @@ export function BrasileiraoCanaryAdmin() {
           <Text style={styles.kicker}>BRASILEIRÃO 2026</Text>
           <Text style={styles.title}>Canário e rollback</Text>
         </View>
-        {loading ? <ActivityIndicator color="#34d17b" /> : null}
+        {loading ? <ActivityIndicator color={theme.color.accent} /> : null}
       </View>
       <Text style={styles.copy}>
         A preparação consulta a CBF antes de escrever. Leitura, palpites e UI são liberados de forma
@@ -146,7 +147,8 @@ export function BrasileiraoCanaryAdmin() {
               <Pressable
                 key={key}
                 accessibilityLabel={`Flag ${label}`}
-                accessibilityRole="button"
+                accessibilityRole="switch"
+                accessibilityState={{ checked: flags[key] }}
                 onPress={() => {
                   setPreview(null);
                   setFlags((current) => ({ ...current, [key]: !current[key] }));
@@ -213,22 +215,22 @@ export function BrasileiraoCanaryAdmin() {
 
 const styles = StyleSheet.create({
   panel: {
-    backgroundColor: 'rgba(2, 36, 76, 0.78)',
-    borderColor: 'rgba(83, 142, 195, 0.4)',
-    borderRadius: 18,
+    backgroundColor: theme.color.surfaceRaised,
+    borderColor: theme.color.border,
+    borderRadius: theme.radius.lg,
     borderWidth: 1,
-    gap: 14,
-    padding: 18,
+    gap: theme.space.md,
+    padding: theme.space.lg,
   },
   header: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
-  kicker: { color: '#58e09a', fontSize: 10, fontWeight: '900', letterSpacing: 1.2 },
-  title: { color: '#f5f9ff', fontSize: 20, fontWeight: '900', marginTop: 3 },
-  copy: { color: '#b5c5d9', lineHeight: 20 },
+  kicker: { color: theme.color.accent, fontSize: 10, fontWeight: '900', letterSpacing: 1.2 },
+  title: { color: theme.color.text, fontSize: 20, fontWeight: '900', marginTop: 3 },
+  copy: { color: theme.color.textMuted, lineHeight: 20 },
   flags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   flag: {
-    backgroundColor: '#102d51',
-    borderColor: '#3d6289',
-    borderRadius: 12,
+    backgroundColor: theme.color.surface,
+    borderColor: theme.color.border,
+    borderRadius: theme.radius.md,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 18,
@@ -236,30 +238,31 @@ const styles = StyleSheet.create({
     minWidth: 130,
     padding: 11,
   },
-  flagEnabled: { backgroundColor: 'rgba(52, 209, 123, 0.14)', borderColor: '#34d17b' },
-  flagLabel: { color: '#b5c5d9', fontWeight: '800' },
-  flagState: { color: '#8198b4', fontSize: 11, fontWeight: '900' },
-  flagLabelEnabled: { color: '#69e7a4' },
+  flagEnabled: { backgroundColor: theme.color.accentMuted, borderColor: theme.color.accent },
+  flagLabel: { color: theme.color.textMuted, fontWeight: '800' },
+  flagState: { color: theme.color.textSubtle, fontSize: 11, fontWeight: '900' },
+  flagLabelEnabled: { color: theme.color.accent },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  confirmation: { borderTopColor: '#3d6289', borderTopWidth: 1, gap: 8, paddingTop: 10 },
-  proof: { color: '#f0c773', fontFamily: 'monospace', fontWeight: '900' },
+  confirmation: { borderTopColor: theme.color.border, borderTopWidth: 1, gap: 8, paddingTop: 10 },
+  proof: { color: theme.color.warning, fontFamily: 'monospace', fontWeight: '900' },
   primaryButton: {
     alignItems: 'center',
-    backgroundColor: '#34d17b',
-    borderRadius: 10,
+    backgroundColor: theme.color.accent,
+    borderRadius: theme.radius.sm,
     paddingHorizontal: 14,
     paddingVertical: 11,
   },
-  primaryText: { color: '#031c27', fontWeight: '900' },
+  primaryText: { color: theme.color.accentInk, fontWeight: '900' },
   rollbackButton: {
     alignItems: 'center',
-    borderColor: '#f0ba55',
-    borderRadius: 10,
+    backgroundColor: theme.color.warningMuted,
+    borderColor: theme.color.warning,
+    borderRadius: theme.radius.sm,
     borderWidth: 1,
     paddingHorizontal: 14,
     paddingVertical: 11,
   },
-  rollbackText: { color: '#f0c773', fontWeight: '900' },
-  success: { color: '#69e7a4', fontWeight: '700' },
-  error: { color: '#ff8878', fontWeight: '700' },
+  rollbackText: { color: theme.color.warning, fontWeight: '900' },
+  success: { color: theme.color.success, fontWeight: '700' },
+  error: { color: theme.color.danger, fontWeight: '700' },
 });

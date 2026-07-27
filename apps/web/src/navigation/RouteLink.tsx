@@ -31,7 +31,7 @@ export function RouteLink({ href, onActivate, ...props }: RouteLinkProps) {
   return (
     <Pressable
       {...props}
-      {...({ href } as never)}
+      {...({ href } as object)}
       accessibilityRole="link"
       onPress={(event) => {
         if (isModifiedWebClick(event)) return;

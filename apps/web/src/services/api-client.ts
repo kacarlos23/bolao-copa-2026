@@ -98,10 +98,10 @@ async function parseApiError(response: Response) {
   );
 }
 
-export function request<T>(
+export function request<TSchema extends z.ZodTypeAny>(
   path: string,
-  options: Omit<RequestOptions, 'schema'> & { schema: z.ZodType<T> },
-): Promise<T>;
+  options: Omit<RequestOptions, 'schema'> & { schema: TSchema },
+): Promise<z.output<TSchema>>;
 export function request<T>(path: string, options?: RequestOptions): Promise<T>;
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { schema, timeoutMs = 15_000, idempotencyKey, ...fetchOptions } = options;

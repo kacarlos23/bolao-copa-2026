@@ -68,7 +68,7 @@ const styles = StyleSheet.create({
   fieldCompact: { minWidth: 38 },
   label: { color: theme.color.textMuted, fontSize: 11, fontWeight: '700', maxWidth: 110 },
   input: {
-    backgroundColor: theme.color.canvas,
+    backgroundColor: theme.color.surface,
     borderColor: theme.color.border,
     borderRadius: theme.radius.sm,
     borderWidth: 1,
@@ -81,9 +81,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     width: 52,
   },
-  inputDisabled: { opacity: 0.58 },
+  inputDisabled: { backgroundColor: theme.color.canvas, opacity: 0.58 },
   inputCompact: { height: 34, minWidth: 34, width: 34 },
-  inputInvalid: { borderColor: theme.color.danger, borderWidth: 2 },
+  inputInvalid: {
+    backgroundColor: theme.color.dangerMuted,
+    borderColor: theme.color.danger,
+    borderWidth: 2,
+  },
   hint: { color: theme.color.textMuted, fontSize: 10, textAlign: 'center' },
   error: { color: theme.color.danger, fontSize: 10, fontWeight: '700', textAlign: 'center' },
 });

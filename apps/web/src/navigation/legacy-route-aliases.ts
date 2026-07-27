@@ -7,7 +7,7 @@ export const LEGACY_COMPETITION_ROUTE_ALIASES = {
   'brasileirao-serie-a-2026': 'brasileirao-serie-a',
 } as const;
 
-const preferredLegacySlug = new Map(
+const preferredLegacySlug = new Map<string, string>(
   Object.entries(LEGACY_COMPETITION_ROUTE_ALIASES).map(([routeSlug, competitionSlug]) => [
     competitionSlug,
     routeSlug,

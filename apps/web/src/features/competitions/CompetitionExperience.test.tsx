@@ -169,7 +169,7 @@ describe('experiência genérica de competições', () => {
           yellowCards: 0,
           redCards: 0,
           tieBreakRuleVersion: 'v1',
-          lastFive: ['W'],
+          lastFive: ['W' as const],
         },
       ],
     }));

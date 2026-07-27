@@ -13,6 +13,7 @@ import {
   TextInput,
   useWindowDimensions,
   View,
+  type ImageStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -275,7 +276,11 @@ function UserAvatar({
 
   if (uri) {
     return (
-      <Image source={{ uri }} style={[styles.userAvatarImage, avatarStyle]} resizeMode="cover" />
+      <Image
+        source={{ uri }}
+        style={[styles.userAvatarImage as ImageStyle, avatarStyle]}
+        resizeMode="cover"
+      />
     );
   }
 
@@ -458,7 +463,7 @@ function TeamFlag({ team, size = 18 }: { team: Team; size?: number }) {
     <Image
       resizeMode="cover"
       source={source}
-      style={[styles.countryFlag, { width: size * 1.6, height: size }]}
+      style={[styles.countryFlag as ImageStyle, { width: size * 1.6, height: size }]}
     />
   );
 }
@@ -736,9 +741,13 @@ function SuccessModal({
       return;
     }
 
+    if (reducedMotion) {
+      progress.setValue(1);
+      return;
+    }
+
     Animated.spring(progress, {
       toValue: 1,
-      duration: reducedMotion ? 0 : undefined,
       friction: 5,
       tension: 80,
       useNativeDriver: true,
@@ -942,7 +951,7 @@ function AuthScreen({ onAuth }: { onAuth: (user: User) => void }) {
         <View style={styles.authCard}>
           <View style={styles.segment} accessibilityLabel="Acesso à conta">
             <Pressable
-              {...({ 'aria-pressed': mode === 'login' } as never)}
+              {...({ 'aria-pressed': mode === 'login' } as object)}
               accessibilityLabel="Usar login"
               accessibilityRole="button"
               onPress={() => {
@@ -956,7 +965,7 @@ function AuthScreen({ onAuth }: { onAuth: (user: User) => void }) {
               </Text>
             </Pressable>
             <Pressable
-              {...({ 'aria-pressed': mode === 'register' } as never)}
+              {...({ 'aria-pressed': mode === 'register' } as object)}
               accessibilityLabel="Criar conta"
               accessibilityRole="button"
               onPress={() => {
@@ -3297,10 +3306,7 @@ function RankingScreen({ refreshVersion }: { refreshVersion: number }) {
                 >
                   <View style={styles.rankingPlayerAvatarGroup}>
                     <UserAvatar nickname={row.nickname} avatarUrl={row.avatarUrl} size={34} />
-                    <RankingMovementBadge
-                      delta={movementByUserId.get(row.userId) ?? null}
-                      compact
-                    />
+                    <RankingMovementBadge delta={null} compact />
                   </View>
                   <View style={styles.rankingPlayerInfo}>
                     <Text style={styles.rankingPlayerName} numberOfLines={1}>
@@ -3646,7 +3652,7 @@ function CupOverviewScreen({
                 {scorer.imageUrl ? (
                   <Image
                     source={{ uri: scorer.imageUrl }}
-                    style={styles.cupScorerAvatar}
+                    style={styles.cupScorerAvatar as ImageStyle}
                     resizeMode="cover"
                   />
                 ) : (
@@ -3660,7 +3666,7 @@ function CupOverviewScreen({
                     {scorer.teamFlagUrl ? (
                       <Image
                         source={{ uri: scorer.teamFlagUrl }}
-                        style={styles.cupScorerFlag}
+                        style={styles.cupScorerFlag as ImageStyle}
                         resizeMode="cover"
                       />
                     ) : null}
@@ -3745,7 +3751,7 @@ function TeamCatalogScreen({
                   {flagSources[team.iso2] ? (
                     <Image
                       source={flagSources[team.iso2]}
-                      style={styles.catalogFlag}
+                      style={styles.catalogFlag as ImageStyle}
                       resizeMode="cover"
                     />
                   ) : null}
@@ -3781,7 +3787,7 @@ function TeamCatalogScreen({
                         {player.imageUrl ? (
                           <Image
                             source={{ uri: player.imageUrl }}
-                            style={styles.playerAvatarImage}
+                            style={styles.playerAvatarImage as ImageStyle}
                             resizeMode="cover"
                           />
                         ) : (
@@ -3913,7 +3919,6 @@ function CompetitionScreenContent({
             onSelectTeamCode(team.code ?? null);
             onNavigateCompetition(competitionSlug, 'teams');
           }}
-          onOpenKnockout={() => onNavigateCompetition(competitionSlug, 'bracket')}
         />
       );
     }
@@ -4319,7 +4324,6 @@ export default function App() {
             setSelectedTeamCode(team.code ?? null);
             navigate('teams');
           }}
-          onOpenKnockout={() => navigate('knockout')}
         />
       );
     }
@@ -4445,7 +4449,7 @@ export default function App() {
                 />
               ) : null}
               <ScrollView
-                {...({ tabIndex: -1 } as never)}
+                {...({ tabIndex: -1 } as object)}
                 ref={appScrollRef}
                 nativeID="conteudo-principal"
                 role="main"
@@ -6798,7 +6802,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
     justifyContent: 'center',
-    minHeight: '100vh',
+    minHeight: '100vh' as never,
   },
   loader: {
     marginTop: 40,

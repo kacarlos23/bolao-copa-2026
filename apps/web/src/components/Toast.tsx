@@ -1,5 +1,6 @@
 import { createContext, useContext, useRef, useState, type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { theme } from '../theme/tokens';
 
 type ToastTone = 'success' | 'error' | 'info';
@@ -27,10 +28,37 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         <View
           accessibilityLiveRegion={toast.tone === 'error' ? 'assertive' : 'polite'}
           accessibilityRole={toast.tone === 'error' ? 'alert' : 'summary'}
-          style={[styles.toast, toast.tone === 'error' && styles.error, toast.tone === 'success' && styles.success]}
+          style={[
+            styles.toast,
+            Platform.OS === 'web' ? toastWeb : undefined,
+            toast.tone === 'error' && styles.error,
+            toast.tone === 'success' && styles.success,
+          ]}
         >
+          <Ionicons
+            name={
+              toast.tone === 'success'
+                ? 'checkmark-circle'
+                : toast.tone === 'error'
+                  ? 'alert-circle'
+                  : 'information-circle'
+            }
+            size={20}
+            color={
+              toast.tone === 'success'
+                ? theme.color.success
+                : toast.tone === 'error'
+                  ? theme.color.danger
+                  : theme.color.info
+            }
+          />
           <Text style={styles.text}>{toast.message}</Text>
-          <Pressable accessibilityLabel="Fechar aviso" onPress={() => setToast(null)} style={styles.close}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Fechar aviso"
+            onPress={() => setToast(null)}
+            style={styles.close}
+          >
             <Text style={styles.closeText}>Fechar</Text>
           </Pressable>
         </View>
@@ -51,7 +79,7 @@ const styles = StyleSheet.create({
     borderColor: theme.color.info,
     borderRadius: theme.radius.md,
     borderWidth: 1,
-    bottom: 20,
+    bottom: theme.size.bottomNavigation + theme.space.lg,
     elevation: 12,
     flexDirection: 'row',
     gap: theme.space.md,
@@ -65,9 +93,20 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
     zIndex: 1000,
   },
-  success: { borderColor: theme.color.accent },
-  error: { borderColor: theme.color.danger },
+  success: {
+    backgroundColor: '#0d2a2d',
+    borderColor: theme.color.success,
+  },
+  error: {
+    backgroundColor: '#2a1c2b',
+    borderColor: theme.color.danger,
+  },
   text: { color: theme.color.text, flex: 1, fontWeight: '700' },
   close: { justifyContent: 'center', minHeight: theme.touchTarget, paddingHorizontal: 4 },
-  closeText: { color: theme.color.gold, fontWeight: '800' },
+  closeText: { color: theme.color.textMuted, fontWeight: '800' },
 });
+
+const toastWeb = {
+  bottom: `calc(${theme.size.bottomNavigation + theme.space.lg}px + env(safe-area-inset-bottom))`,
+  position: 'fixed',
+} as never;

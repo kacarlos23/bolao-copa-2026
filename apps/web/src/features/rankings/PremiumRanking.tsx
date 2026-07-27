@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Image,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,11 +9,18 @@ import {
   TextInput,
   useWindowDimensions,
   View,
-  type GestureResponderEvent,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { RankingRowDto } from '@bolao/shared';
 import { API_URL, type EngagementDashboard, type RankingAward } from '../../api';
+import {
+  Card,
+  PrimaryButton,
+  ResponsiveContainer,
+  SecondaryButton,
+  SectionHeader,
+  StatusChip,
+} from '../../components/DesignSystem';
 import type { ConnectionStatus } from '../../services/realtime';
 import { theme } from '../../theme/tokens';
 import { formatBrlCents } from '../../fundraising';
@@ -152,42 +158,6 @@ function progressValues(value: unknown) {
   const current = typeof raw.current === 'number' ? raw.current : raw.complete === true ? 1 : null;
   const target = typeof raw.target === 'number' ? raw.target : raw.complete != null ? 1 : null;
   return current != null && target != null && target > 0 ? { current, target } : null;
-}
-
-function useRankingEntrance(key: string) {
-  useEffect(() => {
-    if (
-      Platform.OS !== 'web' ||
-      typeof document === 'undefined' ||
-      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-    )
-      return;
-    let context: { revert: () => void } | undefined;
-    let cancelled = false;
-    void import('gsap').then(({ gsap }) => {
-      if (cancelled) return;
-      const root = document.querySelector('[data-premium-ranking="root"]');
-      if (!root) return;
-      context = gsap.context(() => {
-        gsap.from('[data-ranking-enter]', {
-          opacity: 0,
-          y: 12,
-          duration: 0.36,
-          stagger: 0.035,
-          ease: 'power2.out',
-          clearProps: 'opacity,transform',
-        });
-      }, root);
-    });
-    return () => {
-      cancelled = true;
-      context?.revert();
-    };
-  }, [key]);
-}
-
-function dataTarget(name: string) {
-  return Platform.OS === 'web' ? ({ dataSet: { rankingEnter: name } } as never) : {};
 }
 
 function ProfileModal({
@@ -503,16 +473,12 @@ export function PremiumRanking({
   fundraisingCents?: number | null;
 }) {
   const { width } = useWindowDimensions();
-  const compact = width < 768;
+  const compact = width < theme.breakpoint.compact;
+  const compactRanking = width < theme.breakpoint.content;
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [profile, setProfile] = useState<RankingRowDto | null>(null);
   const [roomOpen, setRoomOpen] = useState(false);
-  const [particles, setParticles] = useState<Array<{ id: number; x: number; y: number }>>([]);
-  const particleId = useRef(0);
-  useRankingEntrance(
-    `${scope}:${ranking.map((row) => `${row.userId}-${row.points}-${row.rank}`).join('|')}`,
-  );
   const roundPoints = useMemo(
     () => new Map(roundRanking.map((row) => [row.userId, row.points])),
     [roundRanking],
@@ -526,35 +492,7 @@ export function PremiumRanking({
   const current = ranking[currentIndex];
   const above = currentIndex > 0 ? ranking[currentIndex - 1] : null;
   const leader = ranking[0];
-  const exactLeader = [...ranking].sort((a, b) => b.exactScores - a.exactScores)[0];
-  const average = ranking.length
-    ? ranking.reduce((sum, row) => sum + row.points, 0) / ranking.length
-    : 0;
-  const biggestRise = [...ranking]
-    .filter((row) => (row.movement?.delta ?? 0) > 0)
-    .sort((a, b) => (b.movement?.delta ?? 0) - (a.movement?.delta ?? 0))[0];
-  const biggestFall = [...ranking]
-    .filter((row) => (row.movement?.delta ?? 0) < 0)
-    .sort((a, b) => (a.movement?.delta ?? 0) - (b.movement?.delta ?? 0))[0];
-  const roundLeader = [...roundRanking].sort((a, b) => b.points - a.points)[0];
-  const bestStreak = engagement
-    ? [...engagement.streaks].sort((a, b) => b.bestCount - a.bestCount)[0]
-    : undefined;
-
-  function football(event?: GestureResponderEvent) {
-    if (
-      !event ||
-      Platform.OS !== 'web' ||
-      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-    )
-      return;
-    const native = event.nativeEvent as unknown as { pageX?: number; pageY?: number };
-    if (native.pageX == null || native.pageY == null) return;
-    const particle = { id: ++particleId.current, x: native.pageX, y: native.pageY };
-    setParticles((items) => [...items.slice(-5), particle]);
-    setTimeout(() => setParticles((items) => items.filter((item) => item.id !== particle.id)), 650);
-  }
-
+  const roundLeader = roundRanking[0];
   const liveLabel = syncing
     ? 'Atualizando'
     : connection === 'live'
@@ -562,59 +500,48 @@ export function PremiumRanking({
       : connection === 'offline'
         ? 'Offline'
         : 'Reconectando';
+  const connectionTone =
+    connection === 'offline' ? 'danger' : connection === 'live' && !syncing ? 'success' : 'warning';
   return (
-    <View
-      {...(Platform.OS === 'web' ? ({ dataSet: { premiumRanking: 'root' } } as never) : {})}
-      style={styles.root}
-    >
-      <View {...dataTarget('hero')} style={styles.hero}>
-        <View style={styles.heroGlow} />
-        <View style={styles.heroCopy}>
-          <Text style={styles.eyebrow}>{seasonName.toLocaleUpperCase('pt-BR')}</Text>
-          <Text role="heading" aria-level={2} style={styles.heroTitle}>
-            Corrida pelo topo
-          </Text>
-          <Text style={styles.heroSubtitle}>
-            {seasonName} · classificação do bolão em tempo real
-          </Text>
-          <View style={styles.liveLine}>
-            <View style={[styles.liveDot, connection === 'offline' && styles.offlineDot]} />
-            <Text style={styles.liveText}>{liveLabel}</Text>
-            <Text style={styles.syncText}>{formatSyncTime(lastSyncedAt)}</Text>
-          </View>
-        </View>
-        <View style={styles.heroActions}>
-          <Pressable
-            accessibilityRole="button"
-            disabled={syncing}
-            onPress={(event) => {
-              football(event);
-              onRefresh();
-            }}
-            style={[styles.primaryButton, syncing && styles.disabled]}
-          >
-            <Ionicons name="refresh" size={17} color={theme.color.accentInk} />
-            <Text style={styles.primaryButtonText}>
-              {syncing ? 'Atualizando placares…' : 'Atualizar'}
-            </Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            onPress={(event) => {
-              football(event);
-              setRoomOpen(true);
-            }}
-            style={styles.trophyButton}
-          >
-            <Ionicons name="trophy" size={18} color={theme.color.gold} />
-            <Text style={styles.trophyButtonText}>Sala de Troféus</Text>
-          </Pressable>
+    <ResponsiveContainer style={styles.root}>
+      <View style={[styles.hero, compact && styles.heroCompact]}>
+        <SectionHeader
+          eyebrow={seasonName.toLocaleUpperCase('pt-BR')}
+          title="Corrida pelo topo"
+          description={`${seasonName} · classificação do bolão em tempo real`}
+          level={2}
+          action={
+            <View style={[styles.heroActions, compact && styles.heroActionsCompact]}>
+              <PrimaryButton
+                label={syncing ? 'Atualizando placares…' : 'Atualizar'}
+                icon="refresh"
+                disabled={syncing}
+                onPress={onRefresh}
+                style={compact ? styles.heroActionCompact : undefined}
+              />
+              <SecondaryButton
+                label="Sala de Troféus"
+                icon="trophy-outline"
+                onPress={() => setRoomOpen(true)}
+                style={compact ? styles.heroActionCompact : undefined}
+              />
+            </View>
+          }
+        />
+        <View style={styles.liveLine}>
+          <StatusChip
+            label={liveLabel}
+            tone={connectionTone}
+            icon={connection === 'offline' ? 'cloud-offline-outline' : 'radio-outline'}
+          />
+          <Text style={styles.syncText}>{formatSyncTime(lastSyncedAt)}</Text>
         </View>
       </View>
 
-      <View {...dataTarget('filters')} style={styles.filters}>
+      <View style={[styles.filters, compact && styles.filtersCompact]}>
         <ScrollView
           horizontal
+          style={styles.filterScroller}
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.filterRail}
           accessibilityLabel="Período do ranking"
@@ -626,10 +553,7 @@ export function PremiumRanking({
                 key={item}
                 aria-pressed={scope === item}
                 accessibilityRole="button"
-                onPress={(event) => {
-                  football(event);
-                  onScopeChange(item);
-                }}
+                onPress={() => onScopeChange(item)}
                 style={[styles.filterChip, scope === item && styles.filterChipActive]}
               >
                 <Text style={[styles.filterText, scope === item && styles.filterTextActive]}>
@@ -638,46 +562,49 @@ export function PremiumRanking({
               </Pressable>
             ))}
         </ScrollView>
-        <View style={styles.searchWrap}>
-          <Ionicons name="search" size={17} color={theme.color.textMuted} />
-          <TextInput
-            accessibilityLabel="Buscar participante"
-            placeholder="Buscar participante"
-            placeholderTextColor={theme.color.textMuted}
-            value={search}
-            onChangeText={setSearch}
-            style={styles.searchInput}
-          />
-        </View>
-        <View style={styles.statusGroup}>
-          {(['all', 'live', 'final'] as StatusFilter[]).map((item) => (
-            <Pressable
-              key={item}
-              aria-pressed={statusFilter === item}
-              accessibilityRole="button"
-              onPress={() => setStatusFilter(item)}
-              style={[styles.statusButton, statusFilter === item && styles.statusButtonActive]}
-            >
-              <Text style={styles.statusText}>
-                {item === 'all' ? 'Todos' : item === 'live' ? 'Ao vivo' : 'Definitivos'}
-              </Text>
-            </Pressable>
-          ))}
+        <View style={[styles.filterControls, compact && styles.filterControlsCompact]}>
+          <View style={styles.searchWrap}>
+            <Ionicons name="search" size={17} color={theme.color.textMuted} />
+            <TextInput
+              accessibilityLabel="Buscar participante"
+              placeholder="Buscar participante"
+              placeholderTextColor={theme.color.textMuted}
+              value={search}
+              onChangeText={setSearch}
+              style={styles.searchInput}
+            />
+          </View>
+          <View style={[styles.statusGroup, compact && styles.statusGroupCompact]}>
+            {(['all', 'live', 'final'] as StatusFilter[]).map((item) => (
+              <Pressable
+                key={item}
+                aria-pressed={statusFilter === item}
+                accessibilityRole="button"
+                onPress={() => setStatusFilter(item)}
+                style={[styles.statusButton, statusFilter === item && styles.statusButtonActive]}
+              >
+                <Text style={styles.statusText}>
+                  {item === 'all' ? 'Todos' : item === 'live' ? 'Ao vivo' : 'Definitivos'}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
         </View>
       </View>
 
-      <View style={styles.statsGrid}>
-        {[
-          ...(fundraisingCents != null
-            ? [
-                [
-                  'Valor arrecadado',
-                  formatBrlCents(fundraisingCents),
-                  'Ação entre amigos para custear a viagem',
-                  'fundraising',
-                ],
-              ]
-            : []),
+      <Card style={[styles.summaryPanel, compact && styles.summaryPanelCompact]}>
+        <SectionHeader
+          eyebrow="SEU DESEMPENHO"
+          title={current ? `${current.rank}º lugar · ${current.points} pontos` : 'Sem posição apurada'}
+          description={
+            current
+              ? `Dados consolidados para ${current.nickname} no período selecionado.`
+              : 'Sua posição será exibida quando houver resultados elegíveis.'
+          }
+          level={3}
+        />
+        <View style={styles.summaryGrid}>
+          {[
           ['Participantes', String(ranking.length), 'na temporada'],
           [
             'SUA POSIÇÃO',
@@ -697,197 +624,116 @@ export function PremiumRanking({
               : 'você está no topo',
           ],
           [
-            'Média de pontos',
-            ranking.length ? average.toFixed(1).replace('.', ',') : '—',
-            'entre participantes',
-          ],
-          [
-            'Mais placares exatos',
-            exactLeader ? String(exactLeader.exactScores) : '—',
-            exactLeader?.nickname ?? 'sem dados',
-          ],
-          [
             'Sua rodada',
             current ? `${roundPoints.get(current.userId) ?? 0} pts` : '—',
             scope === 'round' ? 'rodada selecionada' : 'rodada atual',
           ],
-        ].map(([label, value, detail, tone]) => (
-          <View
-            {...dataTarget('stat')}
-            key={label}
-            style={[styles.statCard, tone === 'fundraising' && styles.fundraisingStatCard]}
-          >
-            <Text style={[styles.statLabel, tone === 'fundraising' && styles.fundraisingStatLabel]}>
-              {label}
-            </Text>
-            <Text style={[styles.statValue, tone === 'fundraising' && styles.fundraisingStatValue]}>
-              {value}
-            </Text>
-            <Text style={styles.statDetail}>{detail}</Text>
+          ].map(([label, value, detail]) => (
+          <View key={label} style={[styles.summaryMetric, compact && styles.summaryMetricCompact]}>
+              <Text style={styles.summaryLabel}>{label}</Text>
+              <Text style={styles.summaryValue}>{value}</Text>
+              <Text style={styles.summaryDetail}>{detail}</Text>
           </View>
-        ))}
-      </View>
-
-      {ranking.length ? (
-        <View {...dataTarget('podium')} style={[styles.podium, compact && styles.podiumCompact]}>
-          {[ranking[1], ranking[0], ranking[2]].filter(Boolean).map((row) => (
-            <Pressable
-              key={row.userId}
-              accessibilityRole="button"
-              accessibilityLabel={`Abrir perfil de ${row.nickname}, ${row.rank}º lugar`}
-              onPress={(event) => {
-                football(event);
-                setProfile(row);
-              }}
-              style={[
-                styles.podiumCard,
-                row.rank === 1 && styles.podiumFirst,
-                row.userId === currentUserId && styles.currentBorder,
-              ]}
-            >
-              <Text style={styles.medal}>
-                {row.rank === 1 ? '🥇' : row.rank === 2 ? '🥈' : '🥉'}
-              </Text>
-              <RankingUserAvatar row={row} size={row.rank === 1 ? 72 : 60} />
-              <Text style={styles.podiumName} numberOfLines={1}>
-                {row.nickname}
-              </Text>
-              <Text style={styles.podiumPoints}>{row.points} pts</Text>
-              <Text style={styles.podiumMeta}>
-                {row.exactScores} exatos · {row.hasLiveData ? 'provisório' : 'definitivo'}
-              </Text>
-              <RankingMovementBadge row={row} />
-              <RankingLastFive values={row.lastFive} />
-              {row.userId === currentUserId ? <Text style={styles.youBadge}>VOCÊ</Text> : null}
-            </Pressable>
           ))}
         </View>
+        {fundraisingCents != null ? (
+          <View style={styles.fundraisingStrip}>
+            <View style={styles.fundraisingCopy}>
+              <Text style={styles.fundraisingLabel}>Valor arrecadado</Text>
+              <Text style={styles.fundraisingDetail}>
+                Ação entre amigos para custear a viagem
+              </Text>
+            </View>
+            <Text style={styles.fundraisingValue}>{formatBrlCents(fundraisingCents)}</Text>
+          </View>
+        ) : null}
+      </Card>
+
+      {ranking.length ? (
+        <Card style={[styles.podiumSurface, compact && styles.podiumSurfaceCompact]}>
+          <View style={styles.podium}>
+            {[ranking[1], ranking[0], ranking[2]].filter(Boolean).map((row) => (
+              <Pressable
+                key={row.userId}
+                accessibilityRole="button"
+                accessibilityLabel={`Abrir perfil de ${row.nickname}, ${row.rank}º lugar`}
+                onPress={() => setProfile(row)}
+                style={[
+                  styles.podiumItem,
+                  row.rank === 1 && styles.podiumFirst,
+                  row.userId === currentUserId && styles.currentPodium,
+                ]}
+              >
+                <Text style={[styles.medal, compact && styles.medalCompact]}>
+                  {row.rank === 1 ? '🥇' : row.rank === 2 ? '🥈' : '🥉'}
+                </Text>
+                <RankingUserAvatar
+                  row={row}
+                  size={compact ? (row.rank === 1 ? 58 : 48) : row.rank === 1 ? 72 : 60}
+                />
+                <Text
+                  style={[
+                    styles.podiumName,
+                    compact && styles.podiumNameCompact,
+                    row.userId === currentUserId && styles.currentPodiumName,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {row.nickname}
+                </Text>
+                <Text style={[styles.podiumPoints, compact && styles.podiumPointsCompact]}>
+                  {row.points} pts
+                </Text>
+                <Text style={styles.podiumMeta} numberOfLines={1}>
+                  {row.exactScores} exatos
+                </Text>
+                <RankingMovementBadge row={row} />
+                {row.userId === currentUserId ? <Text style={styles.youBadge}>VOCÊ</Text> : null}
+              </Pressable>
+            ))}
+          </View>
+        </Card>
       ) : (
         <EmptyCopy text="O ranking aparecerá após os primeiros resultados elegíveis." />
       )}
 
-      <View style={[styles.contentGrid, compact && styles.contentGridCompact]}>
-        <View {...dataTarget('table')} style={styles.tablePanel}>
-          <View style={styles.panelHead}>
-            <View>
-              <Text style={styles.eyebrow}>CLASSIFICAÇÃO COMPLETA</Text>
-              <Text style={styles.panelTitle}>{filtered.length} participante(s)</Text>
-            </View>
-            <View>
-              <Text style={styles.criteriaTitle}>Critérios de desempate</Text>
-              <Text style={styles.panelHint}>
-                {tieBreakers.join(' → ') || 'Critérios vinculados à regra da temporada'}
-              </Text>
-            </View>
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator>
-            <View style={styles.table}>
-              <RankingHeader />
-              {filtered.map((row) => (
-                <Pressable
-                  key={row.userId}
-                  accessibilityRole="button"
-                  onPress={(event) => {
-                    football(event);
-                    setProfile(row);
-                  }}
-                  style={[
-                    styles.tableRow,
-                    row.userId === currentUserId && styles.currentRow,
-                    row.rank === 1 && styles.leaderRow,
-                  ]}
-                >
-                  <Text style={[styles.rankCell, row.rank === 1 && styles.rankLeader]}>
-                    {row.rank}º
-                  </Text>
-                  <View style={styles.personCell}>
-                    <RankingUserAvatar row={row} size={36} />
-                    <Text style={styles.personName} numberOfLines={1}>
-                      {row.nickname}
-                      {row.userId === currentUserId ? ' · Você' : ''}
-                    </Text>
-                  </View>
-                  <View style={styles.moveCell}>
-                    <RankingMovementBadge row={row} />
-                  </View>
-                  <Text style={styles.numberCellStrong}>{row.points}</Text>
-                  <Text style={styles.numberCell}>{roundPoints.get(row.userId) ?? 0}</Text>
-                  <Text style={styles.numberCell}>{row.exactScores}</Text>
-                  <Text style={styles.numberCell}>{row.resultHits}</Text>
-                  <Text style={styles.numberCell}>{row.oneGoalHits}</Text>
-                  <Text style={styles.numberCell}>{row.misses}</Text>
-                  <View style={styles.lastFiveCell}>
-                    <RankingLastFive values={row.lastFive} />
-                  </View>
-                  <View style={styles.stateCell}>
-                    <View
-                      style={[
-                        styles.stateDot,
-                        row.hasLiveData ? styles.stateLive : styles.stateFinal,
-                      ]}
-                    />
-                    <Text style={styles.stateText}>
-                      {row.hasLiveData ? 'Provisório' : 'Definitivo'}
-                    </Text>
-                  </View>
-                </Pressable>
-              ))}
-            </View>
-          </ScrollView>
-          {!filtered.length ? (
-            <EmptyCopy text="Nenhum participante corresponde aos filtros." />
-          ) : null}
+      <View
+        testID="ranking-panel"
+        accessibilityLabel="Classificação completa"
+        style={styles.tablePanel}
+      >
+        <View style={styles.panelHead}>
+          <SectionHeader
+            eyebrow="CLASSIFICAÇÃO COMPLETA"
+            title={`${filtered.length} participante(s)`}
+            level={3}
+          />
+          <Text style={styles.summaryLabel}>Critérios de desempate</Text>
+          <Text style={styles.summaryDetail}>
+            {tieBreakers.join(' → ') || 'Vinculados à regra da temporada'} ·{' '}
+            {roundLeader
+              ? `Líder da rodada · ${roundLeader.nickname} · ${roundLeader.points} pts`
+              : 'Líder da rodada ainda não apurado'}
+          </Text>
         </View>
-        <View {...dataTarget('radar')} style={styles.radar}>
-          <Text style={styles.eyebrow}>RADAR DO RANKING</Text>
-          <Text style={styles.panelTitle}>Quem está no seu caminho</Text>
-          <RadarItem
-            icon="flag"
-            label="Líder"
-            row={leader}
-            detail={leader ? `${leader.points} pts` : undefined}
+        {compactRanking ? (
+          <CompactRankingList
+            rows={filtered}
+            currentUserId={currentUserId}
+            roundPoints={roundPoints}
+            onOpen={setProfile}
           />
-          <RadarItem
-            icon="navigate"
-            label="Rival mais próximo"
-            row={above}
-            detail={
-              current && above
-                ? `${Math.max(0, above.points - current.points)} pts à frente`
-                : undefined
-            }
+        ) : (
+          <DesktopRankingTable
+            rows={filtered}
+            currentUserId={currentUserId}
+            roundPoints={roundPoints}
+            onOpen={setProfile}
           />
-          <RadarItem
-            icon="trending-up"
-            label="Maior subida"
-            row={biggestRise}
-            detail={biggestRise ? `+${biggestRise.movement?.delta}` : undefined}
-          />
-          <RadarItem
-            icon="trending-down"
-            label="Maior queda"
-            row={biggestFall}
-            detail={biggestFall ? String(biggestFall.movement?.delta) : undefined}
-          />
-          <RadarItem
-            icon="flash"
-            label={roundLeader ? `Líder da rodada · ${roundLeader.nickname}` : 'Líder da rodada'}
-            row={roundLeader}
-            detail={roundLeader ? `${roundLeader.points} pts` : undefined}
-          />
-          <RadarItem
-            icon="flame"
-            label="Maior sequência"
-            row={bestStreak && current ? current : undefined}
-            detail={bestStreak ? `${bestStreak.bestCount} acertos (seu histórico)` : undefined}
-          />
-          <RadarItem
-            icon="happy"
-            label="Lanterna da resenha"
-            row={ranking.at(-1)}
-            detail="Ainda dá para buscar"
-          />
-        </View>
+        )}
+        {!filtered.length ? (
+          <EmptyCopy text="Nenhum participante corresponde aos filtros." />
+        ) : null}
       </View>
       <ProfileModal
         row={profile}
@@ -901,16 +747,151 @@ export function PremiumRanking({
         engagement={engagement}
         onClose={() => setRoomOpen(false)}
       />
-      <View style={styles.particleLayer}>
-        {particles.map((particle) => (
-          <Text
-            key={particle.id}
-            style={[styles.particle, { left: particle.x - 10, top: particle.y - 10 }]}
+    </ResponsiveContainer>
+  );
+}
+
+type RankingRowsProps = {
+  rows: RankingRowDto[];
+  currentUserId: string;
+  roundPoints: ReadonlyMap<string, number>;
+  onOpen: (row: RankingRowDto) => void;
+};
+
+function CompactRankingList({
+  rows,
+  currentUserId,
+  roundPoints,
+  onOpen,
+}: RankingRowsProps) {
+  return (
+    <View testID="ranking-list-compact" style={styles.compactList}>
+      {rows.map((row) => {
+        const current = row.userId === currentUserId;
+        return (
+          <Pressable
+            key={row.userId}
+            testID={`ranking-row-${row.userId}`}
+            accessibilityRole="button"
+            accessibilityLabel={`Abrir perfil de ${row.nickname}, ${row.rank}º lugar, ${row.points} pontos`}
+            onPress={() => onOpen(row)}
+            style={[
+              styles.compactRow,
+              row.rank === 1 && styles.leaderRow,
+              current && styles.currentRow,
+            ]}
           >
-            ⚽
-          </Text>
-        ))}
-      </View>
+            <View style={styles.compactMain}>
+              <Text style={[styles.compactRank, row.rank === 1 && styles.rankLeader]}>
+                {row.rank}º
+              </Text>
+              <RankingUserAvatar row={row} size={38} />
+              <View style={styles.compactIdentity}>
+                <Text
+                  style={[styles.compactName, current && styles.currentName]}
+                  numberOfLines={1}
+                >
+                  {row.nickname}
+                  {current ? ' · Você' : ''}
+                </Text>
+                <View style={styles.compactStatusLine}>
+                  <StatusChip
+                    label={row.hasLiveData ? 'Provisório' : 'Definitivo'}
+                    tone={row.hasLiveData ? 'warning' : 'success'}
+                  />
+                  <RankingMovementBadge row={row} />
+                </View>
+              </View>
+              <View style={styles.compactPoints}>
+                <Text style={styles.compactPointsValue}>{row.points}</Text>
+                <Text style={styles.compactPointsLabel}>pontos</Text>
+              </View>
+            </View>
+            <View style={styles.compactMetrics}>
+              <CompactMetric label="Rod." value={roundPoints.get(row.userId) ?? 0} />
+              <CompactMetric label="EX" value={row.exactScores} />
+              <CompactMetric label="RES" value={row.resultHits} />
+              <CompactMetric label="Gols" value={row.oneGoalHits} />
+              <CompactMetric label="Erros" value={row.misses} />
+              <View style={styles.compactForm}>
+                <Text style={styles.compactMetricLabel}>Últimos 5</Text>
+                <RankingLastFive values={row.lastFive} />
+              </View>
+            </View>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function CompactMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <View style={styles.compactMetric}>
+      <Text style={styles.compactMetricLabel}>{label}</Text>
+      <Text style={styles.compactMetricValue}>{value}</Text>
+    </View>
+  );
+}
+
+function DesktopRankingTable({
+  rows,
+  currentUserId,
+  roundPoints,
+  onOpen,
+}: RankingRowsProps) {
+  return (
+    <View testID="ranking-table-desktop" style={styles.table}>
+      <RankingHeader />
+      {rows.map((row) => (
+        <Pressable
+          key={row.userId}
+          testID={`ranking-row-${row.userId}`}
+          accessibilityRole="button"
+          accessibilityLabel={`Abrir perfil de ${row.nickname}, ${row.rank}º lugar, ${row.points} pontos`}
+          onPress={() => onOpen(row)}
+          style={[
+            styles.tableRow,
+            row.rank === 1 && styles.leaderRow,
+            row.userId === currentUserId && styles.currentRow,
+          ]}
+        >
+          <Text style={[styles.rankCell, row.rank === 1 && styles.rankLeader]}>{row.rank}º</Text>
+          <View style={styles.personCell}>
+            <RankingUserAvatar row={row} size={36} />
+            <Text
+              style={[
+                styles.personName,
+                row.userId === currentUserId && styles.currentName,
+              ]}
+              numberOfLines={1}
+            >
+              {row.nickname}
+              {row.userId === currentUserId ? ' · Você' : ''}
+            </Text>
+          </View>
+          <View style={styles.moveCell}>
+            <RankingMovementBadge row={row} />
+          </View>
+          <Text style={styles.numberCellStrong}>{row.points}</Text>
+          <Text style={styles.numberCell}>{roundPoints.get(row.userId) ?? 0}</Text>
+          <Text style={styles.numberCell}>{row.exactScores}</Text>
+          <Text style={styles.numberCell}>{row.resultHits}</Text>
+          <Text style={styles.numberCell}>{row.oneGoalHits}</Text>
+          <Text style={styles.numberCell}>{row.misses}</Text>
+          <View style={styles.lastFiveCell}>
+            <RankingLastFive values={row.lastFive} />
+          </View>
+          <View style={styles.stateCell}>
+            <View
+              style={[styles.stateDot, row.hasLiveData ? styles.stateLive : styles.stateFinal]}
+            />
+            <Text style={styles.stateText}>
+              {row.hasLiveData ? 'Provisório' : 'Definitivo'}
+            </Text>
+          </View>
+        </Pressable>
+      ))}
     </View>
   );
 }
@@ -933,66 +914,30 @@ function RankingHeader() {
   );
 }
 
-function RadarItem({
-  icon,
-  label,
-  row,
-  detail,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  row?: RankingRowDto | null;
-  detail?: string;
-}) {
-  return (
-    <View style={styles.radarItem}>
-      <View style={styles.radarIcon}>
-        <Ionicons name={icon} size={17} color={theme.color.gold} />
-      </View>
-      <View style={styles.radarCopy}>
-        <Text style={styles.radarLabel}>{label}</Text>
-        <Text style={styles.radarName}>{row?.nickname ?? 'Sem dado disponível'}</Text>
-        {detail ? <Text style={styles.radarDetail}>{detail}</Text> : null}
-      </View>
-      {row ? <RankingUserAvatar row={row} size={34} /> : null}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   root: { gap: theme.space.xl, width: '100%' },
   hero: {
-    backgroundColor: '#052d50',
-    borderColor: 'rgba(52,209,123,.35)',
-    borderRadius: 22,
+    backgroundColor: theme.color.surface,
+    borderColor: theme.color.border,
+    borderRadius: theme.radius.lg,
     borderWidth: 1,
+    borderTopColor: theme.color.accent,
+    borderTopWidth: 2,
+    gap: theme.space.md,
+    padding: theme.space.xl,
+  },
+  heroCompact: { padding: theme.space.lg },
+  eyebrow: { color: theme.color.accent, fontSize: 10, fontWeight: '900', letterSpacing: 1.3 },
+  liveLine: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: theme.space.sm },
+  syncText: { color: theme.color.textMuted, fontSize: theme.font.size.sm },
+  heroActions: {
+    alignItems: 'center',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 18,
-    justifyContent: 'space-between',
-    overflow: 'hidden',
-    padding: 24,
-    position: 'relative',
+    gap: theme.space.sm,
   },
-  heroGlow: {
-    backgroundColor: 'rgba(52,209,123,.12)',
-    borderRadius: 180,
-    height: 260,
-    position: 'absolute',
-    right: -90,
-    top: -130,
-    width: 260,
-  },
-  heroCopy: { gap: 5, maxWidth: 650, zIndex: 1 },
-  eyebrow: { color: theme.color.accent, fontSize: 10, fontWeight: '900', letterSpacing: 1.3 },
-  heroTitle: { color: theme.color.text, fontSize: 32, fontWeight: '900', letterSpacing: -0.8 },
-  heroSubtitle: { color: theme.color.textMuted, fontSize: 14 },
-  liveLine: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 8 },
-  liveDot: { backgroundColor: theme.color.accent, borderRadius: 5, height: 9, width: 9 },
-  offlineDot: { backgroundColor: theme.color.danger },
-  liveText: { color: theme.color.text, fontSize: 12, fontWeight: '900' },
-  syncText: { color: theme.color.textMuted, fontSize: 11 },
-  heroActions: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 9, zIndex: 1 },
+  heroActionsCompact: { width: '100%' },
+  heroActionCompact: { flex: 1, minWidth: 132 },
   primaryButton: {
     alignItems: 'center',
     backgroundColor: theme.color.accent,
@@ -1016,30 +961,41 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   trophyButtonText: { color: theme.color.gold, fontSize: 12, fontWeight: '900' },
-  filters: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  filterRail: { gap: 6 },
+  filters: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: theme.space.md },
+  filtersCompact: { alignItems: 'stretch', flexDirection: 'column' },
+  filterScroller: { flexGrow: 0, flexShrink: 1, maxWidth: '100%' },
+  filterRail: { gap: theme.space.sm },
   filterChip: {
     borderColor: theme.color.border,
-    borderRadius: 999,
+    borderRadius: theme.radius.pill,
     borderWidth: 1,
     justifyContent: 'center',
-    minHeight: 44,
-    paddingHorizontal: 14,
+    minHeight: theme.touchTarget,
+    paddingHorizontal: theme.space.lg,
   },
-  filterChipActive: { backgroundColor: theme.color.gold, borderColor: theme.color.gold },
-  filterText: { color: theme.color.textMuted, fontSize: 11, fontWeight: '800' },
-  filterTextActive: { color: '#211d08' },
+  filterChipActive: { backgroundColor: theme.color.accentMuted, borderColor: theme.color.accent },
+  filterText: { color: theme.color.textMuted, fontSize: theme.font.size.sm, fontWeight: '800' },
+  filterTextActive: { color: theme.color.accent },
+  filterControls: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    gap: theme.space.sm,
+    justifyContent: 'flex-end',
+    minWidth: 320,
+  },
+  filterControlsCompact: { alignItems: 'stretch', flexDirection: 'column', minWidth: 0, width: '100%' },
   searchWrap: {
     alignItems: 'center',
     borderColor: theme.color.border,
-    borderRadius: 10,
+    borderRadius: theme.radius.sm,
     borderWidth: 1,
     flex: 1,
     flexDirection: 'row',
-    gap: 7,
-    minHeight: 44,
+    gap: theme.space.sm,
+    minHeight: theme.touchTarget,
     minWidth: 210,
-    paddingHorizontal: 12,
+    paddingHorizontal: theme.space.md,
   },
   searchInput: {
     color: theme.color.text,
@@ -1050,67 +1006,98 @@ const styles = StyleSheet.create({
   },
   statusGroup: {
     borderColor: theme.color.borderMuted,
-    borderRadius: 10,
+    borderRadius: theme.radius.sm,
     borderWidth: 1,
     flexDirection: 'row',
     overflow: 'hidden',
   },
-  statusButton: { justifyContent: 'center', minHeight: 42, paddingHorizontal: 11 },
-  statusButtonActive: { backgroundColor: 'rgba(52,209,123,.18)' },
-  statusText: { color: theme.color.text, fontSize: 10, fontWeight: '800' },
-  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  statCard: {
-    backgroundColor: theme.color.surface,
-    borderColor: theme.color.borderMuted,
-    borderRadius: 14,
-    borderWidth: 1,
+  statusGroupCompact: { width: '100%' },
+  statusButton: {
+    alignItems: 'center',
     flex: 1,
-    gap: 3,
-    minWidth: 150,
-    padding: 15,
+    justifyContent: 'center',
+    minHeight: theme.touchTarget,
+    paddingHorizontal: theme.space.md,
   },
-  fundraisingStatCard: {
-    backgroundColor: 'rgba(244, 214, 92, 0.12)',
-    borderColor: theme.color.gold,
+  statusButtonActive: { backgroundColor: theme.color.accentMuted },
+  statusText: { color: theme.color.text, fontSize: theme.font.size.xs, fontWeight: '800' },
+  summaryPanel: { gap: theme.space.xl, padding: theme.space.xl },
+  summaryPanelCompact: { gap: theme.space.lg, padding: theme.space.lg },
+  summaryGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  summaryMetric: {
+    borderLeftColor: theme.color.border,
+    borderLeftWidth: 1,
+    flex: 1,
+    gap: theme.space.xs,
+    minWidth: 170,
+    paddingHorizontal: theme.space.lg,
+    paddingVertical: theme.space.sm,
   },
-  fundraisingStatLabel: { color: theme.color.gold },
-  fundraisingStatValue: { color: theme.color.gold, fontSize: 23 },
-  statLabel: {
+  summaryMetricCompact: { minWidth: '48%', paddingHorizontal: theme.space.md },
+  summaryLabel: {
     color: theme.color.textMuted,
-    fontSize: 10,
+    fontSize: theme.font.size.xs,
     fontWeight: '800',
     textTransform: 'uppercase',
   },
-  statValue: { color: theme.color.text, fontSize: 23, fontWeight: '900' },
-  statDetail: { color: theme.color.info, fontSize: 10 },
+  summaryValue: { color: theme.color.text, fontSize: theme.font.size.xl, fontWeight: '900' },
+  summaryDetail: { color: theme.color.textSubtle, fontSize: theme.font.size.xs },
+  fundraisingStrip: {
+    alignItems: 'center',
+    backgroundColor: theme.color.warningMuted,
+    borderRadius: theme.radius.sm,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.space.lg,
+    justifyContent: 'space-between',
+    padding: theme.space.lg,
+  },
+  fundraisingCopy: { flex: 1, minWidth: 190 },
+  fundraisingLabel: {
+    color: theme.color.warning,
+    fontSize: theme.font.size.xs,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  fundraisingDetail: { color: theme.color.textMuted, fontSize: theme.font.size.sm, marginTop: 3 },
+  fundraisingValue: { color: theme.color.warning, fontSize: theme.font.size.xl, fontWeight: '900' },
+  podiumSurface: {
+    backgroundColor: theme.color.surface,
+    overflow: 'visible',
+    paddingBottom: theme.space.lg,
+    paddingHorizontal: theme.space.xl,
+    paddingTop: theme.space.xxl,
+  },
+  podiumSurfaceCompact: {
+    paddingBottom: theme.space.md,
+    paddingHorizontal: theme.space.sm,
+    paddingTop: theme.space.xl,
+  },
   podium: {
     alignItems: 'flex-end',
     flexDirection: 'row',
-    gap: 12,
+    gap: theme.space.sm,
     justifyContent: 'center',
-    paddingTop: 16,
   },
-  podiumCompact: { alignItems: 'stretch', flexDirection: 'column' },
-  podiumCard: {
+  podiumItem: {
     alignItems: 'center',
-    backgroundColor: theme.color.surface,
-    borderColor: theme.color.border,
-    borderRadius: 18,
-    borderWidth: 1,
     flex: 1,
-    gap: 7,
+    gap: theme.space.xs,
     maxWidth: 310,
-    minHeight: 235,
-    padding: 18,
+    minWidth: 0,
+    paddingHorizontal: theme.space.xs,
+    paddingVertical: theme.space.md,
   },
   podiumFirst: {
-    backgroundColor: '#103b55',
-    borderColor: theme.color.gold,
-    minHeight: 262,
-    paddingTop: 24,
+    paddingBottom: theme.space.xl,
   },
-  currentBorder: { borderColor: theme.color.accent, borderWidth: 2 },
+  currentPodium: {
+    backgroundColor: theme.color.accentMuted,
+    borderRadius: theme.radius.md,
+  },
+  currentPodiumName: { color: theme.color.accent },
   medal: { fontSize: 27 },
+  medalCompact: { fontSize: 21 },
   avatar: {
     backgroundColor: theme.color.surfaceRaised,
     borderColor: theme.color.accent,
@@ -1120,7 +1107,9 @@ const styles = StyleSheet.create({
   avatarFallback: { alignItems: 'center', justifyContent: 'center' },
   avatarInitials: { color: theme.color.text, fontWeight: '900' },
   podiumName: { color: theme.color.text, fontSize: 16, fontWeight: '900', maxWidth: '100%' },
-  podiumPoints: { color: theme.color.gold, fontSize: 22, fontWeight: '900' },
+  podiumNameCompact: { fontSize: 11 },
+  podiumPoints: { color: theme.color.accent, fontSize: 22, fontWeight: '900' },
+  podiumPointsCompact: { fontSize: 16 },
   podiumMeta: { color: theme.color.textMuted, fontSize: 10 },
   youBadge: {
     backgroundColor: theme.color.accent,
@@ -1158,55 +1147,57 @@ const styles = StyleSheet.create({
   formHit: { backgroundColor: 'rgba(52,209,123,.18)' },
   formExact: { backgroundColor: 'rgba(244,214,92,.22)' },
   formText: { color: theme.color.text, fontSize: 8, fontWeight: '900' },
-  contentGrid: { alignItems: 'flex-start', flexDirection: 'row', gap: 14 },
-  contentGridCompact: { flexDirection: 'column' },
   tablePanel: {
     backgroundColor: theme.color.surface,
-    borderColor: theme.color.borderMuted,
-    borderRadius: 16,
+    borderColor: theme.color.border,
+    borderRadius: theme.radius.md,
     borderWidth: 1,
     flex: 1,
     overflow: 'hidden',
     width: '100%',
   },
-  panelHead: {
-    alignItems: 'flex-end',
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    justifyContent: 'space-between',
-    padding: 18,
-  },
+  panelHead: { padding: theme.space.lg },
   panelTitle: { color: theme.color.text, fontSize: 18, fontWeight: '900', marginTop: 3 },
-  criteriaTitle: { color: theme.color.text, fontSize: 11, fontWeight: '900', textAlign: 'right' },
-  panelHint: { color: theme.color.textMuted, fontSize: 10 },
-  table: { minWidth: 1050 },
+  table: { width: '100%' },
   tableRow: {
     alignItems: 'center',
     borderBottomColor: theme.color.borderMuted,
     borderBottomWidth: 1,
     flexDirection: 'row',
-    minHeight: 58,
-    paddingHorizontal: 12,
+    minHeight: 60,
+    paddingHorizontal: theme.space.md,
   },
-  tableHeader: { backgroundColor: 'rgba(0,20,58,.4)', minHeight: 42 },
+  tableHeader: { backgroundColor: theme.color.canvasDeep, minHeight: theme.touchTarget },
   currentRow: {
-    backgroundColor: 'rgba(52,209,123,.10)',
+    backgroundColor: theme.color.accentMuted,
     borderLeftColor: theme.color.accent,
     borderLeftWidth: 3,
   },
-  leaderRow: { backgroundColor: 'rgba(244,214,92,.06)' },
+  leaderRow: { backgroundColor: theme.color.warningMuted },
   rankCell: {
     color: theme.color.textMuted,
     fontSize: 12,
     fontWeight: '900',
     textAlign: 'center',
-    width: 42,
+    width: 44,
   },
   rankLeader: { color: theme.color.gold },
-  personCell: { alignItems: 'center', flexDirection: 'row', gap: 8, width: 200 },
-  personCellHeader: { color: theme.color.textMuted, fontSize: 9, fontWeight: '900', width: 200 },
+  personCell: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    gap: theme.space.sm,
+    minWidth: 150,
+  },
+  personCellHeader: {
+    color: theme.color.textMuted,
+    flex: 1,
+    fontSize: 9,
+    fontWeight: '900',
+    minWidth: 150,
+  },
   personName: { color: theme.color.text, flexShrink: 1, fontSize: 12, fontWeight: '900' },
+  currentName: { color: theme.color.accent },
   inlineYou: {
     backgroundColor: theme.color.accent,
     borderRadius: 999,
@@ -1217,90 +1208,104 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
     paddingVertical: 2,
   },
-  moveCell: { alignItems: 'center', width: 58 },
+  moveCell: { alignItems: 'center', width: 60 },
   moveCellHeader: {
     color: theme.color.textMuted,
     fontSize: 9,
     fontWeight: '900',
     textAlign: 'center',
-    width: 58,
+    width: 60,
   },
   numberCell: {
     color: theme.color.textMuted,
     fontSize: 11,
     fontWeight: '800',
     textAlign: 'center',
-    width: 48,
+    width: 46,
   },
   numberCellStrong: {
     color: theme.color.gold,
     fontSize: 14,
     fontWeight: '900',
     textAlign: 'center',
-    width: 48,
+    width: 56,
   },
   numberCellHeader: {
     color: theme.color.textMuted,
     fontSize: 9,
     fontWeight: '900',
     textAlign: 'center',
-    width: 48,
+    width: 46,
   },
-  lastFiveCell: { alignItems: 'center', width: 140 },
+  lastFiveCell: { alignItems: 'center', width: 126 },
   lastFiveHeader: {
     color: theme.color.textMuted,
     fontSize: 9,
     fontWeight: '900',
     textAlign: 'center',
-    width: 140,
+    width: 126,
   },
-  stateCell: { alignItems: 'center', flexDirection: 'row', gap: 5, width: 95 },
+  stateCell: { alignItems: 'center', flexDirection: 'row', gap: 5, width: 92 },
   stateCellHeader: {
     color: theme.color.textMuted,
     fontSize: 9,
     fontWeight: '900',
     textAlign: 'center',
-    width: 95,
+    width: 92,
   },
   stateDot: { borderRadius: 4, height: 7, width: 7 },
   stateLive: { backgroundColor: theme.color.warning },
   stateFinal: { backgroundColor: theme.color.accent },
   stateText: { color: theme.color.textMuted, fontSize: 9, fontWeight: '800' },
-  radar: {
-    backgroundColor: theme.color.surface,
-    borderColor: theme.color.borderMuted,
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 8,
-    padding: 16,
-    width: 310,
+  compactList: { width: '100%' },
+  compactRow: {
+    borderBottomColor: theme.color.borderMuted,
+    borderBottomWidth: 1,
+    gap: theme.space.md,
+    minHeight: 118,
+    paddingHorizontal: theme.space.md,
+    paddingVertical: theme.space.md,
   },
-  radarItem: {
-    alignItems: 'center',
-    borderTopColor: theme.color.borderMuted,
-    borderTopWidth: 1,
-    flexDirection: 'row',
-    gap: 9,
-    minHeight: 62,
-    paddingTop: 8,
-  },
-  radarIcon: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(244,214,92,.09)',
-    borderRadius: 9,
-    height: 34,
-    justifyContent: 'center',
+  compactMain: { alignItems: 'center', flexDirection: 'row', gap: theme.space.sm },
+  compactRank: {
+    color: theme.color.textMuted,
+    fontSize: theme.font.size.md,
+    fontWeight: '900',
+    textAlign: 'center',
     width: 34,
   },
-  radarCopy: { flex: 1 },
-  radarLabel: {
-    color: theme.color.textMuted,
-    fontSize: 9,
+  compactIdentity: { flex: 1, gap: theme.space.xs, minWidth: 0 },
+  compactName: { color: theme.color.text, fontSize: theme.font.size.md, fontWeight: '900' },
+  compactStatusLine: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.space.xs,
+  },
+  compactPoints: { alignItems: 'flex-end', minWidth: 54 },
+  compactPointsValue: { color: theme.color.accent, fontSize: theme.font.size.lg, fontWeight: '900' },
+  compactPointsLabel: { color: theme.color.textSubtle, fontSize: theme.font.size.xs },
+  compactMetrics: {
+    alignItems: 'flex-end',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.space.sm,
+    paddingLeft: 42,
+  },
+  compactMetric: { alignItems: 'center', minWidth: 34 },
+  compactMetricLabel: {
+    color: theme.color.textSubtle,
+    fontSize: 8,
     fontWeight: '800',
     textTransform: 'uppercase',
   },
-  radarName: { color: theme.color.text, fontSize: 12, fontWeight: '900', marginTop: 2 },
-  radarDetail: { color: theme.color.info, fontSize: 9, marginTop: 1 },
+  compactMetricValue: {
+    color: theme.color.text,
+    fontSize: theme.font.size.sm,
+    fontWeight: '900',
+    marginTop: 2,
+  },
+  compactForm: { gap: theme.space.xs, marginLeft: 'auto' },
   emptyCopy: { color: theme.color.textMuted, fontSize: 12, lineHeight: 18, padding: 18 },
   modalBackdrop: {
     alignItems: 'center',
@@ -1448,19 +1453,5 @@ const styles = StyleSheet.create({
     maxWidth: 420,
     padding: 24,
     width: '100%',
-  },
-  particleLayer: {
-    bottom: 0,
-    left: 0,
-    pointerEvents: 'none' as never,
-    position: Platform.OS === 'web' ? ('fixed' as never) : 'absolute',
-    right: 0,
-    top: 0,
-    zIndex: 9999,
-  },
-  particle: {
-    fontSize: 20,
-    position: 'absolute',
-    transform: [{ translateY: -16 }, { rotate: '22deg' }],
   },
 });

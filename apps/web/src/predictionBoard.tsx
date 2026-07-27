@@ -276,14 +276,22 @@ function SuccessModal({
   const reducedMotion = usePrefersReducedMotion();
   const progress = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    if (!visible) return progress.setValue(0);
-    Animated.spring(progress, {
+    if (!visible) {
+      progress.setValue(0);
+      return;
+    }
+    if (reducedMotion) {
+      progress.setValue(1);
+      return;
+    }
+    const animation = Animated.spring(progress, {
       toValue: 1,
-      duration: reducedMotion ? 0 : undefined,
       friction: 5,
       tension: 80,
       useNativeDriver: true,
-    }).start();
+    });
+    animation.start();
+    return () => animation.stop();
   }, [progress, reducedMotion, visible]);
   return (
     <Modal
@@ -2127,10 +2135,13 @@ export function PredictionBoardScreen({
                   canPredict={board.canPredict}
                   savingMatchId={savingMatchId}
                   onChange={(matchId, side, value) =>
-                    setDraft((current) => ({
-                      ...current,
-                      [matchId]: { home: '', away: '', ...current[matchId], [side]: value },
-                    }))
+                    setDraft((current) => {
+                      const matchDraft = current[matchId] ?? { home: '', away: '' };
+                      return {
+                        ...current,
+                        [matchId]: { ...matchDraft, [side]: value },
+                      };
+                    })
                   }
                   onSave={saveMatch}
                   onOpenPublic={setPublicMatch}
@@ -2156,10 +2167,13 @@ export function PredictionBoardScreen({
             draft={draft}
             canEdit={simulationOpen}
             onChange={(matchId, side, value) =>
-              setDraft((current) => ({
-                ...current,
-                [matchId]: { home: '', away: '', ...current[matchId], [side]: value },
-              }))
+              setDraft((current) => {
+                const matchDraft = current[matchId] ?? { home: '', away: '' };
+                return {
+                  ...current,
+                  [matchId]: { ...matchDraft, [side]: value },
+                };
+              })
             }
           />
           <View style={styles.previewStatusBar}>

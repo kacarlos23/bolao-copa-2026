@@ -23,7 +23,9 @@ const activeDraftGuards = new Map<symbol, ActiveDraftGuard>();
 export function registerActiveDraftGuard(guard: ActiveDraftGuard) {
   const token = Symbol(guard.key);
   activeDraftGuards.set(token, guard);
-  return () => activeDraftGuards.delete(token);
+  return () => {
+    activeDraftGuards.delete(token);
+  };
 }
 
 export function getActiveDirtyDraftGuard(userId?: string) {

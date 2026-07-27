@@ -17,6 +17,7 @@ import {
 import { errorMessage, request } from './services/api-client';
 import { civilDateKey, prioritizeAdminMatches } from './adminOperations.logic';
 import { FundraisingAdmin } from './features/admin/FundraisingAdmin';
+import { theme } from './theme/tokens';
 
 type PoolSeason = {
   id: string;
@@ -117,7 +118,9 @@ function Module({
 }) {
   return (
     <View style={styles.module}>
-      <Text style={styles.title}>{title}</Text>
+      <Text role="heading" aria-level={3} style={styles.title}>
+        {title}
+      </Text>
       <Text style={styles.copy}>{description}</Text>
       {children}
     </View>
@@ -206,7 +209,7 @@ export function AdminOperationsPanel() {
           nextMatchPages.flatMap((page) => page.matches),
           new Date(),
           nextSeason?.timezone,
-        );
+        ) as GenericMatch[];
         setDivergences(nextDivergences);
         setJobs(nextJobs.jobs);
         setAuditCount(audit.logs.length);
@@ -360,11 +363,11 @@ export function AdminOperationsPanel() {
     <View style={styles.panel} accessibilityLabel="Operacao segura da plataforma">
       <View style={styles.header}>
         <View>
-          <Text style={styles.kicker}>ETAPA 8</Text>
-          <Text style={styles.heading}>Central de operacao segura</Text>
+          <Text style={styles.kicker}>ADMINISTRAÇÃO</Text>
+          <Text style={styles.heading}>Central de operação segura</Text>
         </View>
         {busy ? (
-          <ActivityIndicator color="#34d17b" />
+          <ActivityIndicator color={theme.color.accent} />
         ) : (
           <Button label="Atualizar" onPress={() => void load()} />
         )}
@@ -381,6 +384,8 @@ export function AdminOperationsPanel() {
         {seasons.map((season) => (
           <Pressable
             key={season.id}
+            accessibilityRole="button"
+            accessibilityState={{ selected: season.id === seasonId }}
             onPress={() => {
               setSeasonId(season.id);
               setPoolSeasonId(season.poolSeasons[0]?.id ?? '');
@@ -407,6 +412,7 @@ export function AdminOperationsPanel() {
             <Pressable
               key={poolSeason.id}
               accessibilityRole="button"
+              accessibilityState={{ selected: poolSeason.id === selectedPool?.id }}
               onPress={() => {
                 setPoolSeasonId(poolSeason.id);
                 setPreview(null);
@@ -498,7 +504,7 @@ export function AdminOperationsPanel() {
           onChangeText={setCompetitionReason}
           style={styles.input}
           placeholder="Justificativa (minimo 10 caracteres)"
-          placeholderTextColor="#7e95af"
+          placeholderTextColor={theme.color.textMuted}
         />
         <View style={styles.actions}>
           <Button
@@ -594,6 +600,8 @@ export function AdminOperationsPanel() {
           {prioritizedMatches.slice(0, 80).map((match) => (
             <Pressable
               key={match.id}
+              accessibilityRole="button"
+              accessibilityState={{ selected: match.id === matchId }}
               onPress={() => {
                 setMatchId(match.id);
                 setHomeScore(String(match.homeScore ?? match.finalHomeScore ?? ''));
@@ -621,7 +629,7 @@ export function AdminOperationsPanel() {
             keyboardType="number-pad"
             style={[styles.input, styles.scoreInput]}
             placeholder="Casa"
-            placeholderTextColor="#7e95af"
+            placeholderTextColor={theme.color.textMuted}
           />
           <TextInput
             accessibilityLabel="Placar visitante"
@@ -630,7 +638,7 @@ export function AdminOperationsPanel() {
             keyboardType="number-pad"
             style={[styles.input, styles.scoreInput]}
             placeholder="Fora"
-            placeholderTextColor="#7e95af"
+            placeholderTextColor={theme.color.textMuted}
           />
         </View>
         <View style={styles.actions}>
@@ -656,7 +664,7 @@ export function AdminOperationsPanel() {
           onChangeText={setReason}
           style={styles.input}
           placeholder="Justificativa (minimo 10 caracteres)"
-          placeholderTextColor="#7e95af"
+          placeholderTextColor={theme.color.textMuted}
         />
         <View style={styles.actions}>
           <Button
@@ -690,6 +698,7 @@ export function AdminOperationsPanel() {
         title="Jobs"
         description="Pausa cooperativa e reexecucao limitada; nenhuma execucao concorrente usa a mesma chave."
       >
+        {!jobs.length ? <Text style={styles.meta}>Nenhum job no escopo selecionado.</Text> : null}
         {jobs.map((job) => (
           <View key={job.id} style={styles.job}>
             <View>
@@ -697,6 +706,7 @@ export function AdminOperationsPanel() {
               <Text style={styles.meta}>
                 {job.status} - {job.processedCount}/{job.affectedCount}
               </Text>
+              {job.errorCode ? <Text style={styles.jobError}>{job.errorCode}</Text> : null}
             </View>
             <View style={styles.actions}>
               {['QUEUED', 'RUNNING'].includes(job.status) ? (
@@ -720,70 +730,139 @@ export function AdminOperationsPanel() {
 
 const styles = StyleSheet.create({
   panel: {
-    backgroundColor: 'rgba(2,36,76,.82)',
-    borderColor: '#315b83',
-    borderRadius: 18,
-    borderWidth: 1,
-    gap: 14,
-    padding: 18,
+    gap: theme.space.lg,
+    width: '100%',
   },
-  header: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
-  kicker: { color: '#58e09a', fontSize: 10, fontWeight: '900', letterSpacing: 1.2 },
-  heading: { color: '#f5f9ff', fontSize: 22, fontWeight: '900' },
-  copy: { color: '#b5c5d9', lineHeight: 20 },
-  seasons: { gap: 8 },
-  season: { borderColor: '#315b83', borderRadius: 12, borderWidth: 1, minWidth: 190, padding: 12 },
-  selected: { backgroundColor: 'rgba(52,209,123,.12)', borderColor: '#34d17b' },
-  seasonName: { color: '#f5f9ff', fontWeight: '800' },
-  meta: { color: '#8fa5bd', fontSize: 12, marginTop: 4 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  header: {
+    alignItems: 'center',
+    backgroundColor: theme.color.surfaceRaised,
+    borderColor: theme.color.border,
+    borderRadius: theme.radius.lg,
+    borderWidth: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.space.md,
+    justifyContent: 'space-between',
+    padding: theme.space.lg,
+  },
+  kicker: {
+    color: theme.color.accent,
+    fontSize: theme.font.size.xs,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+  },
+  heading: {
+    color: theme.color.text,
+    fontSize: theme.font.size.xl,
+    fontWeight: '900',
+    marginTop: theme.space.xs,
+  },
+  copy: { color: theme.color.textMuted, lineHeight: 20 },
+  seasons: { gap: theme.space.sm, paddingBottom: theme.space.xs },
+  season: {
+    backgroundColor: theme.color.surface,
+    borderColor: theme.color.border,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    minHeight: 62,
+    minWidth: 190,
+    padding: theme.space.md,
+  },
+  selected: { backgroundColor: theme.color.accentMuted, borderColor: theme.color.accent },
+  seasonName: { color: theme.color.text, fontWeight: '800' },
+  meta: { color: theme.color.textMuted, fontSize: 12, lineHeight: 18, marginTop: 4 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.space.sm },
   module: {
-    backgroundColor: '#08284b',
-    borderColor: '#254d75',
-    borderRadius: 13,
+    backgroundColor: theme.color.surfaceRaised,
+    borderColor: theme.color.border,
+    borderRadius: theme.radius.md,
     borderWidth: 1,
     flexGrow: 1,
-    gap: 8,
+    gap: theme.space.sm,
     minWidth: 240,
-    padding: 13,
+    padding: theme.space.lg,
   },
-  title: { color: '#f5f9ff', fontSize: 16, fontWeight: '900' },
+  title: { color: theme.color.text, fontSize: 16, fontWeight: '900' },
   input: {
-    backgroundColor: '#061d38',
-    borderColor: '#315b83',
-    borderRadius: 10,
+    backgroundColor: theme.color.canvas,
+    borderColor: theme.color.borderStrong,
+    borderRadius: theme.radius.sm,
     borderWidth: 1,
-    color: '#f5f9ff',
-    minHeight: 42,
-    padding: 11,
+    color: theme.color.text,
+    minHeight: theme.touchTarget,
+    outlineColor: theme.color.focus,
+    padding: theme.space.md,
   },
-  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.space.sm },
   button: {
-    backgroundColor: '#34d17b',
-    borderRadius: 9,
-    paddingHorizontal: 13,
-    paddingVertical: 10,
+    alignItems: 'center',
+    backgroundColor: theme.color.accent,
+    borderColor: theme.color.accent,
+    borderRadius: theme.radius.sm,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: theme.touchTarget,
+    paddingHorizontal: theme.space.lg,
   },
-  buttonText: { color: '#031c27', fontWeight: '900' },
-  warnButton: { backgroundColor: 'transparent', borderColor: '#f0ba55', borderWidth: 1 },
-  warnText: { color: '#f0c773' },
+  buttonText: { color: theme.color.accentInk, fontWeight: '900' },
+  warnButton: { backgroundColor: theme.color.warningMuted, borderColor: theme.color.warning },
+  warnText: { color: theme.color.warning },
   disabled: { opacity: 0.45 },
   scoreRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  scoreInput: { minWidth: 120 },
-  confirm: { borderTopColor: '#254d75', borderTopWidth: 1, gap: 9, paddingTop: 10 },
-  provider: { borderTopColor: '#254d75', borderTopWidth: 1, paddingTop: 8 },
-  report: { borderTopColor: '#315b83', borderTopWidth: 1, gap: 9, paddingTop: 10 },
-  run: { borderLeftColor: '#34d17b', borderLeftWidth: 2, gap: 3, paddingLeft: 9 },
-  hash: { color: '#8fa5bd', fontFamily: 'monospace', fontSize: 11 },
-  code: { color: '#f0c773', fontFamily: 'monospace', fontWeight: '900' },
+  scoreInput: { flex: 1, minWidth: 120 },
+  confirm: {
+    borderTopColor: theme.color.border,
+    borderTopWidth: 1,
+    gap: theme.space.sm,
+    paddingTop: theme.space.md,
+  },
+  provider: {
+    borderTopColor: theme.color.border,
+    borderTopWidth: 1,
+    paddingTop: theme.space.sm,
+  },
+  report: {
+    borderTopColor: theme.color.borderStrong,
+    borderTopWidth: 1,
+    gap: theme.space.sm,
+    paddingTop: theme.space.md,
+  },
+  run: {
+    borderLeftColor: theme.color.success,
+    borderLeftWidth: 2,
+    gap: 3,
+    paddingLeft: theme.space.sm,
+  },
+  hash: { color: theme.color.textSubtle, fontFamily: 'monospace', fontSize: 11 },
+  code: { color: theme.color.warning, fontFamily: 'monospace', fontWeight: '900' },
   job: {
     alignItems: 'center',
-    borderTopColor: '#254d75',
+    borderTopColor: theme.color.border,
     borderTopWidth: 1,
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.space.sm,
     justifyContent: 'space-between',
-    paddingTop: 9,
+    paddingTop: theme.space.sm,
   },
-  success: { color: '#69e7a4', fontWeight: '700' },
-  error: { color: '#ff8878', fontWeight: '700' },
+  success: {
+    backgroundColor: theme.color.successMuted,
+    borderColor: theme.color.success,
+    borderRadius: theme.radius.sm,
+    borderWidth: 1,
+    color: theme.color.success,
+    fontWeight: '700',
+    padding: theme.space.md,
+  },
+  warning: { color: theme.color.warning, fontWeight: '700' },
+  jobError: { color: theme.color.danger, fontSize: 11, fontWeight: '800', marginTop: 3 },
+  error: {
+    backgroundColor: theme.color.dangerMuted,
+    borderColor: theme.color.danger,
+    borderRadius: theme.radius.sm,
+    borderWidth: 1,
+    color: theme.color.danger,
+    fontWeight: '700',
+    padding: theme.space.md,
+  },
 });

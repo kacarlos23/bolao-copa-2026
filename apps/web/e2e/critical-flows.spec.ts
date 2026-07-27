@@ -211,7 +211,9 @@ test('Copa aparece somente dentro da central e abre como rota legada', async ({
   await expect(page.getByRole('navigation', { name: 'Navegação principal' })).not.toContainText(
     'Copa',
   );
+  await expect(page.getByRole('heading', { name: 'Visão geral' })).toBeVisible();
   if (process.env.CAPTURE_UI === '1') {
+    await page.waitForTimeout(800);
     await testInfo.attach('home-bolao-sirel', {
       body: await page.screenshot({ fullPage: true }),
       contentType: 'image/png',
@@ -219,7 +221,9 @@ test('Copa aparece somente dentro da central e abre como rota legada', async ({
   }
 
   await page.getByRole('link', { name: 'Competições' }).click();
+  await expect(page.getByRole('link', { name: 'Abrir Copa do Mundo, área legada' })).toBeVisible();
   if (process.env.CAPTURE_UI === '1') {
+    await page.waitForTimeout(800);
     await testInfo.attach('central-de-competicoes', {
       body: await page.screenshot({ fullPage: true }),
       contentType: 'image/png',
@@ -519,7 +523,7 @@ test('SSE sinaliza Ao vivo, Offline e reconecta', async ({ page, context }) => {
   await expect(page.getByText('Ao vivo')).toBeVisible({ timeout: 10_000 });
 });
 
-for (const width of [320, 768, 1280, 1440]) {
+for (const width of [320, 375, 768, 1024, 1366, 1920]) {
   test(`layout crítico não cria overflow global em ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await installApiMocks(page);
