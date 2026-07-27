@@ -216,7 +216,7 @@ export async function getMatchDay(
                 user: {
                   role: { in: ['USER', 'ADMIN'] },
                   status: 'ACTIVE',
-                  poolMemberships: { some: { poolId: context.poolId, status: 'ACTIVE' } },
+                  poolSeasonMemberships: { some: { poolSeasonId: context.poolSeasonId, status: 'ACTIVE' } },
                 },
               },
               include: { user: { select: { id: true, nickname: true, avatarUrl: true } } },

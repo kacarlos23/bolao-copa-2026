@@ -665,7 +665,7 @@ export async function getRanking(
     where: {
       role: { in: ['USER', 'ADMIN'] },
       status: 'ACTIVE',
-      poolMemberships: { some: { poolId: context.poolId, status: 'ACTIVE' } },
+      poolSeasonMemberships: { some: { poolSeasonId: context.poolSeasonId, status: 'ACTIVE' } },
     },
     select: {
       id: true,
@@ -814,7 +814,7 @@ export async function getRankingAwards(context: RankingContext = DEFAULT_RANKING
       where: {
         role: { in: ['USER', 'ADMIN'] },
         status: 'ACTIVE',
-        poolMemberships: { some: { poolId: context.poolId, status: 'ACTIVE' } },
+        poolSeasonMemberships: { some: { poolSeasonId: context.poolSeasonId, status: 'ACTIVE' } },
       },
       select: {
         id: true,

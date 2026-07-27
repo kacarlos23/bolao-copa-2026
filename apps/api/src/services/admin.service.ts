@@ -79,6 +79,51 @@ export async function resetUserPassword(actorId: string, userId: string, passwor
   closeSseClientsForUser(userId);
 }
 
+export async function updateUserNickname(actorId: string, userId: string, nicknameInput: string) {
+  const nickname = nicknameInput.trim();
+  const existing = await prisma.user.findFirst({
+    where: { nickname: { equals: nickname, mode: 'insensitive' }, NOT: { id: userId } },
+    select: { id: true },
+  });
+  if (existing) throw new AppError(409, 'Nickname já está em uso.', 'NICKNAME_TAKEN');
+  const user = await prisma.user.update({
+    where: { id: userId },
+    data: { nickname },
+    select: { id: true, username: true, nickname: true, avatarUrl: true, role: true, status: true, createdAt: true, updatedAt: true },
+  });
+  await prisma.adminAuditLog.create({ data: { actorId, action: 'SETTING_UPDATED', targetId: userId, details: { operation: 'USER_NICKNAME_UPDATED' } } });
+  return user;
+}
+
+export async function listPoolSeasonMembers(poolSeasonId: string) {
+  return prisma.poolSeasonMembership.findMany({
+    where: { poolSeasonId },
+    orderBy: [{ status: 'asc' }, { user: { nickname: 'asc' } }],
+    select: {
+      userId: true, role: true, status: true, joinedAt: true,
+      user: { select: { id: true, username: true, nickname: true, avatarUrl: true, role: true, status: true } },
+    },
+  });
+}
+
+export async function setPoolSeasonMemberStatus(
+  actorId: string,
+  poolSeasonId: string,
+  userId: string,
+  status: 'ACTIVE' | 'INACTIVE' | 'REMOVED',
+) {
+  const membership = await prisma.poolSeasonMembership.upsert({
+    where: { poolSeasonId_userId: { poolSeasonId, userId } },
+    create: { poolSeasonId, userId, status },
+    update: { status },
+    select: { userId: true, status: true, role: true },
+  });
+  await prisma.adminAuditLog.create({
+    data: { actorId, action: 'SETTING_UPDATED', targetId: userId, poolSeasonId, details: { operation: 'POOL_SEASON_MEMBERSHIP_UPDATED', status } },
+  });
+  return membership;
+}
+
 function localDateStart(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }

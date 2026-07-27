@@ -17,6 +17,7 @@ import {
 import { errorMessage, request } from './services/api-client';
 import { civilDateKey, prioritizeAdminMatches } from './adminOperations.logic';
 import { FundraisingAdmin } from './features/admin/FundraisingAdmin';
+import { CompetitionMembersAdmin } from './features/admin/CompetitionMembersAdmin';
 import { theme } from './theme/tokens';
 
 type PoolSeason = {
@@ -464,6 +465,7 @@ export function AdminOperationsPanel() {
         />
       </View>
       <FundraisingAdmin seasonId={selectedSeason?.id ?? ''} poolSeasonId={selectedPool?.id ?? ''} />
+      <CompetitionMembersAdmin poolSeasonId={selectedPool?.id ?? ''} />
       <Module
         title="Atualizar informações da competição"
         description={

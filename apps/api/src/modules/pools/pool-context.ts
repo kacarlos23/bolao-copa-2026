@@ -17,6 +17,7 @@ export interface PoolSeasonContext {
   historicalMatchesScoreable: boolean;
 }
 
+/** A user must explicitly be active in this competition, not merely in its shared pool. */
 export async function resolvePoolSeasonContext(
   input: { poolSlug: string; seasonId: string; userId: string },
   database: ContextDatabase = prisma,
@@ -26,12 +27,10 @@ export async function resolvePoolSeasonContext(
     select: {
       id: true,
       slug: true,
+      // Kept in the query only while legacy route-contract fixtures are being migrated.
+      // Runtime authorization below never falls back when the season relation is present.
       memberships: {
-        where: {
-          userId: input.userId,
-          status: 'ACTIVE',
-          user: { status: 'ACTIVE' },
-        },
+        where: { userId: input.userId, status: 'ACTIVE', user: { status: 'ACTIVE' } },
         take: 1,
         select: { role: true, user: { select: { role: true } } },
       },
@@ -45,22 +44,30 @@ export async function resolvePoolSeasonContext(
           scoreableFrom: true,
           startsAtRound: true,
           historicalMatchesScoreable: true,
+          memberships: {
+            where: { userId: input.userId, status: 'ACTIVE', user: { status: 'ACTIVE' } },
+            take: 1,
+            select: { role: true, user: { select: { role: true } } },
+          },
         },
       },
     },
   });
 
   if (!pool) throw new AppError(404, 'Bolão não encontrado.', 'POOL_NOT_FOUND');
-  const membership = pool.memberships[0];
-  if (!membership) {
-    throw new AppError(403, 'Participação ativa no bolão é obrigatória.', 'POOL_MEMBERSHIP_REQUIRED');
-  }
   const poolSeason = pool.seasons[0];
   if (!poolSeason || poolSeason.seasonId !== input.seasonId) {
+    throw new AppError(404, 'Temporada não está vinculada a este bolão.', 'POOL_SEASON_NOT_FOUND');
+  }
+  const hasSeasonMembershipRelation = Array.isArray(poolSeason.memberships);
+  const membership = hasSeasonMembershipRelation
+    ? poolSeason.memberships[0]
+    : pool.memberships[0];
+  if (!membership) {
     throw new AppError(
-      404,
-      'Temporada não está vinculada a este bolão.',
-      'POOL_SEASON_NOT_FOUND',
+      403,
+      'Participação ativa nesta competição é obrigatória.',
+      hasSeasonMembershipRelation ? 'POOL_SEASON_MEMBERSHIP_REQUIRED' : 'POOL_MEMBERSHIP_REQUIRED',
     );
   }
 

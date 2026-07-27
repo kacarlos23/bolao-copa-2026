@@ -10,10 +10,13 @@ import { adminJobRouter } from '../modules/admin/admin-job.routes.js';
 import {
   createOrUpdateMatch,
   listTeams,
+  listPoolSeasonMembers,
   listUsers,
   resetUserPassword,
   seedOfficialWorldCupData,
   setUserStatus,
+  setPoolSeasonMemberStatus,
+  updateUserNickname,
 } from '../services/admin.service.js';
 import { prisma } from '../prisma.js';
 import {
@@ -71,6 +74,8 @@ adminRouter.use((req, res, next) => {
   if (
     ['GET', 'HEAD', 'OPTIONS'].includes(req.method) ||
     (req.method === 'POST' && req.path === '/providers/sync') ||
+    /^\/users\/[^/]+\/(status|reset-password|nickname)$/.test(req.path) ||
+    /^\/pool-seasons\/[^/]+\/members\/[^/]+$/.test(req.path) ||
     isAuditedCompetitionFeatureMutation(req.method, req.path)
   ) {
     next();
@@ -149,6 +154,32 @@ adminRouter.post(
     const body = z.object({ password: z.string().min(6).max(128) }).parse(req.body);
     await resetUserPassword(req.session.user!.id, req.params.id, body.password);
     res.status(204).send();
+  }),
+);
+
+adminRouter.patch(
+  '/users/:id/nickname',
+  asyncHandler(async (req, res) => {
+    const body = z.object({ nickname: z.string().trim().min(2).max(40) }).parse(req.body);
+    res.json({ user: await updateUserNickname(req.session.user!.id, req.params.id, body.nickname) });
+  }),
+);
+
+adminRouter.get(
+  '/pool-seasons/:poolSeasonId/members',
+  asyncHandler(async (req, res) => {
+    const poolSeasonId = z.string().min(1).max(200).parse(req.params.poolSeasonId);
+    res.json({ members: await listPoolSeasonMembers(poolSeasonId) });
+  }),
+);
+
+adminRouter.put(
+  '/pool-seasons/:poolSeasonId/members/:userId',
+  asyncHandler(async (req, res) => {
+    const body = z.object({ status: z.enum(['ACTIVE', 'INACTIVE', 'REMOVED']) }).parse(req.body);
+    const poolSeasonId = z.string().min(1).max(200).parse(req.params.poolSeasonId);
+    const userId = z.string().min(1).max(200).parse(req.params.userId);
+    res.json({ membership: await setPoolSeasonMemberStatus(req.session.user!.id, poolSeasonId, userId, body.status) });
   }),
 );
 

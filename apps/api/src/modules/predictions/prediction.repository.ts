@@ -63,7 +63,7 @@ export function listPublicMatchPredictionRecords(
       user: {
         role: { in: ['USER', 'ADMIN'] },
         status: 'ACTIVE',
-        poolMemberships: { some: { poolId: context.poolId, status: 'ACTIVE' } },
+        poolSeasonMemberships: { some: { poolSeasonId: context.poolSeasonId, status: 'ACTIVE' } },
       },
     },
     orderBy: [{ user: { nickname: 'asc' } }, { id: 'asc' }],

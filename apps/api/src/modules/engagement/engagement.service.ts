@@ -51,7 +51,7 @@ export async function recomputePoolSeasonEngagement(poolSeasonId: string) {
         where: {
           status: 'ACTIVE',
           role: { in: ['USER', 'ADMIN'] },
-          poolMemberships: { some: { poolId: poolSeason.poolId, status: 'ACTIVE' } },
+          poolSeasonMemberships: { some: { poolSeasonId, status: 'ACTIVE' } },
         },
         select: { id: true },
       }),

@@ -853,6 +853,24 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ password }),
     }),
+  updateAdminUserNickname: (id: string, nickname: string) =>
+    request<{ user: User }>(`/api/admin/users/${id}/nickname`, {
+      method: 'PATCH',
+      body: JSON.stringify({ nickname }),
+    }),
+  adminPoolSeasonMembers: (poolSeasonId: string) =>
+    request<{ members: Array<{ userId: string; status: 'ACTIVE' | 'INACTIVE' | 'REMOVED' }> }>(
+      `/api/admin/pool-seasons/${encodeURIComponent(poolSeasonId)}/members`,
+    ),
+  setAdminPoolSeasonMemberStatus: (
+    poolSeasonId: string,
+    userId: string,
+    status: 'ACTIVE' | 'INACTIVE' | 'REMOVED',
+  ) =>
+    request(`/api/admin/pool-seasons/${encodeURIComponent(poolSeasonId)}/members/${encodeURIComponent(userId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    }),
   adminTeams: () => request<{ teams: Team[] }>('/api/admin/teams'),
   seedWorldCup2026: () =>
     request<{ teams: number; matches: number }>('/api/admin/seed-worldcup-2026', {
