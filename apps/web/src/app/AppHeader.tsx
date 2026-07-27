@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Image,
   Platform,
@@ -52,10 +52,16 @@ function avatarUri(value?: string | null) {
 
 function Avatar({ user, size = 36 }: { user: User; size?: number }) {
   const uri = avatarUri(user.avatarUrl);
+  const [imageFailed, setImageFailed] = useState(false);
+  useEffect(() => setImageFailed(false), [uri]);
   return (
     <View style={[styles.avatar, { width: size, height: size, borderRadius: size / 2 }]}>
-      {uri ? (
-        <Image source={{ uri }} style={{ width: size, height: size, borderRadius: size / 2 }} />
+      {uri && !imageFailed ? (
+        <Image
+          source={{ uri }}
+          onError={() => setImageFailed(true)}
+          style={{ width: size, height: size, borderRadius: size / 2 }}
+        />
       ) : (
         <Text style={styles.avatarText}>{initials(user.nickname)}</Text>
       )}

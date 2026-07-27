@@ -1,7 +1,16 @@
 import { apiErrorSchema, type ApiIssue } from '@bolao/shared';
 import type { z } from 'zod';
 
-export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? '';
+function browserLocalApiUrl() {
+  if (process.env.NODE_ENV === 'test') return '';
+  if (typeof window === 'undefined') return '';
+  const { protocol, hostname } = window.location;
+  return hostname ? `${protocol}//${hostname}:3001` : '';
+}
+
+// On a phone opened through the local network, "localhost" would refer to the phone itself.
+// When no explicit deployment URL is configured, keep API and web on the same host instead.
+export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? browserLocalApiUrl();
 
 export class ApiError extends Error {
   constructor(

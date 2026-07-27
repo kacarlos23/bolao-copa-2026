@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Image,
   Modal,
@@ -69,9 +69,16 @@ export function RankingUserAvatar({
   size?: number;
 }) {
   const uri = avatarUri(row.avatarUrl);
+  const [imageFailed, setImageFailed] = useState(false);
+  useEffect(() => setImageFailed(false), [uri]);
   const dimensions = { width: size, height: size, borderRadius: size / 2 };
-  return uri ? (
-    <Image source={{ uri }} resizeMode="cover" style={[styles.avatar, dimensions]} />
+  return uri && !imageFailed ? (
+    <Image
+      source={{ uri }}
+      resizeMode="cover"
+      onError={() => setImageFailed(true)}
+      style={[styles.avatar, dimensions]}
+    />
   ) : (
     <View style={[styles.avatar, styles.avatarFallback, dimensions]}>
       <Text style={[styles.avatarInitials, { fontSize: Math.max(11, size * 0.3) }]}>
