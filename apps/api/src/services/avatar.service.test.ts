@@ -1,6 +1,8 @@
 import sharp from 'sharp';
+import express from 'express';
+import request from 'supertest';
 import { describe, expect, it } from 'vitest';
-import { reencodeAvatar } from './avatar.service.js';
+import { avatarUpload, MAX_AVATAR_BYTES, reencodeAvatar } from './avatar.service.js';
 
 describe('avatar content validation', () => {
   it('rejects content disguised only by its declared MIME type', async () => {
@@ -25,5 +27,22 @@ describe('avatar content validation', () => {
     expect(metadata.format).toBe('webp');
     expect(metadata.width).toBe(20);
     expect(metadata.height).toBe(10);
+  });
+
+  it('accepts one avatar multipart part up to 8 MB', async () => {
+    const app = express();
+    app.post('/avatar', avatarUpload.single('avatar'), (_req, res) => res.sendStatus(204));
+    app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+      res.status(400).json({ code: (error as { code?: string }).code });
+    });
+
+    const response = await request(app)
+      .post('/avatar')
+      .attach('avatar', Buffer.alloc(MAX_AVATAR_BYTES - 1), {
+        filename: 'avatar.png',
+        contentType: 'image/png',
+      });
+
+    expect(response.status).toBe(204);
   });
 });

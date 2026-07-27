@@ -7,7 +7,7 @@ import { prisma } from '../prisma.js';
 import { AppError } from '../http/errors.js';
 import { logger } from '../logger.js';
 
-const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
+export const MAX_AVATAR_BYTES = 8 * 1024 * 1024;
 const MAX_AVATAR_PIXELS = 16_000_000;
 const AVATAR_SIZE = 512;
 const ORPHAN_GRACE_MS = 60 * 60 * 1000;
@@ -89,13 +89,15 @@ export const avatarUpload = multer({
     fileSize: MAX_AVATAR_BYTES,
     files: 1,
     fields: 0,
-    parts: 1,
+    // Busboy emits `partsLimit` as soon as the configured count is reached.
+    // Leave room for the single file accepted by `single('avatar')`.
+    parts: 2,
     headerPairs: 20,
   },
   fileFilter: (_req, file, callback) => {
     if (!allowedMimeTypes.has(file.mimetype)) {
       callback(
-        new AppError(400, 'Envie uma imagem JPG, PNG ou WEBP de até 2 MB.', 'INVALID_AVATAR_FILE'),
+        new AppError(400, 'Envie uma imagem JPG, PNG ou WEBP de até 8 MB.', 'INVALID_AVATAR_FILE'),
       );
       return;
     }

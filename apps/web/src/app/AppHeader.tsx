@@ -172,6 +172,10 @@ export function AppHeader({
     input.onchange = () => {
       const file = input.files?.[0];
       if (!file) return;
+      if (file.size > 8 * 1024 * 1024) {
+        showAvatarError(new Error('Escolha uma imagem de até 8 MB.'));
+        return;
+      }
       setAvatarBusy(true);
       api
         .uploadAvatar(file)

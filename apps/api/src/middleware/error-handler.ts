@@ -59,7 +59,7 @@ export const errorHandler: ErrorRequestHandler = (error, req, res, _next) => {
   if (error instanceof multer.MulterError) {
     const message =
       error.code === 'LIMIT_FILE_SIZE'
-        ? 'Envie uma imagem de até 2 MB.'
+        ? 'Envie uma imagem de até 8 MB.'
         : 'Upload de avatar inválido.';
     res.status(400).json({
       error: { status: 400, code: error.code, message, issues: [], requestId },
