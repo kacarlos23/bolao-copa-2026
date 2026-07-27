@@ -85,8 +85,9 @@ function addResult(row: Accumulator, goalsFor: number, goalsAgainst: number) {
 export function calculateStandings(
   participants: StandingsParticipant[],
   matches: StandingsMatch[],
-  options: { ruleSet?: 'LEGACY' | 'CBF_SERIE_A_2026' } = {},
+  options: { ruleSet?: 'LEGACY' | 'CBF_SERIE_A_2026'; venue?: 'ALL' | 'HOME' | 'AWAY' } = {},
 ) {
+  const venue = options.venue ?? 'ALL';
   const rows = new Map<string, Accumulator>();
   const key = (group: string, teamId: string) => `${group}:${teamId}`;
 
@@ -106,12 +107,16 @@ export function calculateStandings(
     ) {
       continue;
     }
-    addResult(home, match.homeScore, match.awayScore);
-    addResult(away, match.awayScore, match.homeScore);
-    home.yellowCards += match.homeYellowCards ?? 0;
-    away.yellowCards += match.awayYellowCards ?? 0;
-    home.redCards += match.homeRedCards ?? 0;
-    away.redCards += match.awayRedCards ?? 0;
+    if (venue !== 'AWAY') {
+      addResult(home, match.homeScore, match.awayScore);
+      home.yellowCards += match.homeYellowCards ?? 0;
+      home.redCards += match.homeRedCards ?? 0;
+    }
+    if (venue !== 'HOME') {
+      addResult(away, match.awayScore, match.homeScore);
+      away.yellowCards += match.awayYellowCards ?? 0;
+      away.redCards += match.awayRedCards ?? 0;
+    }
   }
 
   const grouped = new Map<string, Accumulator[]>();
@@ -125,7 +130,7 @@ export function calculateStandings(
     .sort(([a], [b]) => a.localeCompare(b, 'pt-BR', { numeric: true }))
     .map(([group, groupRows]) => ({
       group,
-      rows: sortStandingsRows(groupRows, matches, options.ruleSet ?? 'LEGACY')
+      rows: sortStandingsRows(groupRows, matches, options.ruleSet ?? 'LEGACY', venue)
         .map((row, index) => ({ ...row, rank: index + 1, lastFive: row.lastFive.slice(-5) })),
     }));
 }
@@ -143,7 +148,12 @@ function sameBaseLeagueRecord(a: Accumulator, b: Accumulator) {
   return baseLeagueComparison(a, b) === 0;
 }
 
-function headToHead(teamId: string, opponentId: string, matches: StandingsMatch[]) {
+function headToHead(
+  teamId: string,
+  opponentId: string,
+  matches: StandingsMatch[],
+  venue: 'ALL' | 'HOME' | 'AWAY',
+) {
   let points = 0;
   let goalsFor = 0;
   let goalsAgainst = 0;
@@ -152,6 +162,7 @@ function headToHead(teamId: string, opponentId: string, matches: StandingsMatch[
     const isHome = match.homeTeamId === teamId && match.awayTeamId === opponentId;
     const isAway = match.awayTeamId === teamId && match.homeTeamId === opponentId;
     if (!isHome && !isAway) continue;
+    if ((venue === 'HOME' && !isHome) || (venue === 'AWAY' && !isAway)) continue;
     const scored = isHome ? match.homeScore : match.awayScore;
     const conceded = isHome ? match.awayScore : match.homeScore;
     goalsFor += scored;
@@ -172,6 +183,7 @@ function sortStandingsRows(
   rows: Accumulator[],
   matches: StandingsMatch[],
   ruleSet: 'LEGACY' | 'CBF_SERIE_A_2026',
+  venue: 'ALL' | 'HOME' | 'AWAY',
 ) {
   if (ruleSet === 'LEGACY') {
     return rows.sort(
@@ -194,9 +206,9 @@ function sortStandingsRows(
     }
     const tied = baseSorted.slice(start, end);
     tied.sort((a, b) => {
-      if (tied.length === 2) {
-        const first = headToHead(a.team.id, b.team.id, matches);
-        const second = headToHead(b.team.id, a.team.id, matches);
+      if (tied.length === 2 && venue === 'ALL') {
+        const first = headToHead(a.team.id, b.team.id, matches, venue);
+        const second = headToHead(b.team.id, a.team.id, matches, venue);
         const confrontation =
           second.points - first.points || second.goalDifference - first.goalDifference;
         if (confrontation) return confrontation;

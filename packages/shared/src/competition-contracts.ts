@@ -61,6 +61,10 @@ export const listMatchesQuerySchema = paginationQuerySchema.extend({
   to: z.string().datetime({ offset: true }).optional(),
 });
 
+export const standingsQuerySchema = paginationQuerySchema.extend({
+  venue: z.enum(['ALL', 'HOME', 'AWAY']).default('ALL'),
+});
+
 export const tieStatusSchema = z.enum(['SCHEDULED', 'IN_PROGRESS', 'DECIDED', 'CANCELLED']);
 export const tieDecisionMethodSchema = z.enum([
   'AGGREGATE',
@@ -441,6 +445,7 @@ export const tieDtoSchema = z
 export const standingRowDtoSchema = z
   .object({
     rank: z.number().int().positive(),
+    overallRank: z.number().int().positive().optional(),
     group: z.string(),
     team: teamDtoSchema,
     played: z.number().int().nonnegative(),
@@ -455,6 +460,7 @@ export const standingRowDtoSchema = z
     redCards: z.number().int().nonnegative(),
     tieBreakRuleVersion: z.string(),
     lastFive: z.array(z.enum(['W', 'D', 'L'])).max(5),
+    nextOpponent: teamDtoSchema.nullable().optional(),
   })
   .strict();
 
@@ -646,6 +652,7 @@ export const rankingAwardsResponseSchema = z
   .strict();
 
 export type PaginationQuery = z.infer<typeof paginationQuerySchema>;
+export type StandingsQuery = z.infer<typeof standingsQuerySchema>;
 export type RankingQuery = z.infer<typeof rankingQuerySchema>;
 export type Pagination = z.infer<typeof paginationSchema>;
 export type CompetitionCapabilities = z.infer<typeof competitionCapabilitiesSchema>;

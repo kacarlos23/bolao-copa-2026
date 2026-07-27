@@ -624,8 +624,8 @@ export const api = {
       signal: options.signal,
     });
   },
-  seasonStandings: (seasonId: string) =>
-    request(`/api/seasons/${seasonId}/standings?page=1&pageSize=100`, {
+  seasonStandings: (seasonId: string, venue: 'ALL' | 'HOME' | 'AWAY' = 'ALL') =>
+    request(`/api/seasons/${seasonId}/standings?page=1&pageSize=100&venue=${venue}`, {
       schema: standingsResponseSchema,
     }),
   seasonTies: (

@@ -9,6 +9,15 @@ const teamSelect = {
   countryCode: true,
 } as const;
 
+const matchTeamSelect = {
+  id: true,
+  name: true,
+  code: true,
+  flagUrl: true,
+  crestUrl: true,
+  countryCode: true,
+} as const;
+
 export async function loadSeasonStandingsData(seasonId: string) {
   return Promise.all([
     prisma.seasonTeam.findMany({
@@ -20,6 +29,7 @@ export async function loadSeasonStandingsData(seasonId: string) {
       where: { seasonId },
       orderBy: { startsAt: 'asc' },
       select: {
+        startsAt: true,
         status: true,
         homeTeamId: true,
         awayTeamId: true,
@@ -28,6 +38,8 @@ export async function loadSeasonStandingsData(seasonId: string) {
         finalHomeScore: true,
         finalAwayScore: true,
         rawPayload: true,
+        homeTeam: { select: matchTeamSelect },
+        awayTeam: { select: matchTeamSelect },
       },
     }),
   ]);

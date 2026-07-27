@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import type {
   MatchDto,
   PublicMatchPredictionDto,
@@ -38,6 +38,7 @@ import { createRealtimeClient, type ConnectionStatus } from '../../services/real
 import { registerActiveRefresh } from '../../services/active-refresh';
 import { theme } from '../../theme/tokens';
 import { PremiumRanking } from '../rankings/PremiumRanking';
+import { StandingsTable } from './StandingsTable';
 import {
   CompetitionHero,
   GroupStandings,
@@ -58,6 +59,7 @@ import {
 
 const POOL_SLUG = 'bolao-do-trabalho';
 type RankingScope = 'overall' | 'stage' | 'round' | 'month' | 'turn-1' | 'turn-2';
+type StandingsVenue = 'ALL' | 'HOME' | 'AWAY';
 export type SeasonWorkspaceSection =
   | 'all'
   | 'overview'
@@ -316,6 +318,7 @@ export function SeasonWorkspace({
   const [standingsByGroup, setStandingsByGroup] = useState<
     Array<{ group: string; rows: StandingRowDto[] }>
   >([]);
+  const [standingsVenue, setStandingsVenue] = useState<StandingsVenue>('ALL');
   const [ties, setTies] = useState<TieDto[]>([]);
   const [ranking, setRanking] = useState<RankingRowDto[]>([]);
   const [roundRanking, setRoundRanking] = useState<RankingRowDto[]>([]);
@@ -467,7 +470,7 @@ export function SeasonWorkspace({
         ] = await Promise.all([
           api.seasonMatches(season.id, roundId),
           supportsStandings
-            ? api.seasonStandings(season.id)
+            ? api.seasonStandings(season.id, standingsVenue)
             : Promise.resolve({
                 standingsByGroup: [],
                 pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
@@ -571,6 +574,7 @@ export function SeasonWorkspace({
     roundId,
     stageId,
     scope,
+    standingsVenue,
     refreshVersion,
     workspaceRefreshVersion,
     supportsStandings,
@@ -1326,15 +1330,46 @@ export function SeasonWorkspace({
                 {context.capabilities.has('LEAGUE') ? 'Tabela da liga' : 'Grupos da temporada'}
               </Text>
             </View>
+            {context.capabilities.has('LEAGUE') ? (
+              <View accessibilityRole="tablist" accessibilityLabel="Filtro de mando de campo" style={styles.standingsFilters}>
+                {([
+                  ['ALL', 'Todos'],
+                  ['HOME', 'Casa'],
+                  ['AWAY', 'Fora'],
+                ] as const).map(([venue, label]) => {
+                  const active = standingsVenue === venue;
+                  return (
+                    <Pressable
+                      key={venue}
+                      accessibilityRole="tab"
+                      accessibilityState={{ selected: active }}
+                      accessibilityLabel={`Exibir classificação: ${label}`}
+                      onPress={() => setStandingsVenue(venue)}
+                      style={[styles.standingsFilter, active && styles.standingsFilterActive]}
+                    >
+                      <Text style={[styles.standingsFilterText, active && styles.standingsFilterTextActive]}>{label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
             {standingsByGroup.length ? (
               context.capabilities.has('GROUPS') ? (
                 <GroupStandings groups={standingsByGroup} onOpenTeam={onOpenTeam} />
               ) : (
-                standingsTable(
-                  standingsByGroup.flatMap((group) => group.rows),
-                  compact,
-                  competitionSlug,
-                  onOpenTeam,
+                Platform.OS === 'web' ? (
+                  <StandingsTable
+                    rows={standingsByGroup.flatMap((group) => group.rows)}
+                    competitionSlug={competitionSlug}
+                    onOpenTeam={onOpenTeam}
+                  />
+                ) : (
+                  standingsTable(
+                    standingsByGroup.flatMap((group) => group.rows),
+                    compact,
+                    competitionSlug,
+                    onOpenTeam,
+                  )
                 )
               )
             ) : (
@@ -1604,6 +1639,18 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
   },
   standingsPage: { gap: theme.space.lg, maxWidth: 1040, width: '100%' },
+  standingsFilters: { alignSelf: 'flex-start', flexDirection: 'row', gap: 7 },
+  standingsFilter: {
+    borderColor: theme.color.border,
+    borderRadius: theme.radius.pill,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 36,
+    paddingHorizontal: theme.space.md,
+  },
+  standingsFilterActive: { backgroundColor: theme.color.accent, borderColor: theme.color.accent },
+  standingsFilterText: { color: theme.color.textMuted, fontSize: 11, fontWeight: '900' },
+  standingsFilterTextActive: { color: theme.color.accentInk },
   fixtureList: {
     backgroundColor: theme.color.surface,
     borderColor: theme.color.border,

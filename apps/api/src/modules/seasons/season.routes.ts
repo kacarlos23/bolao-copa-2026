@@ -3,6 +3,7 @@ import {
   listMatchesQuerySchema,
   listTiesQuerySchema,
   paginationQuerySchema,
+  standingsQuerySchema,
   seasonParamsSchema,
   seasonTeamParamsSchema,
 } from '@bolao/shared';
@@ -99,6 +100,6 @@ seasonRouter.get(
     const { seasonId } = seasonParamsSchema.parse(req.params);
     res.locals.seasonId = seasonId;
     await assertCompetitionFeature(seasonId, 'read', req.session.user!.role);
-    res.json(await getSeasonStandings(seasonId, paginationQuerySchema.parse(req.query)));
+    res.json(await getSeasonStandings(seasonId, standingsQuerySchema.parse(req.query)));
   }),
 );

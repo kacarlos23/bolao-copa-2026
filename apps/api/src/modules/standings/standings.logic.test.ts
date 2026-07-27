@@ -64,6 +64,29 @@ describe('Brasileirão deterministic standings', () => {
     expect(group.rows.map((row) => row.team.id)).toEqual(['C', 'A', 'B', 'D']);
   });
 
+  it('calculates home and away tables from each club perspective', () => {
+    const participants = ['A', 'B', 'C'].map(participant);
+    const matches = [
+      finished('A', 'B', 2, 0),
+      finished('C', 'A', 1, 0),
+      finished('B', 'C', 1, 1),
+    ];
+
+    const [home] = calculateStandings(participants, matches, { venue: 'HOME' });
+    const [away] = calculateStandings(participants, matches, { venue: 'AWAY' });
+
+    expect(home.rows.map((row) => [row.team.id, row.played, row.points])).toEqual([
+      ['A', 1, 3],
+      ['C', 1, 3],
+      ['B', 1, 1],
+    ]);
+    expect(away.rows.map((row) => [row.team.id, row.played, row.points])).toEqual([
+      ['C', 1, 1],
+      ['A', 1, 0],
+      ['B', 1, 0],
+    ]);
+  });
+
   it('skips head-to-head for three clubs and falls through to fewer cards deterministically', () => {
     const [group] = calculateStandings(
       ['A', 'B', 'C'].map(participant),

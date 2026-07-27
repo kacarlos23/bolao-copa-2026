@@ -1,4 +1,4 @@
-import { standingRowDtoSchema, type PaginationQuery } from '@bolao/shared';
+import { standingRowDtoSchema, type StandingsQuery } from '@bolao/shared';
 import type { Prisma } from '@prisma/client';
 import { paginationMeta } from '../shared/pagination.js';
 import { loadSeasonStandingsData } from './standing.repository.js';
@@ -17,7 +17,7 @@ function providerResultNumber(value: Prisma.JsonValue | null, key: string) {
   return typeof result[key] === 'number' ? result[key] : undefined;
 }
 
-export async function getSeasonStandings(seasonId: string, query: PaginationQuery) {
+export async function getSeasonStandings(seasonId: string, query: StandingsQuery) {
   const [[seasonTeams, matches], runtime] = await Promise.all([
     loadSeasonStandingsData(seasonId),
     getSeasonRuntimeConfig(seasonId),
@@ -25,12 +25,11 @@ export async function getSeasonStandings(seasonId: string, query: PaginationQuer
   const groupByTeam = new Map(
     seasonTeams.map((entry) => [entry.team.id, entry.groupName ?? 'Sem grupo']),
   );
-  const standings = calculateStandings(
-    seasonTeams.map((entry) => ({
-      group: entry.groupName ?? 'Sem grupo',
-      team: entry.team,
-    })),
-    matches.map((match) => ({
+  const participants = seasonTeams.map((entry) => ({
+    group: entry.groupName ?? 'Sem grupo',
+    team: entry.team,
+  }));
+  const standingMatches = matches.map((match) => ({
       group:
         jsonString(match.rawPayload, 'group') ?? groupByTeam.get(match.homeTeamId) ?? 'Sem grupo',
       status: match.status,
@@ -44,11 +43,23 @@ export async function getSeasonStandings(seasonId: string, query: PaginationQuer
       awayYellowCards: providerResultNumber(match.rawPayload, 'awayYellowCards'),
       homeRedCards: providerResultNumber(match.rawPayload, 'homeRedCards'),
       awayRedCards: providerResultNumber(match.rawPayload, 'awayRedCards'),
-    })),
-    { ruleSet: runtime.standingsRule },
+  }));
+  const standings = calculateStandings(participants, standingMatches, {
+    ruleSet: runtime.standingsRule,
+    venue: query.venue,
+  });
+  const overallRanks = new Map(
+    calculateStandings(participants, standingMatches, { ruleSet: runtime.standingsRule })
+      .flatMap((group) => group.rows.map((row) => [`${group.group}:${row.team.id}`, row.rank] as const)),
   );
 
   const flat = standings.flatMap((group) => group.rows);
+  const upcomingByTeam = new Map<string, (typeof matches)[number]['homeTeam']>();
+  for (const match of matches) {
+    if (match.status !== 'SCHEDULED' && match.status !== 'LIVE') continue;
+    if (!upcomingByTeam.has(match.homeTeamId)) upcomingByTeam.set(match.homeTeamId, match.awayTeam);
+    if (!upcomingByTeam.has(match.awayTeamId)) upcomingByTeam.set(match.awayTeamId, match.homeTeam);
+  }
   const start = (query.page - 1) * query.pageSize;
   const pagedIds = new Set(flat.slice(start, start + query.pageSize).map((row) => `${row.group}:${row.team.id}`));
   return {
@@ -57,7 +68,13 @@ export async function getSeasonStandings(seasonId: string, query: PaginationQuer
         group: group.group,
         rows: group.rows
           .filter((row) => pagedIds.has(`${row.group}:${row.team.id}`))
-          .map((row) => standingRowDtoSchema.parse(row)),
+          .map((row) =>
+            standingRowDtoSchema.parse({
+              ...row,
+              overallRank: overallRanks.get(`${row.group}:${row.team.id}`) ?? row.rank,
+              nextOpponent: upcomingByTeam.get(row.team.id) ?? null,
+            }),
+          ),
       }))
       .filter((group) => group.rows.length > 0),
     pagination: paginationMeta(query, flat.length),
