@@ -1,10 +1,24 @@
 import { createReadStream, existsSync, statSync } from 'node:fs';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
 const root = join(process.cwd(), 'dist');
 const port = Number(process.env.PORT ?? 4173);
 const host = process.env.HOST ?? '127.0.0.1';
+const apiOrigin = process.env.API_ORIGIN ? new URL(process.env.API_ORIGIN) : null;
+
+if (
+  apiOrigin &&
+  (apiOrigin.protocol !== 'http:' ||
+    apiOrigin.username ||
+    apiOrigin.password ||
+    apiOrigin.pathname !== '/' ||
+    apiOrigin.search ||
+    apiOrigin.hash)
+) {
+  throw new Error('API_ORIGIN must be a plain internal HTTP origin');
+}
+
 const types = {
   '.css': 'text/css; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
@@ -16,7 +30,52 @@ const types = {
   '.woff2': 'font/woff2',
 };
 
+function isApiRequest(url = '/') {
+  const pathname = new URL(url, 'http://web.local').pathname;
+  return (
+    pathname === '/health' ||
+    pathname === '/api' ||
+    pathname.startsWith('/api/') ||
+    pathname === '/uploads/avatars' ||
+    pathname.startsWith('/uploads/avatars/')
+  );
+}
+
+function proxyToApi(request, response) {
+  const headers = {
+    ...request.headers,
+    host: apiOrigin.host,
+    'x-forwarded-host': request.headers['x-forwarded-host'] ?? request.headers.host ?? '',
+    'x-forwarded-proto': request.headers['x-forwarded-proto'] ?? 'http',
+  };
+  const upstream = httpRequest(
+    new URL(request.url ?? '/', apiOrigin),
+    {
+      method: request.method,
+      headers,
+    },
+    (upstreamResponse) => {
+      response.writeHead(upstreamResponse.statusCode ?? 502, upstreamResponse.headers);
+      upstreamResponse.pipe(response);
+    },
+  );
+
+  upstream.on('error', () => {
+    if (!response.headersSent) {
+      response.writeHead(502, { 'content-type': 'application/json; charset=utf-8' });
+    }
+    response.end(JSON.stringify({ error: { code: 'API_UNAVAILABLE' } }));
+  });
+  request.on('aborted', () => upstream.destroy());
+  request.pipe(upstream);
+}
+
 const server = createServer((request, response) => {
+  if (apiOrigin && isApiRequest(request.url)) {
+    proxyToApi(request, response);
+    return;
+  }
+
   if (request.url?.startsWith('/api/events')) {
     response.writeHead(200, {
       'cache-control': 'no-cache',

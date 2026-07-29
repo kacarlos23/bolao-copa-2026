@@ -20,6 +20,7 @@ module.exports = {
         NODE_ENV: 'production',
         HOST: '127.0.0.1',
         PORT: '8080',
+        API_ORIGIN: 'http://127.0.0.1:3001',
       },
       autorestart: true,
       max_restarts: 10,
