@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -24,7 +23,7 @@ import {
   type MatchDay,
   type Team,
 } from './api';
-import { SoftReveal } from './motion';
+import { CelebrationBurst, MotionModal, MotionPressable, SoftReveal } from './motion';
 import { mergePredictionDraftFields, predictionSaveFailureMessage } from './predictionDraft';
 import { AsyncState } from './components/AsyncState';
 import { ConnectionIndicator } from './components/ConnectionIndicator';
@@ -217,62 +216,64 @@ function PredictionsModal({
     [currentUserId, match],
   );
   return (
-    <Modal transparent animationType="fade" visible={Boolean(match)} onRequestClose={onClose}>
-      <View style={styles.modalBackdrop}>
-        <View style={styles.modalCard}>
-          <View style={styles.modalHeader}>
-            <View style={styles.modalTitleGroup}>
-              <Text style={styles.modalTitle}>Palpites dos participantes</Text>
-            </View>
-            <Pressable onPress={onClose} style={styles.iconButton} accessibilityLabel="Fechar">
-              <Ionicons name="close" size={22} color={c.text} />
-            </Pressable>
-          </View>
-          {match ? (
-            <View style={[styles.modalMatchup, compact && styles.modalMatchupCompact]}>
-              <View style={styles.modalTeam}>
-                <TeamFlag team={match.homeTeam} size={compact ? 24 : 30} />
-                <Text style={styles.modalTeamName} numberOfLines={2}>
-                  {match.homeTeam.name}
-                </Text>
-              </View>
-              <View style={styles.modalVersus}>
-                <Text style={styles.modalVersusText}>x</Text>
-                <Text style={styles.modalMatchTime}>{time(match.startsAt)}</Text>
-              </View>
-              <View style={styles.modalTeam}>
-                <TeamFlag team={match.awayTeam} size={compact ? 24 : 30} />
-                <Text style={styles.modalTeamName} numberOfLines={2}>
-                  {match.awayTeam.name}
-                </Text>
-              </View>
-            </View>
-          ) : null}
-          <ScrollView style={styles.modalList} contentContainerStyle={styles.predictionGrid}>
-            {predictions.map((prediction) => (
-              <View
-                key={prediction.id}
-                style={[
-                  styles.publicPrediction,
-                  compact && styles.publicPredictionCompact,
-                  prediction.userId === currentUserId && styles.publicPredictionMine,
-                ]}
-              >
-                <Text style={styles.publicNickname} numberOfLines={1}>
-                  {prediction.user?.nickname ?? 'Participante'}
-                </Text>
-                <Text style={styles.publicScore}>
-                  {prediction.predictedHomeScore} x {prediction.predictedAwayScore}
-                </Text>
-              </View>
-            ))}
-            {predictions.length === 0 ? (
-              <Text style={styles.muted}>Nenhum palpite enviado para esta partida.</Text>
-            ) : null}
-          </ScrollView>
+    <MotionModal
+      accessibilityLabel="Palpites dos participantes"
+      backdropStyle={styles.modalBackdrop}
+      panelStyle={styles.modalCard}
+      visible={Boolean(match)}
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalHeader}>
+        <View style={styles.modalTitleGroup}>
+          <Text style={styles.modalTitle}>Palpites dos participantes</Text>
         </View>
+        <MotionPressable onPress={onClose} style={styles.iconButton} accessibilityLabel="Fechar">
+          <Ionicons name="close" size={22} color={c.text} />
+        </MotionPressable>
       </View>
-    </Modal>
+      {match ? (
+        <View style={[styles.modalMatchup, compact && styles.modalMatchupCompact]}>
+          <View style={styles.modalTeam}>
+            <TeamFlag team={match.homeTeam} size={compact ? 24 : 30} />
+            <Text style={styles.modalTeamName} numberOfLines={2}>
+              {match.homeTeam.name}
+            </Text>
+          </View>
+          <View style={styles.modalVersus}>
+            <Text style={styles.modalVersusText}>x</Text>
+            <Text style={styles.modalMatchTime}>{time(match.startsAt)}</Text>
+          </View>
+          <View style={styles.modalTeam}>
+            <TeamFlag team={match.awayTeam} size={compact ? 24 : 30} />
+            <Text style={styles.modalTeamName} numberOfLines={2}>
+              {match.awayTeam.name}
+            </Text>
+          </View>
+        </View>
+      ) : null}
+      <ScrollView style={styles.modalList} contentContainerStyle={styles.predictionGrid}>
+        {predictions.map((prediction) => (
+          <View
+            key={prediction.id}
+            style={[
+              styles.publicPrediction,
+              compact && styles.publicPredictionCompact,
+              prediction.userId === currentUserId && styles.publicPredictionMine,
+            ]}
+          >
+            <Text style={styles.publicNickname} numberOfLines={1}>
+              {prediction.user?.nickname ?? 'Participante'}
+            </Text>
+            <Text style={styles.publicScore}>
+              {prediction.predictedHomeScore} x {prediction.predictedAwayScore}
+            </Text>
+          </View>
+        ))}
+        {predictions.length === 0 ? (
+          <Text style={styles.muted}>Nenhum palpite enviado para esta partida.</Text>
+        ) : null}
+      </ScrollView>
+    </MotionModal>
   );
 }
 
@@ -616,7 +617,10 @@ export function DailyPredictionsV2({
     }
     if (savedIds.length) {
       setMatchSaveState(cleanSavedIds, 'saved');
-      setMatchSaveState(savedIds.filter((matchId) => !cleanSavedIds.includes(matchId)), 'dirty');
+      setMatchSaveState(
+        savedIds.filter((matchId) => !cleanSavedIds.includes(matchId)),
+        'dirty',
+      );
       const savedAt = new Date().toISOString();
       setSavedAtByMatch((current) => ({
         ...current,
@@ -867,25 +871,23 @@ export function DailyPredictionsV2({
         currentUserId={currentUserId}
         onClose={() => setPublicMatch(null)}
       />
-      <Modal
-        transparent
-        animationType="fade"
+      <MotionModal
+        accessibilityLabel="Palpites salvos"
+        backdropStyle={styles.modalBackdrop}
+        panelStyle={styles.successCard}
         visible={saved}
         onRequestClose={() => setSaved(false)}
       >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.successCard}>
-            <View style={styles.successIcon}>
-              <Ionicons name="checkmark" size={42} color={c.bg} />
-            </View>
-            <Text style={styles.modalTitle}>Palpites salvos</Text>
-            <Text style={styles.muted}>Seus placares foram registrados com sucesso.</Text>
-            <Pressable onPress={() => setSaved(false)} style={styles.primaryButton}>
-              <Text style={styles.primaryButtonText}>OK</Text>
-            </Pressable>
-          </View>
+        {saved ? <CelebrationBurst intensity="full" /> : null}
+        <View style={styles.successIcon}>
+          <Ionicons name="checkmark" size={42} color={c.bg} />
         </View>
-      </Modal>
+        <Text style={styles.modalTitle}>Palpites salvos</Text>
+        <Text style={styles.muted}>Seus placares foram registrados com sucesso.</Text>
+        <MotionPressable onPress={() => setSaved(false)} style={styles.primaryButton}>
+          <Text style={styles.primaryButtonText}>OK</Text>
+        </MotionPressable>
+      </MotionModal>
     </View>
   );
 }

@@ -1,14 +1,7 @@
-import {
-  ActivityIndicator,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { PredictionSubmissionParticipantDto } from '@bolao/shared';
 import { UserAvatar } from '../../components/UserAvatar';
+import { MotionModal, MotionPressable } from '../../motion';
 import { theme } from '../../theme/tokens';
 
 function ParticipantGroup({
@@ -45,6 +38,7 @@ function ParticipantGroup({
               nickname={participant.nickname}
               avatarUrl={participant.avatarUrl}
               size={38}
+              accessibilityLabel={`Avatar de ${participant.nickname}`}
             />
             <View style={styles.participantIdentity}>
               <Text style={styles.nickname} numberOfLines={1}>
@@ -94,92 +88,91 @@ export function PredictionSubmissionStatusModal({
   const saved = participants.filter((participant) => participant.hasSavedPredictions);
 
   return (
-    <Modal transparent animationType="fade" visible={visible} onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <View
-          role="dialog"
-          aria-modal
-          accessibilityViewIsModal
-          accessibilityLabel="Situação dos palpites dos participantes"
-          style={styles.modal}
-        >
-          <View style={styles.header}>
-            <View style={styles.headerCopy}>
-              <Text role="heading" aria-level={2} style={styles.title}>
-                Quem falta palpitar
-              </Text>
-              <Text style={styles.subtitle}>{matchTitle} · situação por participante</Text>
-            </View>
-            <View style={styles.headerActions}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Atualizar situação dos palpites"
-                disabled={loading}
-                onPress={onRefresh}
-                style={[styles.refreshButton, loading && styles.disabled]}
-              >
-                <Text style={styles.refreshText}>Atualizar</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Fechar situação dos palpites"
-                onPress={onClose}
-                style={styles.closeButton}
-              >
-                <Text style={styles.closeText}>×</Text>
-              </Pressable>
-            </View>
-          </View>
-
-          <View style={styles.privacyNote}>
-            <Text style={styles.privacyTitle}>Somente a situação de envio fica visível.</Text>
-            <Text style={styles.privacyText}>
-              Os placares de cada pessoa continuam privados até o encerramento do prazo.
+    <MotionModal
+      accessibilityLabel="Situação dos palpites dos participantes"
+      backdropStyle={styles.backdrop}
+      onRequestClose={onClose}
+      panelStyle={styles.motionPanel}
+      visible={visible}
+    >
+      <View style={styles.modal}>
+        <View style={styles.header}>
+          <View style={styles.headerCopy}>
+            <Text role="heading" aria-level={2} style={styles.title}>
+              Quem falta palpitar
             </Text>
+            <Text style={styles.subtitle}>{matchTitle} · situação por participante</Text>
           </View>
-
-          {loading ? <ActivityIndicator color={theme.color.accent} style={styles.loading} /> : null}
-          {!loading && error ? (
-            <View style={styles.errorBlock}>
-              <Text style={styles.error}>{error}</Text>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Tentar carregar situação novamente"
-                onPress={onRefresh}
-                style={styles.retryButton}
-              >
-                <Text style={styles.retryText}>Tentar novamente</Text>
-              </Pressable>
-            </View>
-          ) : null}
-          {!loading && !error && requiredPredictions === 0 ? (
-            <Text style={styles.empty}>
-              O prazo desta partida terminou ou ela não está aberta para palpites.
-            </Text>
-          ) : null}
-          {!loading && !error && requiredPredictions > 0 ? (
-            <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
-              <ParticipantGroup
-                title="Falta palpitar"
-                participants={pending}
-                currentUserId={currentUserId}
-                saved={false}
-              />
-              <ParticipantGroup
-                title="Palpites salvos"
-                participants={saved}
-                currentUserId={currentUserId}
-                saved
-              />
-            </ScrollView>
-          ) : null}
+          <View style={styles.headerActions}>
+            <MotionPressable
+              accessibilityRole="button"
+              accessibilityLabel="Atualizar situação dos palpites"
+              disabled={loading}
+              onPress={onRefresh}
+              style={[styles.refreshButton, loading && styles.disabled]}
+            >
+              <Text style={styles.refreshText}>Atualizar</Text>
+            </MotionPressable>
+            <MotionPressable
+              accessibilityRole="button"
+              accessibilityLabel="Fechar situação dos palpites"
+              onPress={onClose}
+              style={styles.closeButton}
+            >
+              <Text style={styles.closeText}>×</Text>
+            </MotionPressable>
+          </View>
         </View>
+
+        <View style={styles.privacyNote}>
+          <Text style={styles.privacyTitle}>Somente a situação de envio fica visível.</Text>
+          <Text style={styles.privacyText}>
+            Os placares de cada pessoa continuam privados até o encerramento do prazo.
+          </Text>
+        </View>
+
+        {loading ? <ActivityIndicator color={theme.color.accent} style={styles.loading} /> : null}
+        {!loading && error ? (
+          <View style={styles.errorBlock}>
+            <Text style={styles.error}>{error}</Text>
+            <MotionPressable
+              accessibilityRole="button"
+              accessibilityLabel="Tentar carregar situação novamente"
+              onPress={onRefresh}
+              style={styles.retryButton}
+            >
+              <Text style={styles.retryText}>Tentar novamente</Text>
+            </MotionPressable>
+          </View>
+        ) : null}
+        {!loading && !error && requiredPredictions === 0 ? (
+          <Text style={styles.empty}>
+            O prazo desta partida terminou ou ela não está aberta para palpites.
+          </Text>
+        ) : null}
+        {!loading && !error && requiredPredictions > 0 ? (
+          <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
+            <ParticipantGroup
+              title="Falta palpitar"
+              participants={pending}
+              currentUserId={currentUserId}
+              saved={false}
+            />
+            <ParticipantGroup
+              title="Palpites salvos"
+              participants={saved}
+              currentUserId={currentUserId}
+              saved
+            />
+          </ScrollView>
+        ) : null}
       </View>
-    </Modal>
+    </MotionModal>
   );
 }
 
 const styles = StyleSheet.create({
+  motionPanel: { maxWidth: 680, width: '100%' },
   backdrop: {
     alignItems: 'center',
     backgroundColor: theme.color.overlay,

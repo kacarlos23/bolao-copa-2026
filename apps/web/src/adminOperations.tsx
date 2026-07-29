@@ -112,13 +112,15 @@ function Module({
   title,
   description,
   children,
+  gridItem = false,
 }: {
   title: string;
   description: string;
   children?: ReactNode;
+  gridItem?: boolean;
 }) {
   return (
-    <View style={styles.module}>
+    <View style={[styles.module, gridItem && styles.gridModule]}>
       <Text role="heading" aria-level={3} style={styles.title}>
         {title}
       </Text>
@@ -363,7 +365,7 @@ export function AdminOperationsPanel() {
   return (
     <View style={styles.panel} accessibilityLabel="Operacao segura da plataforma">
       <View style={styles.header}>
-        <View>
+        <View style={styles.headerCopy}>
           <Text style={styles.kicker}>ADMINISTRAÇÃO</Text>
           <Text style={styles.heading}>Central de operação segura</Text>
         </View>
@@ -379,6 +381,7 @@ export function AdminOperationsPanel() {
       </Text>
       <ScrollView
         horizontal
+        style={styles.seasonRail}
         contentContainerStyle={styles.seasons}
         showsHorizontalScrollIndicator={false}
       >
@@ -405,6 +408,7 @@ export function AdminOperationsPanel() {
       {selectedSeason?.poolSeasons.length ? (
         <ScrollView
           horizontal
+          style={styles.seasonRail}
           contentContainerStyle={styles.seasons}
           showsHorizontalScrollIndicator={false}
           accessibilityLabel="Bolões da temporada"
@@ -428,34 +432,42 @@ export function AdminOperationsPanel() {
       ) : null}
       <View style={styles.grid}>
         <Module
+          gridItem
           title="Temporadas e rodadas"
           description={`${selectedSeason?.rounds.length ?? 0} rodadas. Arquivamento e logico e exige preview.`}
         />
         <Module
+          gridItem
           title="Import / sync"
           description={`${divergences.runs.length} execuções recentes. A fonte é escolhida pela configuração da competição, sem lógica específica no painel.`}
         />
         <Module
+          gridItem
           title="Mappings e quarantine"
           description={`${divergences.quarantine.length} divergencias pendentes; a resolucao valida o alvo dentro da mesma temporada.`}
         />
         <Module
+          gridItem
           title="Overrides de partida"
           description={`${divergences.overrides.length} overrides visíveis, com provenance manual e rollback explícito.`}
         />
         <Module
+          gridItem
           title="Rule sets"
           description={`Versao fixada: ${selectedPool?.scoringRuleSetVersionId ?? 'nao configurada'}. Alteracao e bloqueada apos o primeiro palpite.`}
         />
         <Module
+          gridItem
           title="Usuarios"
           description="Papel, bloqueio e revogacao de sessao sao independentes das memberships sociais."
         />
         <Module
+          gridItem
           title="Auditoria"
           description={`${auditCount} eventos carregados com actor, requestId, seasonId, poolSeasonId, justificativa e before/after.`}
         />
         <Module
+          gridItem
           title="Saude"
           description={
             health
@@ -733,6 +745,7 @@ export function AdminOperationsPanel() {
 const styles = StyleSheet.create({
   panel: {
     gap: theme.space.lg,
+    minWidth: 0,
     width: '100%',
   },
   header: {
@@ -747,6 +760,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     padding: theme.space.lg,
   },
+  headerCopy: {
+    flexBasis: 260,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+  },
   kicker: {
     color: theme.color.accent,
     fontSize: theme.font.size.xs,
@@ -755,11 +774,13 @@ const styles = StyleSheet.create({
   },
   heading: {
     color: theme.color.text,
+    flexShrink: 1,
     fontSize: theme.font.size.xl,
     fontWeight: '900',
     marginTop: theme.space.xs,
   },
-  copy: { color: theme.color.textMuted, lineHeight: 20 },
+  copy: { color: theme.color.textMuted, flexShrink: 1, lineHeight: 20 },
+  seasonRail: { maxWidth: '100%', width: '100%' },
   seasons: { gap: theme.space.sm, paddingBottom: theme.space.xs },
   season: {
     backgroundColor: theme.color.surface,
@@ -773,18 +794,31 @@ const styles = StyleSheet.create({
   selected: { backgroundColor: theme.color.accentMuted, borderColor: theme.color.accent },
   seasonName: { color: theme.color.text, fontWeight: '800' },
   meta: { color: theme.color.textMuted, fontSize: 12, lineHeight: 18, marginTop: 4 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.space.sm },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.space.sm,
+    minWidth: 0,
+    width: '100%',
+  },
   module: {
     backgroundColor: theme.color.surfaceRaised,
     borderColor: theme.color.border,
     borderRadius: theme.radius.md,
     borderWidth: 1,
-    flexGrow: 1,
     gap: theme.space.sm,
-    minWidth: 240,
+    maxWidth: '100%',
+    minWidth: 0,
     padding: theme.space.lg,
+    width: '100%',
   },
-  title: { color: theme.color.text, fontSize: 16, fontWeight: '900' },
+  gridModule: {
+    flexBasis: 280,
+    flexGrow: 1,
+    flexShrink: 1,
+    width: 'auto',
+  },
+  title: { color: theme.color.text, flexShrink: 1, fontSize: 16, fontWeight: '900' },
   input: {
     backgroundColor: theme.color.canvas,
     borderColor: theme.color.borderStrong,

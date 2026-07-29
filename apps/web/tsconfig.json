@@ -4,7 +4,7 @@
     "jsx": "react-jsx",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "types": ["nativewind/types", "node"]
+    "types": ["node"]
   },
-  "include": ["App.tsx", "src", "nativewind-env.d.ts"]
+  "include": ["App.tsx", "src"]
 }

@@ -16,6 +16,7 @@ import {
   type CompetitionSection,
 } from '../../navigation/routes';
 import { RouteLink } from '../../navigation/RouteLink';
+import { ScrollReveal } from '../../motion';
 import { theme } from '../../theme/tokens';
 
 const seasonStatus: Record<
@@ -86,7 +87,7 @@ export function HomeScreen({
 
   return (
     <ResponsiveContainer style={styles.page}>
-      <View style={styles.heading}>
+      <View {...({ 'data-motion-item': true } as object)} style={styles.heading}>
         <Text style={styles.eyebrow}>OLÁ, {user.nickname.toLocaleUpperCase('pt-BR')}</Text>
         <Text role="heading" aria-level={1} style={[styles.title, compact && styles.titleCompact]}>
           Visão geral
@@ -113,105 +114,107 @@ export function HomeScreen({
         skeletonLines={3}
       >
         {selectedSeason ? (
-          <Card
-            accessibilityLabel={`Competição atual: ${selectedSeason.name}`}
-            style={styles.seasonPanel}
-          >
-            <View style={[styles.seasonLayout, compact && styles.seasonLayoutCompact]}>
-              <View style={[styles.seasonBody, compact && styles.seasonBodyCompact]}>
-                <View style={[styles.seasonIcon, compact && styles.seasonIconCompact]}>
-                  <Ionicons
-                    name="trophy-outline"
-                    size={compact ? 26 : 32}
-                    color={theme.color.accentInk}
-                  />
-                </View>
-                <View style={styles.seasonCopy}>
-                  <View style={styles.seasonTopline}>
-                    <Text style={styles.seasonEyebrow}>COMPETIÇÃO ATUAL</Text>
-                    {selectedStatus ? (
-                      <StatusChip label={selectedStatus.label} tone={selectedStatus.tone} />
-                    ) : null}
+          <ScrollReveal>
+            <Card
+              accessibilityLabel={`Competição atual: ${selectedSeason.name}`}
+              style={styles.seasonPanel}
+            >
+              <View style={[styles.seasonLayout, compact && styles.seasonLayoutCompact]}>
+                <View style={[styles.seasonBody, compact && styles.seasonBodyCompact]}>
+                  <View style={[styles.seasonIcon, compact && styles.seasonIconCompact]}>
+                    <Ionicons
+                      name="trophy-outline"
+                      size={compact ? 26 : 32}
+                      color={theme.color.accentInk}
+                    />
                   </View>
-                  <Text
-                    role="heading"
-                    aria-level={2}
-                    style={[styles.seasonTitle, compact && styles.seasonTitleCompact]}
-                  >
-                    {selectedSeason.name}
-                  </Text>
-                  {context.competition?.name &&
-                  context.competition.name !== selectedSeason.name ? (
-                    <Text style={styles.competitionName}>{context.competition.name}</Text>
-                  ) : null}
-                  <View style={styles.seasonMeta}>
-                    {selectedSeason.year ? (
+                  <View style={styles.seasonCopy}>
+                    <View style={styles.seasonTopline}>
+                      <Text style={styles.seasonEyebrow}>COMPETIÇÃO ATUAL</Text>
+                      {selectedStatus ? (
+                        <StatusChip label={selectedStatus.label} tone={selectedStatus.tone} />
+                      ) : null}
+                    </View>
+                    <Text
+                      role="heading"
+                      aria-level={2}
+                      style={[styles.seasonTitle, compact && styles.seasonTitleCompact]}
+                    >
+                      {selectedSeason.name}
+                    </Text>
+                    {context.competition?.name &&
+                    context.competition.name !== selectedSeason.name ? (
+                      <Text style={styles.competitionName}>{context.competition.name}</Text>
+                    ) : null}
+                    <View style={styles.seasonMeta}>
+                      {selectedSeason.year ? (
+                        <View style={styles.metaItem}>
+                          <Ionicons
+                            name="calendar-outline"
+                            size={15}
+                            color={theme.color.textSubtle}
+                          />
+                          <Text style={styles.metaText}>Temporada {selectedSeason.year}</Text>
+                        </View>
+                      ) : null}
                       <View style={styles.metaItem}>
                         <Ionicons
-                          name="calendar-outline"
+                          name="football-outline"
                           size={15}
                           color={theme.color.textSubtle}
                         />
-                        <Text style={styles.metaText}>Temporada {selectedSeason.year}</Text>
+                        <Text style={styles.metaText}>{format}</Text>
                       </View>
-                    ) : null}
-                    <View style={styles.metaItem}>
-                      <Ionicons
-                        name="football-outline"
-                        size={15}
-                        color={theme.color.textSubtle}
-                      />
-                      <Text style={styles.metaText}>{format}</Text>
                     </View>
                   </View>
                 </View>
+                <View style={[styles.seasonActions, compact && styles.seasonActionsCompact]}>
+                  <Text style={styles.actionHint}>PRÓXIMA AÇÃO</Text>
+                  <RouteLink
+                    href={
+                      competitionSlug
+                        ? pathForCompetition(competitionSlug, 'predictions')
+                        : pathForScreen('competitions')
+                    }
+                    accessibilityLabel={`Abrir palpites de ${selectedSeason.name}`}
+                    onActivate={() => {
+                      if (competitionSlug) onNavigateCompetition(competitionSlug, 'predictions');
+                      else onNavigate('competitions');
+                    }}
+                    style={({ pressed }) => [
+                      styles.primaryAction,
+                      pressed && styles.primaryActionPressed,
+                    ]}
+                  >
+                    <Ionicons name="create-outline" size={18} color={theme.color.accentInk} />
+                    <Text style={styles.primaryActionText}>Abrir palpites</Text>
+                    <Ionicons name="arrow-forward" size={17} color={theme.color.accentInk} />
+                  </RouteLink>
+                  <RouteLink
+                    href={
+                      competitionSlug
+                        ? pathForCompetition(competitionSlug)
+                        : pathForScreen('competitions')
+                    }
+                    onActivate={() => {
+                      if (competitionSlug) onNavigateCompetition(competitionSlug, 'overview');
+                      else onNavigate('competitions');
+                    }}
+                    style={({ pressed }) => [
+                      styles.secondaryAction,
+                      pressed && styles.secondaryActionPressed,
+                    ]}
+                  >
+                    <Text style={styles.secondaryActionText}>Ver competição</Text>
+                  </RouteLink>
+                </View>
               </View>
-              <View style={[styles.seasonActions, compact && styles.seasonActionsCompact]}>
-                <Text style={styles.actionHint}>PRÓXIMA AÇÃO</Text>
-                <RouteLink
-                  href={
-                    competitionSlug
-                      ? pathForCompetition(competitionSlug, 'predictions')
-                      : pathForScreen('competitions')
-                  }
-                  accessibilityLabel={`Abrir palpites de ${selectedSeason.name}`}
-                  onActivate={() => {
-                    if (competitionSlug) onNavigateCompetition(competitionSlug, 'predictions');
-                    else onNavigate('competitions');
-                  }}
-                  style={({ pressed }) => [
-                    styles.primaryAction,
-                    pressed && styles.primaryActionPressed,
-                  ]}
-                >
-                  <Ionicons name="create-outline" size={18} color={theme.color.accentInk} />
-                  <Text style={styles.primaryActionText}>Abrir palpites</Text>
-                  <Ionicons name="arrow-forward" size={17} color={theme.color.accentInk} />
-                </RouteLink>
-                <RouteLink
-                  href={
-                    competitionSlug
-                      ? pathForCompetition(competitionSlug)
-                      : pathForScreen('competitions')
-                  }
-                  onActivate={() => {
-                    if (competitionSlug) onNavigateCompetition(competitionSlug, 'overview');
-                    else onNavigate('competitions');
-                  }}
-                  style={({ pressed }) => [
-                    styles.secondaryAction,
-                    pressed && styles.secondaryActionPressed,
-                  ]}
-                >
-                  <Text style={styles.secondaryActionText}>Ver competição</Text>
-                </RouteLink>
-              </View>
-            </View>
-          </Card>
+            </Card>
+          </ScrollReveal>
         ) : null}
       </AsyncState>
 
-      <View style={styles.paths}>
+      <ScrollReveal style={styles.paths}>
         <SectionHeader
           eyebrow={selectedSeason ? 'ACESSOS DA TEMPORADA' : 'COMPETIÇÕES'}
           title={selectedSeason ? 'Navegue pelo bolão' : 'Selecione seu campeonato'}
@@ -251,7 +254,7 @@ export function HomeScreen({
             </RouteLink>
           ))}
         </View>
-      </View>
+      </ScrollReveal>
     </ResponsiveContainer>
   );
 }

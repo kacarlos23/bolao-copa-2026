@@ -1,7 +1,7 @@
 param(
   [int]$ApiPort = 3001,
   [int]$WebPort = 8080,
-  [string]$PgBin = "C:\Program Files\PostgreSQL\18\bin",
+  [string]$PgBin = "",
   [string]$DataDir = ".\.postgres-data",
   [switch]$FullValidation,
   [switch]$NoGeLoop,
@@ -11,6 +11,11 @@ param(
 $ErrorActionPreference = "Stop"
 
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
+. (Join-Path $PSScriptRoot "postgres-common.ps1")
+$dataPath = if ([IO.Path]::IsPathRooted($DataDir)) { $DataDir } else { Join-Path $Root $DataDir }
+$ResolvedDataDir = (Resolve-Path -LiteralPath $dataPath).Path
+$PgBin = Resolve-ProjectPgBin -ConfiguredPath $PgBin -DataDir $ResolvedDataDir
+$PgPort = Get-ProjectPgPort -DataDir $ResolvedDataDir
 $ApiDir = Join-Path $Root "apps\api"
 $WebDist = Join-Path $Root "apps\web\dist"
 $LogsDir = Join-Path $Root "logs"
@@ -95,7 +100,6 @@ function Get-PortProcess([int]$ListenPort) {
 function Ensure-Postgres() {
   $pgCtl = Join-Path $PgBin "pg_ctl.exe"
   $pgIsReady = Join-Path $PgBin "pg_isready.exe"
-  $resolvedDataDir = Resolve-Path (Join-Path $Root $DataDir)
 
   if (-not (Test-Path -LiteralPath $pgCtl)) {
     throw "pg_ctl.exe nao encontrado em $pgCtl"
@@ -105,14 +109,14 @@ function Ensure-Postgres() {
     throw "pg_isready.exe nao encontrado em $pgIsReady"
   }
 
-  Write-Step "Verificando PostgreSQL do projeto em $resolvedDataDir"
-  $statusOutput = & $pgCtl -D $resolvedDataDir status 2>&1
+  Write-Step "Verificando PostgreSQL do projeto em $ResolvedDataDir"
+  $statusOutput = & $pgCtl -D $ResolvedDataDir status 2>&1
   if ($LASTEXITCODE -ne 0) {
     Write-Step "PostgreSQL do projeto parado. Iniciando na porta configurada do cluster"
     $postgresLog = Join-Path $LogsDir "postgres-project.log"
     # Nao canalize a saida do pg_ctl: o postgres filho pode herdar o pipe e
     # impedir que uma inicializacao automatica com log redirecionado termine.
-    & $pgCtl -D $resolvedDataDir -l $postgresLog start
+    & $pgCtl -D $ResolvedDataDir -l $postgresLog start
     if ($LASTEXITCODE -ne 0) {
       throw "Falha ao iniciar PostgreSQL do projeto. Veja $postgresLog"
     }
@@ -120,9 +124,9 @@ function Ensure-Postgres() {
     Write-Host ($statusOutput -join "`n")
   }
 
-  $ready = & $pgIsReady -h localhost -p 5433 2>&1
+  $ready = & $pgIsReady -h localhost -p $PgPort 2>&1
   if ($LASTEXITCODE -ne 0) {
-    throw "PostgreSQL nao respondeu em localhost:5433. Saida: $ready"
+    throw "PostgreSQL nao respondeu em localhost:$PgPort. Saida: $ready"
   }
   Write-Host $ready
 }
@@ -228,7 +232,7 @@ function Start-GeLoop() {
 }
 
 function Stop-GeLoopForPrisma() {
-  $processes = Get-GeLoopProcesses
+  $processes = @(Get-GeLoopProcesses)
   if ($processes.Count -eq 0) {
     return $false
   }
@@ -240,9 +244,9 @@ function Stop-GeLoopForPrisma() {
   $deadline = (Get-Date).AddSeconds(15)
   do {
     Start-Sleep -Milliseconds 500
-  } while ((Get-GeLoopProcesses).Count -gt 0 -and (Get-Date) -lt $deadline)
+  } while (@(Get-GeLoopProcesses).Count -gt 0 -and (Get-Date) -lt $deadline)
 
-  if ((Get-GeLoopProcesses).Count -gt 0) {
+  if (@(Get-GeLoopProcesses).Count -gt 0) {
     throw "Nao foi possivel pausar o loop GE para regenerar o Prisma Client."
   }
   return $true
@@ -563,12 +567,12 @@ function Ensure-GeLoop() {
 function Show-Summary() {
   $apiProcess = Get-PortProcess -ListenPort $ApiPort
   $webProcess = Get-PortProcess -ListenPort $WebPort
-  $postgresReady = & (Join-Path $PgBin "pg_isready.exe") -h localhost -p 5433 2>&1
+  $postgresReady = & (Join-Path $PgBin "pg_isready.exe") -h localhost -p $PgPort 2>&1
   $geLoop = Get-GeLoopProcesses | Select-Object -First 1
 
   Write-Host ""
   Write-Host "Resumo:"
-  Write-Host "- PostgreSQL 5433: $postgresReady"
+  Write-Host "- PostgreSQL ${PgPort}: $postgresReady"
   if ($Combined) {
     if ($webProcess) {
       Write-Host "- API/Web ${WebPort}: PID $($webProcess.Id) ($($webProcess.ProcessName))"

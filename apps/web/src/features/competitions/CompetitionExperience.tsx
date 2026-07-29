@@ -14,6 +14,7 @@ import { ScoreInput } from '../../components/ScoreInput';
 import { TeamBadge } from '../../components/TeamBadge';
 import type { DraftItem, ScoreSide, ScoreValue } from '../../services/drafts';
 import { saveStatusLabel } from '../../services/drafts';
+import { ScrollReveal } from '../../motion';
 import { theme } from '../../theme/tokens';
 
 export type CompetitionPresentation = {
@@ -374,26 +375,32 @@ export function KnockoutBracket({
   ].sort((left, right) => left.order - right.order);
   return (
     <AsyncState status={status} error={error} onRetry={onRetry}>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator
-        contentContainerStyle={styles.bracketRail}
-        accessibilityLabel="Chave eliminatória"
-      >
-        {columns.map((column) => (
-          <View key={column.id} style={styles.bracketColumn}>
-            <Text accessibilityRole="header" style={styles.bracketRound}>
-              {column.name}
-            </Text>
-            {ties
-              .filter((tie) => tie.roundId === column.id)
-              .sort((left, right) => left.order - right.order)
-              .map((tie) => (
-                <TieCard key={tie.id} tie={tie} />
-              ))}
-          </View>
-        ))}
-      </ScrollView>
+      <ScrollReveal distance={18} stagger={70}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator
+          contentContainerStyle={styles.bracketRail}
+          accessibilityLabel="Chave eliminatória"
+        >
+          {columns.map((column) => (
+            <View
+              key={column.id}
+              {...({ 'data-motion-item': true } as object)}
+              style={styles.bracketColumn}
+            >
+              <Text accessibilityRole="header" style={styles.bracketRound}>
+                {column.name}
+              </Text>
+              {ties
+                .filter((tie) => tie.roundId === column.id)
+                .sort((left, right) => left.order - right.order)
+                .map((tie) => (
+                  <TieCard key={tie.id} tie={tie} />
+                ))}
+            </View>
+          ))}
+        </ScrollView>
+      </ScrollReveal>
     </AsyncState>
   );
 }

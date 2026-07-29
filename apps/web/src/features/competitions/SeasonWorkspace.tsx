@@ -21,6 +21,7 @@ import { useCompetition } from '../../app/CompetitionContext';
 import { AsyncState, type AsyncStatus } from '../../components/AsyncState';
 import { TeamBadge } from '../../components/TeamBadge';
 import { RouteLink } from '../../navigation/RouteLink';
+import { PageTransition } from '../../motion';
 import { pathForCompetitionTeam } from '../../navigation/routes';
 import { enabledRankingScopes } from '../../navigation/competition-navigation';
 import { useToast } from '../../components/Toast';
@@ -983,7 +984,7 @@ export function SeasonWorkspace({
     connection === 'offline' && !predictionMatches.length ? 'offline' : predictionStatus;
 
   return (
-    <View style={styles.page} accessibilityLabel={season?.name ?? 'Temporada'}>
+    <PageTransition style={styles.page} accessibilityLabel={season?.name ?? 'Temporada'}>
       <CompetitionHero
         competition={context.competition}
         season={season}
@@ -1623,7 +1624,7 @@ export function SeasonWorkspace({
         error={publicPredictionsError}
         onClose={closePublicPredictions}
       />
-    </View>
+    </PageTransition>
   );
 }
 

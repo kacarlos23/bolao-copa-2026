@@ -1,14 +1,5 @@
 import { useMemo, useState } from 'react';
-import {
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  useWindowDimensions,
-  View,
-} from 'react-native';
+import { ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { RankingRowDto } from '@bolao/shared';
 import { type EngagementDashboard, type RankingAward } from '../../api';
@@ -21,6 +12,7 @@ import {
   StatusChip,
 } from '../../components/DesignSystem';
 import { UserAvatar } from '../../components/UserAvatar';
+import { CelebrationBurst, MotionModal, MotionPressable, PageTransition } from '../../motion';
 import type { ConnectionStatus } from '../../services/realtime';
 import { theme } from '../../theme/tokens';
 import { formatBrlCents } from '../../fundraising';
@@ -141,36 +133,39 @@ function ProfileModal({
   onClose: () => void;
 }) {
   return (
-    <Modal transparent animationType="fade" visible={Boolean(row)} onRequestClose={onClose}>
-      <View role="dialog" aria-modal accessibilityViewIsModal style={styles.modalBackdrop}>
-        {row ? (
-          <View style={styles.profileCard}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Fechar perfil"
-              onPress={onClose}
-              style={styles.modalClose}
-            >
-              <Ionicons name="close" size={22} color={theme.color.text} />
-            </Pressable>
-            <RankingUserAvatar row={row} size={76} />
-            <Text role="heading" aria-level={2} style={styles.profileName}>
-              {row.nickname}
-            </Text>
-            <Text style={styles.profilePosition}>
-              {row.rank}º lugar · {row.points} pontos
-            </Text>
-            <View style={styles.profileStats}>
-              <MiniMetric label="Na rodada" value={`${roundPoints} pts`} />
-              <MiniMetric label="Exatos" value={String(row.exactScores)} />
-              <MiniMetric label="Resultados" value={String(row.resultHits)} />
-              <MiniMetric label="Situação" value={row.hasLiveData ? 'Provisória' : 'Definitiva'} />
-            </View>
-            <RankingLastFive values={row.lastFive} />
+    <MotionModal
+      backdropStyle={styles.modalBackdrop}
+      onRequestClose={onClose}
+      panelStyle={styles.profileCard}
+      visible={Boolean(row)}
+    >
+      {row ? (
+        <>
+          <MotionPressable
+            accessibilityRole="button"
+            accessibilityLabel="Fechar perfil"
+            onPress={onClose}
+            style={styles.modalClose}
+          >
+            <Ionicons name="close" size={22} color={theme.color.text} />
+          </MotionPressable>
+          <RankingUserAvatar row={row} size={76} />
+          <Text role="heading" aria-level={2} style={styles.profileName}>
+            {row.nickname}
+          </Text>
+          <Text style={styles.profilePosition}>
+            {row.rank}º lugar · {row.points} pontos
+          </Text>
+          <View style={styles.profileStats}>
+            <MiniMetric label="Na rodada" value={`${roundPoints} pts`} />
+            <MiniMetric label="Exatos" value={String(row.exactScores)} />
+            <MiniMetric label="Resultados" value={String(row.resultHits)} />
+            <MiniMetric label="Situação" value={row.hasLiveData ? 'Provisória' : 'Definitiva'} />
           </View>
-        ) : null}
-      </View>
-    </Modal>
+          <RankingLastFive values={row.lastFive} />
+        </>
+      ) : null}
+    </MotionModal>
   );
 }
 
@@ -200,144 +195,146 @@ function TrophyRoom({
   const achieved =
     engagement?.achievements.filter((item) => item.achievedAt && !item.revokedAt).length ?? 0;
   return (
-    <Modal transparent animationType="fade" visible={visible} onRequestClose={onClose}>
-      <View role="dialog" aria-modal accessibilityViewIsModal style={styles.modalBackdrop}>
-        <View style={styles.trophyRoom}>
-          <View style={styles.roomHeader}>
-            <View>
-              <Text style={styles.eyebrow}>SALA DE TROFÉUS</Text>
-              <Text role="heading" aria-level={2} style={styles.roomTitle}>
-                Temporada & conquistas
-              </Text>
-              <Text style={styles.roomSubtitle}>{seasonName}</Text>
-              <Text style={styles.roomSubtitle}>
-                {achieved}/{engagement?.achievements.length ?? 0} conquistas pessoais desbloqueadas
-              </Text>
-            </View>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Fechar Sala de Troféus"
-              onPress={onClose}
-              style={styles.modalCloseStatic}
-            >
-              <Ionicons name="close" size={22} color={theme.color.text} />
-            </Pressable>
-          </View>
-          <ScrollView contentContainerStyle={styles.roomScroll}>
-            <Text style={styles.roomSectionTitle}>Troféus globais da temporada</Text>
-            <View style={styles.awardGrid}>
-              {awards.map((award) => (
-                <GlobalAward key={award.key} award={award} />
-              ))}
-              {!awards.length ? (
-                <EmptyCopy text="Os troféus serão exibidos quando houver dados elegíveis." />
-              ) : null}
-            </View>
-            <Text style={styles.roomSectionTitle}>Suas conquistas</Text>
-            <View style={styles.awardGrid}>
-              {engagement?.achievements.map((item) => {
-                const progress = progressValues(item.progress);
-                const unlocked = Boolean(item.achievedAt && !item.revokedAt);
-                return (
-                  <Pressable
-                    key={item.id}
-                    accessibilityRole="button"
-                    onPress={() => setDetail(item)}
-                    style={[
-                      styles.personalAward,
-                      !unlocked && styles.personalLocked,
-                      item.isProvisional && styles.provisionalBorder,
-                    ]}
-                  >
-                    <View style={styles.personalTop}>
-                      <Ionicons
-                        name={unlocked ? 'ribbon' : 'lock-closed'}
-                        size={25}
-                        color={unlocked ? theme.color.gold : theme.color.textMuted}
-                      />
-                      <Text style={[styles.rarity, rarityStyle(item.definition.rarity)]}>
-                        {rarityLabel(item.definition.rarity)}
-                      </Text>
-                    </View>
-                    <Text style={styles.personalTitle}>{item.definition.name}</Text>
-                    <Text style={styles.personalDescription}>{item.definition.description}</Text>
-                    {progress ? (
-                      <View>
-                        <View style={styles.progressTrack}>
-                          <View
-                            style={[
-                              styles.progressFill,
-                              {
-                                width: `${Math.min(100, (progress.current / progress.target) * 100)}%`,
-                              },
-                            ]}
-                          />
-                        </View>
-                        <Text style={styles.progressText}>
-                          {progress.current}/{progress.target}
-                        </Text>
-                      </View>
-                    ) : null}
-                    <Text style={styles.awardState}>
-                      {item.isProvisional
-                        ? 'Provisória'
-                        : unlocked
-                          ? 'Conquistada'
-                          : item.revokedAt
-                            ? 'Recalculada'
-                            : 'Em progresso'}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-              {!engagement?.achievements.length ? (
-                <EmptyCopy text="Seu progresso aparecerá após os primeiros palpites elegíveis." />
-              ) : null}
-            </View>
-            <Text style={styles.roomSectionTitle}>Sequências</Text>
-            <View style={styles.streakRow}>
-              {engagement?.streaks.map((streak) => (
-                <MiniMetric
-                  key={streak.type}
-                  label={streak.type.replaceAll('_', ' ')}
-                  value={`${streak.currentCount} atual · ${streak.bestCount} melhor`}
-                />
-              ))}
-              {!engagement?.streaks.length ? (
-                <EmptyCopy text="Nenhuma sequência consolidada ainda." />
-              ) : null}
-            </View>
-          </ScrollView>
+    <MotionModal
+      backdropStyle={styles.modalBackdrop}
+      onRequestClose={onClose}
+      panelStyle={styles.trophyRoom}
+      visible={visible}
+    >
+      {achieved ? <CelebrationBurst intensity="full" /> : null}
+      <View style={styles.roomHeader}>
+        <View>
+          <Text style={styles.eyebrow}>SALA DE TROFÉUS</Text>
+          <Text role="heading" aria-level={2} style={styles.roomTitle}>
+            Temporada & conquistas
+          </Text>
+          <Text style={styles.roomSubtitle}>{seasonName}</Text>
+          <Text style={styles.roomSubtitle}>
+            {achieved}/{engagement?.achievements.length ?? 0} conquistas pessoais desbloqueadas
+          </Text>
         </View>
-        {detail ? (
-          <View style={styles.detailOverlay} role="dialog" aria-modal>
-            <View style={styles.detailCard}>
-              <Ionicons
-                name={detail.achievedAt ? 'ribbon' : 'lock-closed'}
-                size={38}
-                color={theme.color.gold}
-              />
-              <Text style={styles.profileName}>{detail.definition.name}</Text>
-              <Text style={styles.personalDescription}>{detail.definition.description}</Text>
-              <Text style={styles.awardState}>
-                {detail.isProvisional
-                  ? 'Progresso provisório'
-                  : detail.achievedAt
-                    ? 'Conquista consolidada'
-                    : 'Objetivo em andamento'}
-              </Text>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setDetail(null)}
-                style={styles.primaryButton}
-              >
-                <Text style={styles.primaryButtonText}>Fechar detalhes</Text>
-              </Pressable>
-            </View>
-          </View>
-        ) : null}
+        <MotionPressable
+          accessibilityRole="button"
+          accessibilityLabel="Fechar Sala de Troféus"
+          onPress={onClose}
+          style={styles.modalCloseStatic}
+        >
+          <Ionicons name="close" size={22} color={theme.color.text} />
+        </MotionPressable>
       </View>
-    </Modal>
+      <ScrollView contentContainerStyle={styles.roomScroll}>
+        <Text style={styles.roomSectionTitle}>Troféus globais da temporada</Text>
+        <View style={styles.awardGrid}>
+          {awards.map((award) => (
+            <GlobalAward key={award.key} award={award} />
+          ))}
+          {!awards.length ? (
+            <EmptyCopy text="Os troféus serão exibidos quando houver dados elegíveis." />
+          ) : null}
+        </View>
+        <Text style={styles.roomSectionTitle}>Suas conquistas</Text>
+        <View style={styles.awardGrid}>
+          {engagement?.achievements.map((item) => {
+            const progress = progressValues(item.progress);
+            const unlocked = Boolean(item.achievedAt && !item.revokedAt);
+            return (
+              <MotionPressable
+                key={item.id}
+                accessibilityRole="button"
+                onPress={() => setDetail(item)}
+                style={[
+                  styles.personalAward,
+                  !unlocked && styles.personalLocked,
+                  item.isProvisional && styles.provisionalBorder,
+                ]}
+              >
+                <View style={styles.personalTop}>
+                  <Ionicons
+                    name={unlocked ? 'ribbon' : 'lock-closed'}
+                    size={25}
+                    color={unlocked ? theme.color.gold : theme.color.textMuted}
+                  />
+                  <Text style={[styles.rarity, rarityStyle(item.definition.rarity)]}>
+                    {rarityLabel(item.definition.rarity)}
+                  </Text>
+                </View>
+                <Text style={styles.personalTitle}>{item.definition.name}</Text>
+                <Text style={styles.personalDescription}>{item.definition.description}</Text>
+                {progress ? (
+                  <View>
+                    <View style={styles.progressTrack}>
+                      <View
+                        style={[
+                          styles.progressFill,
+                          {
+                            width: `${Math.min(100, (progress.current / progress.target) * 100)}%`,
+                          },
+                        ]}
+                      />
+                    </View>
+                    <Text style={styles.progressText}>
+                      {progress.current}/{progress.target}
+                    </Text>
+                  </View>
+                ) : null}
+                <Text style={styles.awardState}>
+                  {item.isProvisional
+                    ? 'Provisória'
+                    : unlocked
+                      ? 'Conquistada'
+                      : item.revokedAt
+                        ? 'Recalculada'
+                        : 'Em progresso'}
+                </Text>
+              </MotionPressable>
+            );
+          })}
+          {!engagement?.achievements.length ? (
+            <EmptyCopy text="Seu progresso aparecerá após os primeiros palpites elegíveis." />
+          ) : null}
+        </View>
+        <Text style={styles.roomSectionTitle}>Sequências</Text>
+        <View style={styles.streakRow}>
+          {engagement?.streaks.map((streak) => (
+            <MiniMetric
+              key={streak.type}
+              label={streak.type.replaceAll('_', ' ')}
+              value={`${streak.currentCount} atual · ${streak.bestCount} melhor`}
+            />
+          ))}
+          {!engagement?.streaks.length ? (
+            <EmptyCopy text="Nenhuma sequência consolidada ainda." />
+          ) : null}
+        </View>
+      </ScrollView>
+      {detail ? (
+        <View style={styles.detailOverlay} role="dialog" aria-modal>
+          <View style={styles.detailCard}>
+            <Ionicons
+              name={detail.achievedAt ? 'ribbon' : 'lock-closed'}
+              size={38}
+              color={theme.color.gold}
+            />
+            <Text style={styles.profileName}>{detail.definition.name}</Text>
+            <Text style={styles.personalDescription}>{detail.definition.description}</Text>
+            <Text style={styles.awardState}>
+              {detail.isProvisional
+                ? 'Progresso provisório'
+                : detail.achievedAt
+                  ? 'Conquista consolidada'
+                  : 'Objetivo em andamento'}
+            </Text>
+            <MotionPressable
+              accessibilityRole="button"
+              onPress={() => setDetail(null)}
+              style={styles.primaryButton}
+            >
+              <Text style={styles.primaryButtonText}>Fechar detalhes</Text>
+            </MotionPressable>
+          </View>
+        </View>
+      ) : null}
+    </MotionModal>
   );
 }
 
@@ -474,250 +471,272 @@ export function PremiumRanking({
   const connectionTone =
     connection === 'offline' ? 'danger' : connection === 'live' && !syncing ? 'success' : 'warning';
   return (
-    <ResponsiveContainer style={styles.root}>
-      <View style={[styles.hero, compact && styles.heroCompact]}>
-        <SectionHeader
-          eyebrow={seasonName.toLocaleUpperCase('pt-BR')}
-          title="Corrida pelo topo"
-          description={`${seasonName} · classificação do bolão em tempo real`}
-          level={2}
-          action={
-            <View style={[styles.heroActions, compact && styles.heroActionsCompact]}>
-              <PrimaryButton
-                label={syncing ? 'Atualizando placares…' : 'Atualizar'}
-                icon="refresh"
-                disabled={syncing}
-                onPress={onRefresh}
-                style={compact ? styles.heroActionCompact : undefined}
-              />
-              <SecondaryButton
-                label="Sala de Troféus"
-                icon="trophy-outline"
-                onPress={() => setRoomOpen(true)}
-                style={compact ? styles.heroActionCompact : undefined}
-              />
-            </View>
-          }
-        />
-        <View style={styles.liveLine}>
-          <StatusChip
-            label={liveLabel}
-            tone={connectionTone}
-            icon={connection === 'offline' ? 'cloud-offline-outline' : 'radio-outline'}
-          />
-          <Text style={styles.syncText}>{formatSyncTime(lastSyncedAt)}</Text>
-        </View>
-      </View>
-
-      <View style={[styles.filters, compact && styles.filtersCompact]}>
-        <ScrollView
-          horizontal
-          style={styles.filterScroller}
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterRail}
-          accessibilityLabel="Período do ranking"
+    <ResponsiveContainer>
+      <PageTransition style={styles.root}>
+        <View
+          {...({ 'data-motion-item': true } as object)}
+          style={[styles.hero, compact && styles.heroCompact]}
         >
-          {(['overall', 'stage', 'round', 'month', 'turn-1', 'turn-2'] as PremiumRankingScope[])
-            .filter((item) => availableScopes.has(rankingScopeCapability[item]))
-            .map((item) => (
-              <Pressable
-                key={item}
-                aria-pressed={scope === item}
-                accessibilityRole="button"
-                onPress={() => onScopeChange(item)}
-                style={[styles.filterChip, scope === item && styles.filterChipActive]}
-              >
-                <Text style={[styles.filterText, scope === item && styles.filterTextActive]}>
-                  {scopeLabel(item)}
-                </Text>
-              </Pressable>
-            ))}
-        </ScrollView>
-        <View style={[styles.filterControls, compact && styles.filterControlsCompact]}>
-          <View style={styles.searchWrap}>
-            <Ionicons name="search" size={17} color={theme.color.textMuted} />
-            <TextInput
-              accessibilityLabel="Buscar participante"
-              placeholder="Buscar participante"
-              placeholderTextColor={theme.color.textMuted}
-              value={search}
-              onChangeText={setSearch}
-              style={styles.searchInput}
-            />
-          </View>
-          <View style={[styles.statusGroup, compact && styles.statusGroupCompact]}>
-            {(['all', 'live', 'final'] as StatusFilter[]).map((item) => (
-              <Pressable
-                key={item}
-                aria-pressed={statusFilter === item}
-                accessibilityRole="button"
-                onPress={() => setStatusFilter(item)}
-                style={[styles.statusButton, statusFilter === item && styles.statusButtonActive]}
-              >
-                <Text style={styles.statusText}>
-                  {item === 'all' ? 'Todos' : item === 'live' ? 'Ao vivo' : 'Definitivos'}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-      </View>
-
-      <Card style={[styles.summaryPanel, compact && styles.summaryPanelCompact]}>
-        <SectionHeader
-          eyebrow="SEU DESEMPENHO"
-          title={current ? `${current.rank}º lugar · ${current.points} pontos` : 'Sem posição apurada'}
-          description={
-            current
-              ? `Dados consolidados para ${current.nickname} no período selecionado.`
-              : 'Sua posição será exibida quando houver resultados elegíveis.'
-          }
-          level={3}
-        />
-        <View style={styles.summaryGrid}>
-          {[
-          ['Participantes', String(ranking.length), 'na temporada'],
-          [
-            'SUA POSIÇÃO',
-            current ? `${current.rank}º` : '—',
-            current ? `${current.points} pontos` : 'sem dados',
-          ],
-          [
-            'Pontos do líder',
-            leader ? String(leader.points) : '—',
-            leader?.nickname ?? 'sem líder',
-          ],
-          [
-            'Distância acima',
-            current && above ? `${Math.max(0, above.points - current.points)} pts` : '—',
-            current && above
-              ? `${Math.max(0, above.points - current.points)} pts para ${above.nickname}`
-              : 'você está no topo',
-          ],
-          [
-            'Sua rodada',
-            current ? `${roundPoints.get(current.userId) ?? 0} pts` : '—',
-            scope === 'round' ? 'rodada selecionada' : 'rodada atual',
-          ],
-          ].map(([label, value, detail]) => (
-          <View key={label} style={[styles.summaryMetric, compact && styles.summaryMetricCompact]}>
-              <Text style={styles.summaryLabel}>{label}</Text>
-              <Text style={styles.summaryValue}>{value}</Text>
-              <Text style={styles.summaryDetail}>{detail}</Text>
-          </View>
-          ))}
-        </View>
-        {fundraisingCents != null ? (
-          <View style={styles.fundraisingStrip}>
-            <View style={styles.fundraisingCopy}>
-              <Text style={styles.fundraisingLabel}>Valor arrecadado</Text>
-              <Text style={styles.fundraisingDetail}>
-                Ação entre amigos para custear a viagem
-              </Text>
-            </View>
-            <Text style={styles.fundraisingValue}>{formatBrlCents(fundraisingCents)}</Text>
-          </View>
-        ) : null}
-      </Card>
-
-      {ranking.length ? (
-        <Card style={[styles.podiumSurface, compact && styles.podiumSurfaceCompact]}>
-          <View style={styles.podium}>
-            {[ranking[1], ranking[0], ranking[2]].filter(Boolean).map((row) => (
-              <Pressable
-                key={row.userId}
-                accessibilityRole="button"
-                accessibilityLabel={`Abrir perfil de ${row.nickname}, ${row.rank}º lugar`}
-                onPress={() => setProfile(row)}
-                style={[
-                  styles.podiumItem,
-                  row.rank === 1 && styles.podiumFirst,
-                  row.userId === currentUserId && styles.currentPodium,
-                ]}
-              >
-                <Text style={[styles.medal, compact && styles.medalCompact]}>
-                  {row.rank === 1 ? '🥇' : row.rank === 2 ? '🥈' : '🥉'}
-                </Text>
-                <RankingUserAvatar
-                  row={row}
-                  size={compact ? (row.rank === 1 ? 58 : 48) : row.rank === 1 ? 72 : 60}
-                />
-                <Text
-                  style={[
-                    styles.podiumName,
-                    compact && styles.podiumNameCompact,
-                    row.userId === currentUserId && styles.currentPodiumName,
-                  ]}
-                  numberOfLines={1}
-                >
-                  {row.nickname}
-                </Text>
-                <Text style={[styles.podiumPoints, compact && styles.podiumPointsCompact]}>
-                  {row.points} pts
-                </Text>
-                <Text style={styles.podiumMeta} numberOfLines={1}>
-                  {row.exactScores} exatos
-                </Text>
-                <RankingMovementBadge row={row} />
-                {row.userId === currentUserId ? <Text style={styles.youBadge}>VOCÊ</Text> : null}
-              </Pressable>
-            ))}
-          </View>
-        </Card>
-      ) : (
-        <EmptyCopy text="O ranking aparecerá após os primeiros resultados elegíveis." />
-      )}
-
-      <View
-        testID="ranking-panel"
-        accessibilityLabel="Classificação completa"
-        style={styles.tablePanel}
-      >
-        <View style={styles.panelHead}>
           <SectionHeader
-            eyebrow="CLASSIFICAÇÃO COMPLETA"
-            title={`${filtered.length} participante(s)`}
+            eyebrow={seasonName.toLocaleUpperCase('pt-BR')}
+            title="Corrida pelo topo"
+            description={`${seasonName} · classificação do bolão em tempo real`}
+            level={2}
+            action={
+              <View style={[styles.heroActions, compact && styles.heroActionsCompact]}>
+                <PrimaryButton
+                  label={syncing ? 'Atualizando placares…' : 'Atualizar'}
+                  icon="refresh"
+                  disabled={syncing}
+                  onPress={onRefresh}
+                  style={compact ? styles.heroActionCompact : undefined}
+                />
+                <SecondaryButton
+                  label="Sala de Troféus"
+                  icon="trophy-outline"
+                  onPress={() => setRoomOpen(true)}
+                  style={compact ? styles.heroActionCompact : undefined}
+                />
+              </View>
+            }
+          />
+          <View style={styles.liveLine}>
+            <StatusChip
+              label={liveLabel}
+              tone={connectionTone}
+              icon={connection === 'offline' ? 'cloud-offline-outline' : 'radio-outline'}
+            />
+            <Text style={styles.syncText}>{formatSyncTime(lastSyncedAt)}</Text>
+          </View>
+        </View>
+
+        <View
+          {...({ 'data-motion-item': true } as object)}
+          style={[styles.filters, compact && styles.filtersCompact]}
+        >
+          <ScrollView
+            horizontal
+            style={styles.filterScroller}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterRail}
+            accessibilityLabel="Período do ranking"
+          >
+            {(['overall', 'stage', 'round', 'month', 'turn-1', 'turn-2'] as PremiumRankingScope[])
+              .filter((item) => availableScopes.has(rankingScopeCapability[item]))
+              .map((item) => (
+                <MotionPressable
+                  key={item}
+                  aria-pressed={scope === item}
+                  accessibilityRole="button"
+                  motionSelected={scope === item}
+                  onPress={() => onScopeChange(item)}
+                  style={[styles.filterChip, scope === item && styles.filterChipActive]}
+                >
+                  <Text style={[styles.filterText, scope === item && styles.filterTextActive]}>
+                    {scopeLabel(item)}
+                  </Text>
+                </MotionPressable>
+              ))}
+          </ScrollView>
+          <View style={[styles.filterControls, compact && styles.filterControlsCompact]}>
+            <View style={styles.searchWrap}>
+              <Ionicons name="search" size={17} color={theme.color.textMuted} />
+              <TextInput
+                accessibilityLabel="Buscar participante"
+                placeholder="Buscar participante"
+                placeholderTextColor={theme.color.textMuted}
+                value={search}
+                onChangeText={setSearch}
+                style={styles.searchInput}
+              />
+            </View>
+            <View style={[styles.statusGroup, compact && styles.statusGroupCompact]}>
+              {(['all', 'live', 'final'] as StatusFilter[]).map((item) => (
+                <MotionPressable
+                  key={item}
+                  aria-pressed={statusFilter === item}
+                  accessibilityRole="button"
+                  motionSelected={statusFilter === item}
+                  onPress={() => setStatusFilter(item)}
+                  style={[styles.statusButton, statusFilter === item && styles.statusButtonActive]}
+                >
+                  <Text style={styles.statusText}>
+                    {item === 'all' ? 'Todos' : item === 'live' ? 'Ao vivo' : 'Definitivos'}
+                  </Text>
+                </MotionPressable>
+              ))}
+            </View>
+          </View>
+        </View>
+
+        <Card
+          {...({ 'data-motion-item': true } as object)}
+          style={[styles.summaryPanel, compact && styles.summaryPanelCompact]}
+        >
+          <SectionHeader
+            eyebrow="SEU DESEMPENHO"
+            title={
+              current ? `${current.rank}º lugar · ${current.points} pontos` : 'Sem posição apurada'
+            }
+            description={
+              current
+                ? `Dados consolidados para ${current.nickname} no período selecionado.`
+                : 'Sua posição será exibida quando houver resultados elegíveis.'
+            }
             level={3}
           />
-          <Text style={styles.summaryLabel}>Critérios de desempate</Text>
-          <Text style={styles.summaryDetail}>
-            {tieBreakers.join(' → ') || 'Vinculados à regra da temporada'} ·{' '}
-            {roundLeader
-              ? `Líder da rodada · ${roundLeader.nickname} · ${roundLeader.points} pts`
-              : 'Líder da rodada ainda não apurado'}
-          </Text>
-        </View>
-        {compactRanking ? (
-          <CompactRankingList
-            rows={filtered}
-            currentUserId={currentUserId}
-            roundPoints={roundPoints}
-            onOpen={setProfile}
-          />
+          <View style={styles.summaryGrid}>
+            {[
+              ['Participantes', String(ranking.length), 'na temporada'],
+              [
+                'SUA POSIÇÃO',
+                current ? `${current.rank}º` : '—',
+                current ? `${current.points} pontos` : 'sem dados',
+              ],
+              [
+                'Pontos do líder',
+                leader ? String(leader.points) : '—',
+                leader?.nickname ?? 'sem líder',
+              ],
+              [
+                'Distância acima',
+                current && above ? `${Math.max(0, above.points - current.points)} pts` : '—',
+                current && above
+                  ? `${Math.max(0, above.points - current.points)} pts para ${above.nickname}`
+                  : 'você está no topo',
+              ],
+              [
+                'Sua rodada',
+                current ? `${roundPoints.get(current.userId) ?? 0} pts` : '—',
+                scope === 'round' ? 'rodada selecionada' : 'rodada atual',
+              ],
+            ].map(([label, value, detail]) => (
+              <View
+                key={label}
+                style={[styles.summaryMetric, compact && styles.summaryMetricCompact]}
+              >
+                <Text style={styles.summaryLabel}>{label}</Text>
+                <Text style={styles.summaryValue}>{value}</Text>
+                <Text style={styles.summaryDetail}>{detail}</Text>
+              </View>
+            ))}
+          </View>
+          {fundraisingCents != null ? (
+            <View style={styles.fundraisingStrip}>
+              <View style={styles.fundraisingCopy}>
+                <Text style={styles.fundraisingLabel}>Valor arrecadado</Text>
+                <Text style={styles.fundraisingDetail}>
+                  Ação entre amigos para custear a viagem
+                </Text>
+              </View>
+              <Text style={styles.fundraisingValue}>{formatBrlCents(fundraisingCents)}</Text>
+            </View>
+          ) : null}
+        </Card>
+
+        {ranking.length ? (
+          <Card
+            {...({ 'data-motion-item': true } as object)}
+            style={[styles.podiumSurface, compact && styles.podiumSurfaceCompact]}
+          >
+            <View style={styles.podium}>
+              {[ranking[1], ranking[0], ranking[2]].filter(Boolean).map((row) => (
+                <MotionPressable
+                  key={row.userId}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Abrir perfil de ${row.nickname}, ${row.rank}º lugar`}
+                  onPress={() => setProfile(row)}
+                  style={[
+                    styles.podiumItem,
+                    row.rank === 1 && styles.podiumFirst,
+                    row.userId === currentUserId && styles.currentPodium,
+                  ]}
+                >
+                  <Text style={[styles.medal, compact && styles.medalCompact]}>
+                    {row.rank === 1 ? '🥇' : row.rank === 2 ? '🥈' : '🥉'}
+                  </Text>
+                  <RankingUserAvatar
+                    row={row}
+                    size={compact ? (row.rank === 1 ? 58 : 48) : row.rank === 1 ? 72 : 60}
+                  />
+                  <Text
+                    style={[
+                      styles.podiumName,
+                      compact && styles.podiumNameCompact,
+                      row.userId === currentUserId && styles.currentPodiumName,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {row.nickname}
+                  </Text>
+                  <Text style={[styles.podiumPoints, compact && styles.podiumPointsCompact]}>
+                    {row.points} pts
+                  </Text>
+                  <Text style={styles.podiumMeta} numberOfLines={1}>
+                    {row.exactScores} exatos
+                  </Text>
+                  <RankingMovementBadge row={row} />
+                  {row.userId === currentUserId ? <Text style={styles.youBadge}>VOCÊ</Text> : null}
+                </MotionPressable>
+              ))}
+            </View>
+          </Card>
         ) : (
-          <DesktopRankingTable
-            rows={filtered}
-            currentUserId={currentUserId}
-            roundPoints={roundPoints}
-            onOpen={setProfile}
-          />
+          <EmptyCopy text="O ranking aparecerá após os primeiros resultados elegíveis." />
         )}
-        {!filtered.length ? (
-          <EmptyCopy text="Nenhum participante corresponde aos filtros." />
-        ) : null}
-      </View>
-      <ProfileModal
-        row={profile}
-        roundPoints={profile ? (roundPoints.get(profile.userId) ?? 0) : 0}
-        onClose={() => setProfile(null)}
-      />
-      <TrophyRoom
-        visible={roomOpen}
-        seasonName={seasonName}
-        awards={awards}
-        engagement={engagement}
-        onClose={() => setRoomOpen(false)}
-      />
+
+        <View
+          {...({ 'data-motion-item': true } as object)}
+          testID="ranking-panel"
+          accessibilityLabel="Classificação completa"
+          style={styles.tablePanel}
+        >
+          <View style={styles.panelHead}>
+            <SectionHeader
+              eyebrow="CLASSIFICAÇÃO COMPLETA"
+              title={`${filtered.length} participante(s)`}
+              level={3}
+            />
+            <Text style={styles.summaryLabel}>Critérios de desempate</Text>
+            <Text style={styles.summaryDetail}>
+              {tieBreakers.join(' → ') || 'Vinculados à regra da temporada'} ·{' '}
+              {roundLeader
+                ? `Líder da rodada · ${roundLeader.nickname} · ${roundLeader.points} pts`
+                : 'Líder da rodada ainda não apurado'}
+            </Text>
+          </View>
+          {compactRanking ? (
+            <CompactRankingList
+              rows={filtered}
+              currentUserId={currentUserId}
+              roundPoints={roundPoints}
+              onOpen={setProfile}
+            />
+          ) : (
+            <DesktopRankingTable
+              rows={filtered}
+              currentUserId={currentUserId}
+              roundPoints={roundPoints}
+              onOpen={setProfile}
+            />
+          )}
+          {!filtered.length ? (
+            <EmptyCopy text="Nenhum participante corresponde aos filtros." />
+          ) : null}
+        </View>
+        <ProfileModal
+          row={profile}
+          roundPoints={profile ? (roundPoints.get(profile.userId) ?? 0) : 0}
+          onClose={() => setProfile(null)}
+        />
+        <TrophyRoom
+          visible={roomOpen}
+          seasonName={seasonName}
+          awards={awards}
+          engagement={engagement}
+          onClose={() => setRoomOpen(false)}
+        />
+      </PageTransition>
     </ResponsiveContainer>
   );
 }
@@ -729,18 +748,13 @@ type RankingRowsProps = {
   onOpen: (row: RankingRowDto) => void;
 };
 
-function CompactRankingList({
-  rows,
-  currentUserId,
-  roundPoints,
-  onOpen,
-}: RankingRowsProps) {
+function CompactRankingList({ rows, currentUserId, roundPoints, onOpen }: RankingRowsProps) {
   return (
     <View testID="ranking-list-compact" style={styles.compactList}>
       {rows.map((row) => {
         const current = row.userId === currentUserId;
         return (
-          <Pressable
+          <MotionPressable
             key={row.userId}
             testID={`ranking-row-${row.userId}`}
             accessibilityRole="button"
@@ -758,10 +772,7 @@ function CompactRankingList({
               </Text>
               <RankingUserAvatar row={row} size={38} />
               <View style={styles.compactIdentity}>
-                <Text
-                  style={[styles.compactName, current && styles.currentName]}
-                  numberOfLines={1}
-                >
+                <Text style={[styles.compactName, current && styles.currentName]} numberOfLines={1}>
                   {row.nickname}
                   {current ? ' · Você' : ''}
                 </Text>
@@ -789,7 +800,7 @@ function CompactRankingList({
                 <RankingLastFive values={row.lastFive} />
               </View>
             </View>
-          </Pressable>
+          </MotionPressable>
         );
       })}
     </View>
@@ -805,17 +816,12 @@ function CompactMetric({ label, value }: { label: string; value: number }) {
   );
 }
 
-function DesktopRankingTable({
-  rows,
-  currentUserId,
-  roundPoints,
-  onOpen,
-}: RankingRowsProps) {
+function DesktopRankingTable({ rows, currentUserId, roundPoints, onOpen }: RankingRowsProps) {
   return (
     <View testID="ranking-table-desktop" style={styles.table}>
       <RankingHeader />
       {rows.map((row) => (
-        <Pressable
+        <MotionPressable
           key={row.userId}
           testID={`ranking-row-${row.userId}`}
           accessibilityRole="button"
@@ -831,10 +837,7 @@ function DesktopRankingTable({
           <View style={styles.personCell}>
             <RankingUserAvatar row={row} size={36} />
             <Text
-              style={[
-                styles.personName,
-                row.userId === currentUserId && styles.currentName,
-              ]}
+              style={[styles.personName, row.userId === currentUserId && styles.currentName]}
               numberOfLines={1}
             >
               {row.nickname}
@@ -857,11 +860,9 @@ function DesktopRankingTable({
             <View
               style={[styles.stateDot, row.hasLiveData ? styles.stateLive : styles.stateFinal]}
             />
-            <Text style={styles.stateText}>
-              {row.hasLiveData ? 'Provisório' : 'Definitivo'}
-            </Text>
+            <Text style={styles.stateText}>{row.hasLiveData ? 'Provisório' : 'Definitivo'}</Text>
           </View>
-        </Pressable>
+        </MotionPressable>
       ))}
     </View>
   );
@@ -955,7 +956,12 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     minWidth: 320,
   },
-  filterControlsCompact: { alignItems: 'stretch', flexDirection: 'column', minWidth: 0, width: '100%' },
+  filterControlsCompact: {
+    alignItems: 'stretch',
+    flexDirection: 'column',
+    minWidth: 0,
+    width: '100%',
+  },
   searchWrap: {
     alignItems: 'center',
     borderColor: theme.color.border,
@@ -1246,7 +1252,11 @@ const styles = StyleSheet.create({
     gap: theme.space.xs,
   },
   compactPoints: { alignItems: 'flex-end', minWidth: 54 },
-  compactPointsValue: { color: theme.color.accent, fontSize: theme.font.size.lg, fontWeight: '900' },
+  compactPointsValue: {
+    color: theme.color.accent,
+    fontSize: theme.font.size.lg,
+    fontWeight: '900',
+  },
   compactPointsLabel: { color: theme.color.textSubtle, fontSize: theme.font.size.xs },
   compactMetrics: {
     alignItems: 'flex-end',

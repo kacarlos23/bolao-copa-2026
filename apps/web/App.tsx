@@ -4,7 +4,6 @@ import {
   Animated,
   Easing,
   Image,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -32,7 +31,15 @@ import {
 } from './src/api';
 import { flagSources } from './src/flagSources';
 import type { TeamCatalogEntry } from './src/teamCatalog';
-import { DrawerReveal, SoftReveal, usePrefersReducedMotion } from './src/motion';
+import {
+  CelebrationBurst,
+  DrawerReveal,
+  MotionModal,
+  MotionPressable,
+  PageTransition,
+  SoftReveal,
+  usePrefersReducedMotion,
+} from './src/motion';
 import {
   CompetitionProvider,
   normalizeCapabilities,
@@ -732,61 +739,22 @@ function SuccessModal({
   message: string;
   onClose: () => void;
 }) {
-  const reducedMotion = usePrefersReducedMotion();
-  const progress = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    if (!visible) {
-      progress.setValue(0);
-      return;
-    }
-
-    if (reducedMotion) {
-      progress.setValue(1);
-      return;
-    }
-
-    Animated.spring(progress, {
-      toValue: 1,
-      friction: 5,
-      tension: 80,
-      useNativeDriver: true,
-    }).start();
-  }, [progress, reducedMotion, visible]);
-
   return (
-    <Modal
-      transparent
-      animationType={reducedMotion ? 'none' : 'fade'}
+    <MotionModal
+      accessibilityLabel={title}
+      backdropStyle={styles.modalBackdrop}
+      panelStyle={styles.successModal}
       visible={visible}
       onRequestClose={onClose}
     >
-      <View style={styles.modalBackdrop}>
-        <View style={styles.successModal}>
-          <Animated.View
-            style={[
-              styles.successIcon,
-              {
-                opacity: progress,
-                transform: [
-                  {
-                    scale: progress.interpolate({
-                      inputRange: [0, 0.7, 1],
-                      outputRange: [0.25, 1.12, 1],
-                    }),
-                  },
-                ],
-              },
-            ]}
-          >
-            <Ionicons name="checkmark" size={58} color={colors.text} />
-          </Animated.View>
-          <Text style={styles.modalTitle}>{title}</Text>
-          <Text style={styles.modalMessage}>{message}</Text>
-          <PrimaryButton label="OK" icon="checkmark-circle-outline" onPress={onClose} />
-        </View>
+      {visible ? <CelebrationBurst intensity="full" /> : null}
+      <View style={styles.successIcon}>
+        <Ionicons name="checkmark" size={58} color={colors.text} />
       </View>
-    </Modal>
+      <Text style={styles.modalTitle}>{title}</Text>
+      <Text style={styles.modalMessage}>{message}</Text>
+      <PrimaryButton label="OK" icon="checkmark-circle-outline" onPress={onClose} />
+    </MotionModal>
   );
 }
 
@@ -808,33 +776,35 @@ function ConfirmModal({
   onConfirm: () => void;
 }) {
   return (
-    <Modal transparent animationType="fade" visible={visible} onRequestClose={onCancel}>
-      <View style={styles.modalBackdrop}>
-        <View style={styles.confirmModal}>
-          <View style={styles.confirmIcon}>
-            <Ionicons name="trash-outline" size={34} color={colors.red} />
-          </View>
-          <Text style={styles.modalTitle}>{title}</Text>
-          <Text style={styles.modalMessage}>{message}</Text>
-          <View style={styles.confirmModalActions}>
-            <PrimaryButton
-              label="Cancelar"
-              icon="close-outline"
-              tone="secondary"
-              onPress={onCancel}
-              disabled={loading}
-            />
-            <PrimaryButton
-              label={loading ? 'Excluindo...' : confirmLabel}
-              icon="trash-outline"
-              tone="danger"
-              onPress={onConfirm}
-              disabled={loading}
-            />
-          </View>
-        </View>
+    <MotionModal
+      accessibilityLabel={title}
+      backdropStyle={styles.modalBackdrop}
+      panelStyle={styles.confirmModal}
+      visible={visible}
+      onRequestClose={onCancel}
+    >
+      <View style={styles.confirmIcon}>
+        <Ionicons name="trash-outline" size={34} color={colors.red} />
       </View>
-    </Modal>
+      <Text style={styles.modalTitle}>{title}</Text>
+      <Text style={styles.modalMessage}>{message}</Text>
+      <View style={styles.confirmModalActions}>
+        <PrimaryButton
+          label="Cancelar"
+          icon="close-outline"
+          tone="secondary"
+          onPress={onCancel}
+          disabled={loading}
+        />
+        <PrimaryButton
+          label={loading ? 'Excluindo...' : confirmLabel}
+          icon="trash-outline"
+          tone="danger"
+          onPress={onConfirm}
+          disabled={loading}
+        />
+      </View>
+    </MotionModal>
   );
 }
 
@@ -850,41 +820,43 @@ function KnockoutCalloutModal({
   onOpen: () => void;
 }) {
   return (
-    <Modal transparent animationType="fade" visible={visible} onRequestClose={onClose}>
-      <View style={styles.modalBackdrop}>
-        <View style={styles.knockoutCalloutModal}>
-          <View style={styles.knockoutCalloutIcon}>
-            <Ionicons name="git-network-outline" size={34} color={colors.bg} />
-          </View>
-          <Text style={styles.modalTitle}>Palpite das eliminatorias liberado</Text>
-          <Text style={styles.modalMessage}>
-            Simule os jogos em aberto da fase de grupos, visualize a chave projetada e salve sua
-            previsao sem alterar os palpites regulares.
-          </Text>
-          <View style={styles.knockoutCalloutCountdown}>
-            <Text style={styles.knockoutCalloutCountdownLabel}>Prazo final</Text>
-            <Text style={styles.knockoutCalloutCountdownValue}>
-              {countdownText(knockoutDeadline, now)}
-            </Text>
-            <Text style={styles.knockoutCalloutCountdownHint}>18/06/2026 as 23h59</Text>
-          </View>
-          <View style={styles.knockoutCalloutRules}>
-            <View style={styles.knockoutCalloutRule}>
-              <Text style={styles.knockoutCalloutRulePoints}>15</Text>
-              <Text style={styles.knockoutCalloutRuleText}>pontos por confronto exato</Text>
-            </View>
-            <View style={styles.knockoutCalloutRule}>
-              <Text style={styles.knockoutCalloutRulePoints}>7</Text>
-              <Text style={styles.knockoutCalloutRuleText}>pontos por uma selecao correta</Text>
-            </View>
-          </View>
-          <View style={styles.confirmModalActions}>
-            <PrimaryButton label="Depois" icon="close-outline" tone="secondary" onPress={onClose} />
-            <PrimaryButton label="Abrir chave" icon="git-network-outline" onPress={onOpen} />
-          </View>
+    <MotionModal
+      accessibilityLabel="Palpite das eliminatórias liberado"
+      backdropStyle={styles.modalBackdrop}
+      panelStyle={styles.knockoutCalloutModal}
+      visible={visible}
+      onRequestClose={onClose}
+    >
+      <View style={styles.knockoutCalloutIcon}>
+        <Ionicons name="git-network-outline" size={34} color={colors.bg} />
+      </View>
+      <Text style={styles.modalTitle}>Palpite das eliminatorias liberado</Text>
+      <Text style={styles.modalMessage}>
+        Simule os jogos em aberto da fase de grupos, visualize a chave projetada e salve sua
+        previsao sem alterar os palpites regulares.
+      </Text>
+      <View style={styles.knockoutCalloutCountdown}>
+        <Text style={styles.knockoutCalloutCountdownLabel}>Prazo final</Text>
+        <Text style={styles.knockoutCalloutCountdownValue}>
+          {countdownText(knockoutDeadline, now)}
+        </Text>
+        <Text style={styles.knockoutCalloutCountdownHint}>18/06/2026 as 23h59</Text>
+      </View>
+      <View style={styles.knockoutCalloutRules}>
+        <View style={styles.knockoutCalloutRule}>
+          <Text style={styles.knockoutCalloutRulePoints}>15</Text>
+          <Text style={styles.knockoutCalloutRuleText}>pontos por confronto exato</Text>
+        </View>
+        <View style={styles.knockoutCalloutRule}>
+          <Text style={styles.knockoutCalloutRulePoints}>7</Text>
+          <Text style={styles.knockoutCalloutRuleText}>pontos por uma selecao correta</Text>
         </View>
       </View>
-    </Modal>
+      <View style={styles.confirmModalActions}>
+        <PrimaryButton label="Depois" icon="close-outline" tone="secondary" onPress={onClose} />
+        <PrimaryButton label="Abrir chave" icon="git-network-outline" onPress={onOpen} />
+      </View>
+    </MotionModal>
   );
 }
 
@@ -938,94 +910,98 @@ function AuthScreen({ onAuth }: { onAuth: (user: User) => void }) {
         role="main"
         contentContainerStyle={styles.authScroll}
       >
-        <View style={styles.authHero}>
-          <Text style={styles.brand}>Bolão Sirel</Text>
-          <Text role="heading" aria-level={1} style={styles.authTitle}>
-            Seu bolão em um só lugar
-          </Text>
-          <Text style={styles.authSubtitle}>
-            Entre para palpitar nas competições, acompanhar seus pontos e disputar o ranking.
-          </Text>
-        </View>
-
-        <View style={styles.authCard}>
-          <View style={styles.segment} accessibilityLabel="Acesso à conta">
-            <Pressable
-              {...({ 'aria-pressed': mode === 'login' } as object)}
-              accessibilityLabel="Usar login"
-              accessibilityRole="button"
-              onPress={() => {
-                setMode('login');
-                setError('');
-              }}
-              style={[styles.segmentItem, mode === 'login' && styles.segmentItemActive]}
-            >
-              <Text style={[styles.segmentText, mode === 'login' && styles.segmentTextActive]}>
-                Entrar
-              </Text>
-            </Pressable>
-            <Pressable
-              {...({ 'aria-pressed': mode === 'register' } as object)}
-              accessibilityLabel="Criar conta"
-              accessibilityRole="button"
-              onPress={() => {
-                setMode('register');
-                setError('');
-              }}
-              style={[styles.segmentItem, mode === 'register' && styles.segmentItemActive]}
-            >
-              <Text style={[styles.segmentText, mode === 'register' && styles.segmentTextActive]}>
-                Criar conta
-              </Text>
-            </Pressable>
+        <PageTransition style={styles.authMotion}>
+          <View {...({ 'data-motion-item': true } as object)} style={styles.authHero}>
+            <Text style={styles.brand}>Bolão Sirel</Text>
+            <Text role="heading" aria-level={1} style={styles.authTitle}>
+              Seu bolão em um só lugar
+            </Text>
+            <Text style={styles.authSubtitle}>
+              Entre para palpitar nas competições, acompanhar seus pontos e disputar o ranking.
+            </Text>
           </View>
 
-          <Field
-            label={mode === 'login' ? 'Nickname' : 'Nome real'}
-            value={username}
-            onChangeText={setUsername}
-            placeholder={mode === 'login' ? 'ex: maria.silva' : 'ex: Maria Silva'}
-            help={
-              mode === 'login'
-                ? 'Use o nickname público escolhido no cadastro para entrar.'
-                : 'Use seu nome real no cadastro. Espaços, hífen e apóstrofo são permitidos.'
-            }
-          />
-
-          {mode === 'register' ? (
-            <Field
-              label="Nickname público"
-              value={nickname}
-              onChangeText={setNickname}
-              placeholder="ex: maria.silva"
-              help="Esse nome aparece no ranking e pode ser personalizado como voce quiser."
-            />
-          ) : null}
-
-          <Field
-            label="Senha"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            placeholder="mínimo 6 caracteres"
-            help="Pode usar letras maiusculas, minusculas, numeros e simbolos."
-          />
-
-          {error ? (
-            <View style={styles.errorBox}>
-              <Ionicons name="alert-circle-outline" size={18} color={colors.red} />
-              <Text style={styles.errorText}>{error}</Text>
+          <View {...({ 'data-motion-item': true } as object)} style={styles.authCard}>
+            <View style={styles.segment} accessibilityLabel="Acesso à conta">
+              <MotionPressable
+                {...({ 'aria-pressed': mode === 'login' } as object)}
+                accessibilityLabel="Usar login"
+                accessibilityRole="button"
+                onPress={() => {
+                  setMode('login');
+                  setError('');
+                }}
+                motionSelected={mode === 'login'}
+                style={[styles.segmentItem, mode === 'login' && styles.segmentItemActive]}
+              >
+                <Text style={[styles.segmentText, mode === 'login' && styles.segmentTextActive]}>
+                  Entrar
+                </Text>
+              </MotionPressable>
+              <MotionPressable
+                {...({ 'aria-pressed': mode === 'register' } as object)}
+                accessibilityLabel="Criar conta"
+                accessibilityRole="button"
+                onPress={() => {
+                  setMode('register');
+                  setError('');
+                }}
+                motionSelected={mode === 'register'}
+                style={[styles.segmentItem, mode === 'register' && styles.segmentItemActive]}
+              >
+                <Text style={[styles.segmentText, mode === 'register' && styles.segmentTextActive]}>
+                  Criar conta
+                </Text>
+              </MotionPressable>
             </View>
-          ) : null}
 
-          <PrimaryButton
-            label={loading ? 'Aguarde...' : mode === 'login' ? 'Entrar' : 'Criar conta'}
-            accessibilityLabel={mode === 'login' ? 'Entrar no Bolão Sirel' : 'Concluir cadastro'}
-            onPress={submit}
-            disabled={loading}
-            icon={mode === 'login' ? 'log-in-outline' : 'person-add-outline'}
-          />
-        </View>
+            <Field
+              label={mode === 'login' ? 'Nickname' : 'Nome real'}
+              value={username}
+              onChangeText={setUsername}
+              placeholder={mode === 'login' ? 'ex: maria.silva' : 'ex: Maria Silva'}
+              help={
+                mode === 'login'
+                  ? 'Use o nickname público escolhido no cadastro para entrar.'
+                  : 'Use seu nome real no cadastro. Espaços, hífen e apóstrofo são permitidos.'
+              }
+            />
+
+            {mode === 'register' ? (
+              <Field
+                label="Nickname público"
+                value={nickname}
+                onChangeText={setNickname}
+                placeholder="ex: maria.silva"
+                help="Esse nome aparece no ranking e pode ser personalizado como voce quiser."
+              />
+            ) : null}
+
+            <Field
+              label="Senha"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              placeholder="mínimo 6 caracteres"
+              help="Pode usar letras maiusculas, minusculas, numeros e simbolos."
+            />
+
+            {error ? (
+              <View style={styles.errorBox}>
+                <Ionicons name="alert-circle-outline" size={18} color={colors.red} />
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            ) : null}
+
+            <PrimaryButton
+              label={loading ? 'Aguarde...' : mode === 'login' ? 'Entrar' : 'Criar conta'}
+              accessibilityLabel={mode === 'login' ? 'Entrar no Bolão Sirel' : 'Concluir cadastro'}
+              onPress={submit}
+              disabled={loading}
+              icon={mode === 'login' ? 'log-in-outline' : 'person-add-outline'}
+            />
+          </View>
+        </PageTransition>
       </ScrollView>
     </AppShell>
   );
@@ -2515,78 +2491,9 @@ function trophyIconName(icon: string): keyof typeof Ionicons.glyphMap {
 }
 
 function rankingGsapTarget(name: string) {
-  return Platform.OS === 'web' ? ({ dataSet: { rankingGsap: name } } as never) : {};
-}
-
-function useRankingGsap(animationKey: string) {
-  useEffect(() => {
-    if (Platform.OS !== 'web') return undefined;
-    if (typeof document === 'undefined' || typeof window === 'undefined') return undefined;
-    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return undefined;
-
-    let context: { revert: () => void } | undefined;
-    let cancelled = false;
-
-    void import('gsap').then((module) => {
-      if (cancelled) return;
-      const gsap = module.gsap;
-      const root = document.querySelector('[data-ranking-gsap="page"]');
-      if (!root) return;
-
-      context = gsap.context(() => {
-        const entranceTargets = [
-          '[data-ranking-gsap="head"]',
-          '[data-ranking-gsap="stat"]',
-          '[data-ranking-gsap="podium"]',
-          '[data-ranking-gsap="table"]',
-          '[data-ranking-gsap="side"]',
-        ];
-
-        gsap.from(entranceTargets, {
-          opacity: 0,
-          y: 12,
-          duration: 0.38,
-          stagger: 0.045,
-          ease: 'power2.out',
-          clearProps: 'opacity,transform',
-        });
-
-        gsap.from('[data-ranking-gsap="award"]', {
-          opacity: 0,
-          y: 10,
-          duration: 0.32,
-          stagger: 0.035,
-          delay: 0.08,
-          ease: 'power2.out',
-          clearProps: 'opacity,transform',
-        });
-
-        gsap.from('[data-ranking-gsap="row"]', {
-          opacity: 0,
-          y: 6,
-          duration: 0.26,
-          stagger: 0.018,
-          delay: 0.05,
-          ease: 'power2.out',
-          clearProps: 'opacity,transform',
-        });
-
-        gsap.to('[data-ranking-award-state="live"]', {
-          boxShadow: '0 0 0 1px rgba(47,191,122,0.55), 0 0 20px rgba(47,191,122,0.18)',
-          duration: 0.42,
-          yoyo: true,
-          repeat: 1,
-          ease: 'power2.out',
-          clearProps: 'boxShadow',
-        });
-      }, root);
-    });
-
-    return () => {
-      cancelled = true;
-      context?.revert();
-    };
-  }, [animationKey]);
+  return Platform.OS === 'web' && name !== 'page'
+    ? ({ dataSet: { motionItem: 'true' } } as never)
+    : {};
 }
 
 function TrophyAwardCard({ award, featured = false }: { award: RankingAward; featured?: boolean }) {
@@ -2916,18 +2823,8 @@ function RankingScreenLayout({
     ranking.length === 0
       ? 'Ranking vazio por enquanto.'
       : 'Nenhum participante encontrado para o filtro aplicado.';
-  const rankingAnimationKey = [
-    periodFilter,
-    statusFilter,
-    search,
-    awards.length,
-    filteredRanking.map((row) => `${row.userId}:${row.rank}:${row.points}`).join('|'),
-  ].join('/');
-
-  useRankingGsap(rankingAnimationKey);
-
   return (
-    <View {...rankingGsapTarget('page')} style={styles.rankingPage}>
+    <PageTransition style={styles.rankingPage}>
       <View
         {...rankingGsapTarget('head')}
         style={[styles.rankingHead, stackTools && styles.rankingHeadCompact]}
@@ -2961,8 +2858,9 @@ function RankingScreenLayout({
             {rankingStatusOptions.map((option) => {
               const active = statusFilter === option.key;
               return (
-                <Pressable
+                <MotionPressable
                   key={option.key}
+                  motionSelected={active}
                   onPress={() => setStatusFilter(option.key)}
                   style={[
                     styles.rankingSegmentedButton,
@@ -2977,7 +2875,7 @@ function RankingScreenLayout({
                   >
                     {option.label}
                   </Text>
-                </Pressable>
+                </MotionPressable>
               );
             })}
           </View>
@@ -2986,8 +2884,9 @@ function RankingScreenLayout({
             {rankingPeriodOptions.map((option) => {
               const active = periodFilter === option.key;
               return (
-                <Pressable
+                <MotionPressable
                   key={option.key}
+                  motionSelected={active}
                   onPress={() => setPeriodFilter(option.key)}
                   style={[
                     styles.rankingSegmentedButton,
@@ -3002,7 +2901,7 @@ function RankingScreenLayout({
                   >
                     {option.label}
                   </Text>
-                </Pressable>
+                </MotionPressable>
               );
             })}
           </View>
@@ -3246,7 +3145,7 @@ function RankingScreenLayout({
           </View>
         </View>
       </View>
-    </View>
+    </PageTransition>
   );
 }
 
@@ -4400,8 +4299,8 @@ export default function App() {
   const knockoutCalloutVisible = !knockoutCalloutDismissed && nowTime < knockoutDeadline;
 
   return (
-    <ToastProvider>
-      <AppShell>
+    <AppShell>
+      <ToastProvider>
         <CompetitionProvider initialCompetitionSlug={routeCompetitionSlug} userRole={user.role}>
           {appIaV2 ? (
             <RoutedWorkspace
@@ -4480,23 +4379,23 @@ export default function App() {
             }}
           />
         </CompetitionProvider>
-      </AppShell>
-      <UnsavedChangesModal
-        visible={Boolean(pendingNavigation)}
-        onContinue={() => setPendingNavigation(null)}
-        onKeepDraft={() => {
-          const action = pendingNavigation;
-          setPendingNavigation(null);
-          action?.();
-        }}
-        onDiscard={() => {
-          const action = pendingNavigation;
-          getActiveDirtyDraftGuard(user?.id)?.discard();
-          setPendingNavigation(null);
-          action?.();
-        }}
-      />
-    </ToastProvider>
+        <UnsavedChangesModal
+          visible={Boolean(pendingNavigation)}
+          onContinue={() => setPendingNavigation(null)}
+          onKeepDraft={() => {
+            const action = pendingNavigation;
+            setPendingNavigation(null);
+            action?.();
+          }}
+          onDiscard={() => {
+            const action = pendingNavigation;
+            getActiveDirtyDraftGuard(user?.id)?.discard();
+            setPendingNavigation(null);
+            action?.();
+          }}
+        />
+      </ToastProvider>
+    </AppShell>
   );
 }
 
@@ -4506,7 +4405,11 @@ const styles = StyleSheet.create({
     padding: 20,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  authMotion: {
+    alignItems: 'center',
     gap: 22,
+    width: '100%',
   },
   authHero: {
     width: '100%',

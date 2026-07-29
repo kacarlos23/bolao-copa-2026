@@ -1,4 +1,5 @@
-import { Platform, Pressable, type GestureResponderEvent, type PressableProps } from 'react-native';
+import { Platform, type GestureResponderEvent, type PressableProps } from 'react-native';
+import { MotionPressable } from '../motion';
 
 type RouteLinkProps = Omit<PressableProps, 'accessibilityRole' | 'onPress'> & {
   href: string;
@@ -29,10 +30,12 @@ function isModifiedWebClick(event: GestureResponderEvent) {
  */
 export function RouteLink({ href, onActivate, ...props }: RouteLinkProps) {
   return (
-    <Pressable
+    <MotionPressable
       {...props}
       {...({ href } as object)}
       accessibilityRole="link"
+      motionKind="subtle"
+      motionSelected={Boolean(props.accessibilityState?.selected)}
       onPress={(event) => {
         if (isModifiedWebClick(event)) return;
         if (Platform.OS === 'web') event.preventDefault();

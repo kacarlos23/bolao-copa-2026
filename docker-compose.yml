@@ -5,11 +5,14 @@ services:
       target: api
     env_file:
       - .env
+    environment:
+      DATABASE_URL: ${COMPOSE_DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/bolao_copa_2026?schema=public}
     ports:
       - "3001:3001"
     restart: unless-stopped
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
 
   postgres:
     image: postgres:17-alpine
@@ -21,6 +24,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d bolao_copa_2026']
+      interval: 5s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
 volumes:

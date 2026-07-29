@@ -1,6 +1,5 @@
 import type { ComponentProps, ReactNode } from 'react';
 import {
-  Pressable,
   StyleSheet,
   Text,
   View,
@@ -9,6 +8,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { MotionPressable } from '../motion';
 import { theme } from '../theme/tokens';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -107,12 +107,13 @@ export function AppButton({
 }) {
   const palette = buttonPalette[variant];
   return (
-    <Pressable
+    <MotionPressable
       {...props}
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityRole="button"
       accessibilityState={{ disabled: Boolean(disabled) }}
       disabled={disabled}
+      motionKind="button"
       style={({ pressed }) => [
         styles.button,
         {
@@ -126,7 +127,7 @@ export function AppButton({
     >
       {icon ? <Ionicons name={icon} size={18} color={palette.color} /> : null}
       <Text style={[styles.buttonText, { color: palette.color }]}>{label}</Text>
-    </Pressable>
+    </MotionPressable>
   );
 }
 

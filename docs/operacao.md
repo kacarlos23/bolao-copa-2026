@@ -6,7 +6,10 @@
 - API Express: `3001`.
 - PostgreSQL do projeto: `5433`.
 
-O Cloudflare Tunnel atual deve apontar para `http://localhost:8080`.
+O Cloudflare Tunnel deve publicar a origem do frontend em
+`http://localhost:8080`. No modo separado, publique também a origem HTTPS
+configurada em `EXPO_PUBLIC_API_URL` apontando para `http://localhost:3001`;
+expor somente a porta `8080` deixa a API inacessível para o navegador.
 
 ## PM2
 
@@ -15,9 +18,16 @@ Build inicial:
 ```powershell
 npm install
 npm run prisma:generate
+$env:EXPO_PUBLIC_API_URL = "https://api.seu-dominio.example"
 npm run build
 npm run seed
 ```
+
+Quando frontend e API forem publicados em portas ou origens diferentes,
+`EXPO_PUBLIC_API_URL` precisa conter a origem HTTPS pública da API durante o
+build. Configure `WEB_ORIGIN` com a origem pública exata do frontend e inclua
+origens adicionais somente em `WEB_ORIGINS`. Frontend HTTPS não pode chamar uma
+API HTTP por causa do bloqueio de conteúdo misto do navegador.
 
 Se estiver usando o cluster PostgreSQL dedicado criado na pasta do projeto, inicie antes:
 
@@ -33,6 +43,10 @@ pm2 start ecosystem.config.cjs
 pm2 save
 pm2 startup
 ```
+
+O PM2 serve o `apps/web/dist` estático na porta `8080`; ele não expõe o servidor
+de desenvolvimento Expo/Metro em produção. Refaça `npm run build` antes de
+reiniciar o processo web sempre que o frontend ou `EXPO_PUBLIC_API_URL` mudar.
 
 Depois de rodar `pm2 startup`, execute o comando que o PM2 imprimir para registrar o serviço no Windows.
 
@@ -50,7 +64,9 @@ Verifique o status no Windows Services ou com:
 Get-Service cloudflared
 ```
 
-O tunnel deve encaminhar o subdomínio para `http://localhost:8080`.
+O tunnel deve encaminhar o hostname do frontend para `http://localhost:8080`.
+Se a API usar outro hostname, adicione uma segunda regra para
+`http://localhost:3001` e use esse hostname HTTPS em `EXPO_PUBLIC_API_URL`.
 
 ## Baseline de preservação da Copa 2026
 
@@ -64,13 +80,13 @@ Estas credenciais são públicas e deliberadamente fracas. Use-as somente nesta 
 
 | Serviço                     | Usuário    | Senha            | Destino                          |
 | --------------------------- | ---------- | ---------------- | -------------------------------- |
-| PostgreSQL local            | `postgres` | `postgres`       | `localhost:5432/bolao_copa_2026` |
+| PostgreSQL local            | `postgres` | `postgres`       | `localhost:5433/bolao_copa_2026` |
 | Administrador do aplicativo | `admin`    | `dev-admin-2026` | Login local da aplicação         |
 
 Para aplicar migrations e semear/redefinir o administrador local:
 
 ```powershell
-$env:DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/bolao_copa_2026?schema=public"
+$env:DATABASE_URL = "postgresql://postgres:postgres@localhost:5433/bolao_copa_2026?schema=public"
 $env:ADMIN_USERNAME = "admin"
 $env:ADMIN_NICKNAME = "Administrador Local"
 $env:ADMIN_PASSWORD = "dev-admin-2026"

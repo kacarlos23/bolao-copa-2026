@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { MotionShimmer } from '../motion';
 import { theme } from '../theme/tokens';
 
 export type AsyncStatus =
@@ -14,16 +15,14 @@ export type AsyncStatus =
 
 export function Skeleton({ lines = 4 }: { lines?: number }) {
   return (
-    <View accessibilityLabel="Carregando conteúdo" style={styles.skeleton}>
+    <MotionShimmer accessibilityLabel="Carregando conteúdo" style={styles.skeleton}>
       {Array.from({ length: lines }, (_, index) => (
         <View key={index} style={styles.skeletonRow}>
           <View style={styles.skeletonMarker} />
-          <View
-            style={[styles.skeletonLine, index === lines - 1 && styles.skeletonLineShort]}
-          />
+          <View style={[styles.skeletonLine, index === lines - 1 && styles.skeletonLineShort]} />
         </View>
       ))}
-    </View>
+    </MotionShimmer>
   );
 }
 
@@ -39,13 +38,7 @@ export function EmptyState({ title, message }: { title: string; message: string 
   );
 }
 
-export function ErrorState({
-  error,
-  onRetry,
-}: {
-  error: string;
-  onRetry?: () => void;
-}) {
+export function ErrorState({ error, onRetry }: { error: string; onRetry?: () => void }) {
   return (
     <View style={styles.message} accessibilityRole="alert">
       <View style={[styles.messageIcon, styles.messageIconError]}>

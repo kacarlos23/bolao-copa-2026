@@ -1,16 +1,10 @@
 import { createElement, type ChangeEvent, useRef, useState } from 'react';
-import {
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  useWindowDimensions,
-  View,
-} from 'react-native';
+import { Platform, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { api, type User } from '../api';
 import { ResponsiveContainer } from '../components/DesignSystem';
 import { UserAvatar } from '../components/UserAvatar';
+import { MotionPressable, PageTransition } from '../motion';
 import {
   activePrimaryDestination,
   pathForScreen,
@@ -189,7 +183,7 @@ export function AppHeader({
   }
 
   return (
-    <View role="banner" style={styles.header}>
+    <View {...({ 'data-motion-header': true } as object)} role="banner" style={styles.header}>
       <ResponsiveContainer
         style={[
           styles.topbar,
@@ -203,7 +197,10 @@ export function AppHeader({
           onActivate={() => onNavigatePrimary('home')}
           style={({ pressed }) => [styles.brandLink, pressed && styles.brandLinkPressed]}
         >
-          <View style={[styles.brandMark, compact && styles.brandMarkCompact]} accessibilityElementsHidden>
+          <View
+            style={[styles.brandMark, compact && styles.brandMarkCompact]}
+            accessibilityElementsHidden
+          >
             <Ionicons name="football" size={compact ? 20 : 22} color={theme.color.accentInk} />
           </View>
           <View style={styles.brandCopy}>
@@ -227,7 +224,7 @@ export function AppHeader({
         ) : null}
 
         <View style={styles.accountArea}>
-          <Pressable
+          <MotionPressable
             accessibilityRole="button"
             accessibilityLabel="Atualizar dados"
             onPress={onRefresh}
@@ -235,7 +232,7 @@ export function AppHeader({
           >
             <Ionicons name="refresh-outline" size={18} color={theme.color.textMuted} />
             {!condensed ? <Text style={styles.utilityText}>Atualizar</Text> : null}
-          </Pressable>
+          </MotionPressable>
           <View style={styles.profileAnchor}>
             {Platform.OS === 'web'
               ? createElement('input', {
@@ -256,7 +253,7 @@ export function AppHeader({
                   tabIndex: -1,
                 })
               : null}
-            <Pressable
+            <MotionPressable
               {...({ 'aria-controls': 'menu-perfil', 'aria-haspopup': 'menu' } as object)}
               accessibilityRole="button"
               accessibilityLabel={`Abrir menu de ${user.nickname}`}
@@ -284,9 +281,12 @@ export function AppHeader({
                 size={14}
                 color={theme.color.textMuted}
               />
-            </Pressable>
+            </MotionPressable>
             {profileOpen ? (
-              <View
+              <PageTransition
+                distance={8}
+                duration={240}
+                stagger={35}
                 nativeID="menu-perfil"
                 role="group"
                 accessibilityLabel="Ações do perfil"
@@ -296,7 +296,7 @@ export function AppHeader({
                   Platform.OS === 'web' ? profileMenuWeb : undefined,
                 ]}
               >
-                <Pressable
+                <MotionPressable
                   accessibilityRole="button"
                   accessibilityLabel="Alterar foto de perfil"
                   accessibilityHint="Escolha uma imagem JPG, PNG ou WEBP de até 8 MB"
@@ -318,9 +318,9 @@ export function AppHeader({
                       <Text style={styles.menuHint}>JPG, PNG ou WEBP · até 8 MB</Text>
                     ) : null}
                   </View>
-                </Pressable>
+                </MotionPressable>
                 {user.avatarUrl ? (
-                  <Pressable
+                  <MotionPressable
                     accessibilityRole="button"
                     accessibilityLabel="Remover foto"
                     disabled={avatarBusy}
@@ -333,10 +333,10 @@ export function AppHeader({
                   >
                     <Ionicons name="trash-outline" size={18} color={theme.color.danger} />
                     <Text style={[styles.menuText, styles.dangerText]}>Remover foto</Text>
-                  </Pressable>
+                  </MotionPressable>
                 ) : null}
                 {user.role === 'ADMIN' && onNavigateAdmin ? (
-                  <Pressable
+                  <MotionPressable
                     accessibilityRole="button"
                     accessibilityLabel="Administração"
                     onPress={() => {
@@ -347,10 +347,10 @@ export function AppHeader({
                   >
                     <Ionicons name="settings-outline" size={18} color={theme.color.text} />
                     <Text style={styles.menuText}>Administração</Text>
-                  </Pressable>
+                  </MotionPressable>
                 ) : null}
                 <View style={styles.menuDivider} />
-                <Pressable
+                <MotionPressable
                   accessibilityRole="button"
                   accessibilityLabel="Sair"
                   onPress={() => {
@@ -361,8 +361,8 @@ export function AppHeader({
                 >
                   <Ionicons name="log-out-outline" size={18} color={theme.color.text} />
                   <Text style={styles.menuText}>Sair</Text>
-                </Pressable>
-              </View>
+                </MotionPressable>
+              </PageTransition>
             ) : null}
           </View>
         </View>
@@ -573,7 +573,8 @@ const mobilePrimaryNavigationWeb = {
   bottom: 0,
   boxShadow: theme.shadow.raised,
   left: 0,
-  margin: '0 max(8px, env(safe-area-inset-left)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-right))',
+  margin:
+    '0 max(8px, env(safe-area-inset-left)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-right))',
   paddingBottom: 'max(8px, env(safe-area-inset-bottom))',
   position: 'fixed',
   right: 0,

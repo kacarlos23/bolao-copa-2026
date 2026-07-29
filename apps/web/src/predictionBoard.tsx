@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Animated,
   Image,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -25,7 +23,7 @@ import {
 } from './api';
 import { flagSources } from './flagSources';
 import { DailyPredictionsV2 } from './competitionV2';
-import { SoftReveal, usePrefersReducedMotion } from './motion';
+import { CelebrationBurst, MotionModal, MotionPressable, SoftReveal } from './motion';
 import { ScoreInput } from './components/ScoreInput';
 import { discardStoredDraft, draftStorageKey, registerActiveDraftGuard } from './services/drafts';
 import { resolvedAdvancingTeam } from './knockoutDraft';
@@ -220,47 +218,49 @@ function PublicPredictionsModal({
     return (a.user?.nickname ?? '').localeCompare(b.user?.nickname ?? '', 'pt-BR');
   });
   return (
-    <Modal transparent animationType="fade" visible={Boolean(match)} onRequestClose={onClose}>
-      <View style={styles.modalBackdrop}>
-        <View style={styles.publicModal}>
-          <View style={styles.modalHeader}>
-            <View>
-              <Text style={styles.modalTitle}>Palpites dos participantes</Text>
-              {match ? (
-                <Text style={styles.modalSubtitle}>
-                  {match.homeTeam.name} x {match.awayTeam.name}
-                </Text>
-              ) : null}
-            </View>
-            <Pressable style={styles.iconButton} onPress={onClose} accessibilityLabel="Fechar">
-              <Ionicons name="close" size={22} color={palette.white} />
-            </Pressable>
-          </View>
-          <ScrollView style={styles.publicList} contentContainerStyle={styles.publicListContent}>
-            {predictions.length ? (
-              predictions.map((prediction) => (
-                <View
-                  key={prediction.id}
-                  style={[
-                    styles.publicPredictionRow,
-                    prediction.userId === currentUserId && styles.publicPredictionMine,
-                  ]}
-                >
-                  <Text style={styles.publicPredictionName} numberOfLines={1}>
-                    {prediction.user?.nickname ?? 'Participante'}
-                  </Text>
-                  <Text style={styles.publicPredictionScore}>
-                    {prediction.predictedHomeScore} x {prediction.predictedAwayScore}
-                  </Text>
-                </View>
-              ))
-            ) : (
-              <Text style={styles.modalSubtitle}>Nenhum palpite enviado.</Text>
-            )}
-          </ScrollView>
+    <MotionModal
+      accessibilityLabel="Palpites dos participantes"
+      backdropStyle={styles.modalBackdrop}
+      panelStyle={styles.publicModal}
+      visible={Boolean(match)}
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalHeader}>
+        <View>
+          <Text style={styles.modalTitle}>Palpites dos participantes</Text>
+          {match ? (
+            <Text style={styles.modalSubtitle}>
+              {match.homeTeam.name} x {match.awayTeam.name}
+            </Text>
+          ) : null}
         </View>
+        <MotionPressable style={styles.iconButton} onPress={onClose} accessibilityLabel="Fechar">
+          <Ionicons name="close" size={22} color={palette.white} />
+        </MotionPressable>
       </View>
-    </Modal>
+      <ScrollView style={styles.publicList} contentContainerStyle={styles.publicListContent}>
+        {predictions.length ? (
+          predictions.map((prediction) => (
+            <View
+              key={prediction.id}
+              style={[
+                styles.publicPredictionRow,
+                prediction.userId === currentUserId && styles.publicPredictionMine,
+              ]}
+            >
+              <Text style={styles.publicPredictionName} numberOfLines={1}>
+                {prediction.user?.nickname ?? 'Participante'}
+              </Text>
+              <Text style={styles.publicPredictionScore}>
+                {prediction.predictedHomeScore} x {prediction.predictedAwayScore}
+              </Text>
+            </View>
+          ))
+        ) : (
+          <Text style={styles.modalSubtitle}>Nenhum palpite enviado.</Text>
+        )}
+      </ScrollView>
+    </MotionModal>
   );
 }
 
@@ -273,48 +273,24 @@ function SuccessModal({
   message: string;
   onClose: () => void;
 }) {
-  const reducedMotion = usePrefersReducedMotion();
-  const progress = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    if (!visible) {
-      progress.setValue(0);
-      return;
-    }
-    if (reducedMotion) {
-      progress.setValue(1);
-      return;
-    }
-    const animation = Animated.spring(progress, {
-      toValue: 1,
-      friction: 5,
-      tension: 80,
-      useNativeDriver: true,
-    });
-    animation.start();
-    return () => animation.stop();
-  }, [progress, reducedMotion, visible]);
   return (
-    <Modal
-      transparent
-      animationType={reducedMotion ? 'none' : 'fade'}
+    <MotionModal
+      accessibilityLabel="Palpites salvos"
+      backdropStyle={styles.modalBackdrop}
+      panelStyle={styles.successModal}
       visible={visible}
       onRequestClose={onClose}
     >
-      <View style={styles.modalBackdrop}>
-        <View style={styles.successModal}>
-          <Animated.View
-            style={[styles.successMark, { opacity: progress, transform: [{ scale: progress }] }]}
-          >
-            <Ionicons name="checkmark" size={52} color={palette.white} />
-          </Animated.View>
-          <Text style={styles.successTitle}>Palpites salvos</Text>
-          <Text style={styles.successMessage}>{message}</Text>
-          <Pressable style={styles.primaryButton} onPress={onClose}>
-            <Text style={styles.primaryButtonText}>OK</Text>
-          </Pressable>
-        </View>
+      {visible ? <CelebrationBurst intensity="full" /> : null}
+      <View style={styles.successMark}>
+        <Ionicons name="checkmark" size={52} color={palette.white} />
       </View>
-    </Modal>
+      <Text style={styles.successTitle}>Palpites salvos</Text>
+      <Text style={styles.successMessage}>{message}</Text>
+      <MotionPressable style={styles.primaryButton} onPress={onClose}>
+        <Text style={styles.primaryButtonText}>OK</Text>
+      </MotionPressable>
+    </MotionModal>
   );
 }
 
@@ -1048,76 +1024,75 @@ function PublicBracketsModal({
     return new Map(entries);
   }, [selected?.picks]);
   return (
-    <Modal transparent animationType="fade" visible={visible} onRequestClose={onClose}>
-      <View style={styles.modalBackdrop}>
-        <View style={styles.bracketsModal}>
-          <View style={styles.modalHeader}>
-            <View>
-              <Text style={styles.modalTitle}>Chaves dos participantes</Text>
-              <Text style={styles.modalSubtitle}>Palpites publicados após o fechamento.</Text>
-            </View>
-            <Pressable style={styles.iconButton} onPress={onClose} accessibilityLabel="Fechar">
-              <Ionicons name="close" size={22} color={palette.white} />
-            </Pressable>
-          </View>
-          {loading ? (
-            <ActivityIndicator color={palette.yellow} style={{ margin: 40 }} />
-          ) : (
-            <View style={styles.bracketsModalBody}>
-              <ScrollView horizontal contentContainerStyle={styles.bracketUserTabs}>
-                {brackets.map((bracket) => (
-                  <Pressable
-                    key={bracket.id}
-                    onPress={() => setSelectedId(bracket.id)}
-                    style={[
-                      styles.bracketUserTab,
-                      bracket.id === selectedId && styles.bracketUserTabActive,
-                    ]}
-                  >
-                    <Text style={styles.bracketUserTabText}>{bracket.user.nickname}</Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-              <ScrollView contentContainerStyle={styles.publicBracketPicks}>
-                {selected?.picks.map((pick) => {
-                  const tone = knockoutPickTone(
-                    pick.fixture,
-                    {
-                      home: String(pick.predictedHomeScore),
-                      away: String(pick.predictedAwayScore),
-                      advancingTeamId: pick.advancingTeam.id,
-                    },
-                    publicWinnersByStage,
-                    publicTeamsById,
-                  );
-                  return (
-                    <View
-                      key={pick.id}
-                      style={[
-                        styles.publicBracketPick,
-                        tone === 'correct' && styles.publicBracketPickCorrect,
-                        tone === 'wrong' && styles.publicBracketPickWrong,
-                      ]}
-                    >
-                      <Text style={styles.knockoutMatchNumber}>
-                        Jogo {pick.fixture.matchNumber}
-                      </Text>
-                      <Text style={styles.publicBracketTeams} numberOfLines={1}>
-                        {pick.homeTeam.name} {pick.predictedHomeScore} x {pick.predictedAwayScore}{' '}
-                        {pick.awayTeam.name}
-                      </Text>
-                      <Text style={styles.publicBracketWinner}>
-                        Avança: {pick.advancingTeam.name}
-                      </Text>
-                    </View>
-                  );
-                }) ?? <Text style={styles.modalSubtitle}>Nenhuma chave publicada.</Text>}
-              </ScrollView>
-            </View>
-          )}
+    <MotionModal
+      accessibilityLabel="Chaves dos participantes"
+      backdropStyle={styles.modalBackdrop}
+      panelStyle={styles.bracketsModal}
+      visible={visible}
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalHeader}>
+        <View>
+          <Text style={styles.modalTitle}>Chaves dos participantes</Text>
+          <Text style={styles.modalSubtitle}>Palpites publicados após o fechamento.</Text>
         </View>
+        <MotionPressable style={styles.iconButton} onPress={onClose} accessibilityLabel="Fechar">
+          <Ionicons name="close" size={22} color={palette.white} />
+        </MotionPressable>
       </View>
-    </Modal>
+      {loading ? (
+        <ActivityIndicator color={palette.yellow} style={{ margin: 40 }} />
+      ) : (
+        <View style={styles.bracketsModalBody}>
+          <ScrollView horizontal contentContainerStyle={styles.bracketUserTabs}>
+            {brackets.map((bracket) => (
+              <MotionPressable
+                key={bracket.id}
+                motionSelected={bracket.id === selectedId}
+                onPress={() => setSelectedId(bracket.id)}
+                style={[
+                  styles.bracketUserTab,
+                  bracket.id === selectedId && styles.bracketUserTabActive,
+                ]}
+              >
+                <Text style={styles.bracketUserTabText}>{bracket.user.nickname}</Text>
+              </MotionPressable>
+            ))}
+          </ScrollView>
+          <ScrollView contentContainerStyle={styles.publicBracketPicks}>
+            {selected?.picks.map((pick) => {
+              const tone = knockoutPickTone(
+                pick.fixture,
+                {
+                  home: String(pick.predictedHomeScore),
+                  away: String(pick.predictedAwayScore),
+                  advancingTeamId: pick.advancingTeam.id,
+                },
+                publicWinnersByStage,
+                publicTeamsById,
+              );
+              return (
+                <View
+                  key={pick.id}
+                  style={[
+                    styles.publicBracketPick,
+                    tone === 'correct' && styles.publicBracketPickCorrect,
+                    tone === 'wrong' && styles.publicBracketPickWrong,
+                  ]}
+                >
+                  <Text style={styles.knockoutMatchNumber}>Jogo {pick.fixture.matchNumber}</Text>
+                  <Text style={styles.publicBracketTeams} numberOfLines={1}>
+                    {pick.homeTeam.name} {pick.predictedHomeScore} x {pick.predictedAwayScore}{' '}
+                    {pick.awayTeam.name}
+                  </Text>
+                  <Text style={styles.publicBracketWinner}>Avança: {pick.advancingTeam.name}</Text>
+                </View>
+              );
+            }) ?? <Text style={styles.modalSubtitle}>Nenhuma chave publicada.</Text>}
+          </ScrollView>
+        </View>
+      )}
+    </MotionModal>
   );
 }
 
@@ -1565,7 +1540,8 @@ function KnockoutBoard({
       setSavedPickCount(next.knockout.savedBracket?.picks.length ?? filledPicks.length);
       setShareReady(true);
       const changedWhileSaving = draftRevision.current !== submittedRevision;
-      if (!changedWhileSaving && typeof window !== 'undefined') window.localStorage.removeItem(draftKey);
+      if (!changedWhileSaving && typeof window !== 'undefined')
+        window.localStorage.removeItem(draftKey);
       setSuccess(!changedWhileSaving);
       setSaveState(changedWhileSaving ? 'dirty' : 'saved');
       setSavedAt(new Date().toISOString());

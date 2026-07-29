@@ -7,6 +7,7 @@ import { AsyncState } from '../../components/AsyncState';
 import { normalizeCapabilities } from '../../app/CompetitionContext';
 import { pathForCompetition } from '../../navigation/routes';
 import { RouteLink } from '../../navigation/RouteLink';
+import { ScrollReveal } from '../../motion';
 import { theme } from '../../theme/tokens';
 
 function competitionKind(item: CompetitionDto) {
@@ -28,7 +29,7 @@ export function CompetitionHub({ onOpen }: { onOpen: (competition: CompetitionDt
 
   return (
     <View style={styles.page} accessibilityLabel="Central de competições">
-      <View style={styles.heading}>
+      <View {...({ 'data-motion-item': true } as object)} style={styles.heading}>
         <Text style={styles.eyebrow}>CENTRAL ESPORTIVA</Text>
         <Text role="heading" aria-level={1} style={styles.title}>
           Competições
@@ -55,7 +56,7 @@ export function CompetitionHub({ onOpen }: { onOpen: (competition: CompetitionDt
         onRetry={context.retry}
         skeletonLines={3}
       >
-        <View style={styles.list} role="list">
+        <ScrollReveal style={styles.list} role="list">
           {context.competitions.map((item) => {
             const selected = item.id === context.competition?.id;
             const legacy = item.capabilities?.workspace === 'WORLD_CUP_LEGACY';
@@ -107,6 +108,7 @@ export function CompetitionHub({ onOpen }: { onOpen: (competition: CompetitionDt
             ];
             return (
               <RouteLink
+                {...({ 'data-motion-item': true } as object)}
                 key={item.id}
                 href={pathForCompetition(item.slug)}
                 accessibilityLabel={accessibleLabel}
@@ -118,7 +120,7 @@ export function CompetitionHub({ onOpen }: { onOpen: (competition: CompetitionDt
               </RouteLink>
             );
           })}
-        </View>
+        </ScrollReveal>
       </AsyncState>
 
       <View style={styles.help}>

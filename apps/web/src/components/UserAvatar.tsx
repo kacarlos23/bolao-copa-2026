@@ -26,21 +26,25 @@ export function UserAvatar({
   nickname,
   avatarUrl,
   size = 44,
+  accessibilityLabel,
 }: {
   nickname: string;
   avatarUrl?: string | null;
   size?: number;
+  accessibilityLabel?: string;
 }) {
   const uri = userAvatarUri(avatarUrl);
   const [failedUri, setFailedUri] = useState<string | null>(null);
   const visibleUri = uri && failedUri !== uri ? uri : null;
   const dimensions = { width: size, height: size, borderRadius: size / 2 };
-  const imageLabel = `Foto de perfil de ${nickname}`;
+  const imageLabel = accessibilityLabel ?? `Foto de perfil de ${nickname}`;
 
   return (
     <View
-      accessibilityLabel={visibleUri ? imageLabel : `Avatar com iniciais de ${nickname}`}
-      accessibilityRole="image"
+      accessibilityLabel={
+        visibleUri || accessibilityLabel ? imageLabel : `Avatar com iniciais de ${nickname}`
+      }
+      accessibilityRole={visibleUri ? undefined : 'image'}
       style={[styles.container, dimensions]}
     >
       {visibleUri ? (

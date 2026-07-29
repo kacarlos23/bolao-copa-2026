@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -17,6 +16,7 @@ import { AsyncState, type AsyncStatus } from '../../components/AsyncState';
 import { TeamBadge } from '../../components/TeamBadge';
 import { RouteLink } from '../../navigation/RouteLink';
 import { pathForCompetition, pathForCompetitionTeam, pathForScreen } from '../../navigation/routes';
+import { MotionPressable, PageTransition, ScrollReveal } from '../../motion';
 import { theme } from '../../theme/tokens';
 
 function normalizeName(value: string) {
@@ -49,7 +49,7 @@ function SourceStatus({ profile }: { profile: TeamProfileDto }) {
       <Text style={styles.sourceText}>
         Dados de {profile.source.label} · coleta de {formatCollectedAt(profile.source.collectedAt)}
       </Text>
-      <Pressable
+      <MotionPressable
         {...({ href: profile.source.url, target: '_blank', rel: 'noreferrer' } as object)}
         accessibilityRole="link"
         accessibilityLabel={`Abrir fonte oficial de ${profile.team.name} em nova aba`}
@@ -57,7 +57,7 @@ function SourceStatus({ profile }: { profile: TeamProfileDto }) {
       >
         <Text style={styles.sourceLinkText}>Ver fonte oficial</Text>
         <Ionicons name="open-outline" size={14} color={theme.color.info} />
-      </Pressable>
+      </MotionPressable>
     </View>
   );
 }
@@ -110,8 +110,8 @@ export function TeamDirectoryScreen({
   }, [query, teams]);
 
   return (
-    <View style={styles.page}>
-      <View style={styles.directoryHeader}>
+    <PageTransition style={styles.page}>
+      <View {...({ 'data-motion-item': true } as object)} style={styles.directoryHeader}>
         <View style={styles.headingGroup}>
           <Text style={styles.eyebrow}>TIMES · TEMPORADA</Text>
           <Text accessibilityRole="header" style={styles.pageTitle}>
@@ -134,7 +134,11 @@ export function TeamDirectoryScreen({
           />
         </View>
       </View>
-      <View style={styles.resultMeta} accessibilityLiveRegion="polite">
+      <View
+        {...({ 'data-motion-item': true } as object)}
+        style={styles.resultMeta}
+        accessibilityLiveRegion="polite"
+      >
         <Text style={styles.resultCount}>
           {filtered.length} {filtered.length === 1 ? 'clube' : 'clubes'}
         </Text>
@@ -151,19 +155,20 @@ export function TeamDirectoryScreen({
         {teams.length && !filtered.length ? (
           <View style={styles.filteredEmpty} accessibilityRole="summary">
             <Text style={styles.filteredEmptyTitle}>Nenhum resultado para “{query}”</Text>
-            <Pressable
+            <MotionPressable
               accessibilityRole="button"
               onPress={() => setQuery('')}
               style={styles.clearButton}
             >
               <Text style={styles.clearButtonText}>Limpar busca</Text>
-            </Pressable>
+            </MotionPressable>
           </View>
         ) : (
-          <View style={styles.teamGrid}>
+          <ScrollReveal style={styles.teamGrid}>
             {filtered.map((entry) => (
               <RouteLink
                 key={entry.team.id}
+                {...({ 'data-motion-item': true } as object)}
                 href={
                   competitionSlug
                     ? pathForCompetitionTeam(competitionSlug, entry.team.id)
@@ -191,10 +196,10 @@ export function TeamDirectoryScreen({
                 <Ionicons name="chevron-forward" size={18} color={theme.color.textMuted} />
               </RouteLink>
             ))}
-          </View>
+          </ScrollReveal>
         )}
       </AsyncState>
-    </View>
+    </PageTransition>
   );
 }
 
@@ -442,7 +447,7 @@ export function TeamProfileScreen({
   }, [season?.id, teamId, refreshVersion, reload]);
 
   return (
-    <View style={styles.page}>
+    <PageTransition style={styles.page}>
       <RouteLink
         href={
           competitionSlug
@@ -463,8 +468,8 @@ export function TeamProfileScreen({
         skeletonLines={6}
       >
         {profile ? (
-          <>
-            <View style={styles.profileHeader}>
+          <ScrollReveal>
+            <View {...({ 'data-motion-item': true } as object)} style={styles.profileHeader}>
               <TeamBadge team={profile.team} kind="crest" size={82} />
               <View style={styles.profileIdentity}>
                 <Text style={styles.eyebrow}>
@@ -493,8 +498,11 @@ export function TeamProfileScreen({
                 </View>
               </View>
             </View>
-            <SourceStatus profile={profile} />
+            <View {...({ 'data-motion-item': true } as object)}>
+              <SourceStatus profile={profile} />
+            </View>
             <View
+              {...({ 'data-motion-item': true } as object)}
               {...({ role: 'navigation' } as object)}
               accessibilityLabel={`Seções do perfil de ${profile.team.name}`}
             >
@@ -539,15 +547,20 @@ export function TeamProfileScreen({
                 })}
               </ScrollView>
             </View>
-            {section === 'athletes' ? <AthletesSection profile={profile} /> : null}
-            {section === 'matches' ? <MatchesSection profile={profile} /> : null}
-            {section === 'statistics' ? (
-              <StatisticsSection profile={profile} seasonName={season?.name ?? 'esta temporada'} />
-            ) : null}
-          </>
+            <View {...({ 'data-motion-item': true } as object)}>
+              {section === 'athletes' ? <AthletesSection profile={profile} /> : null}
+              {section === 'matches' ? <MatchesSection profile={profile} /> : null}
+              {section === 'statistics' ? (
+                <StatisticsSection
+                  profile={profile}
+                  seasonName={season?.name ?? 'esta temporada'}
+                />
+              ) : null}
+            </View>
+          </ScrollReveal>
         ) : null}
       </AsyncState>
-    </View>
+    </PageTransition>
   );
 }
 

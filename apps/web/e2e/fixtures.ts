@@ -1,4 +1,32 @@
-import type { Page, Route } from '@playwright/test';
+import type { Page, Route, TestInfo } from '@playwright/test';
+
+export async function captureResponsiveUi(page: Page, testInfo: TestInfo, name: string) {
+  if (process.env.CAPTURE_UI !== '1') return;
+  const originalViewport = page.viewportSize();
+  const viewports = testInfo.project.name.startsWith('desktop')
+    ? [{ width: 1440, height: 900 }]
+    : [
+        { width: 390, height: 844 },
+        { width: 320, height: 800 },
+      ];
+  for (const viewport of viewports) {
+    await page.setViewportSize(viewport);
+    await page.waitForTimeout(550);
+    const horizontalOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    if (horizontalOverflow > 1) {
+      throw new Error(
+        `${name} excedeu o viewport ${viewport.width}x${viewport.height} em ${horizontalOverflow}px`,
+      );
+    }
+    await testInfo.attach(`${name}-${viewport.width}x${viewport.height}`, {
+      body: await page.screenshot({ animations: 'disabled', fullPage: true }),
+      contentType: 'image/png',
+    });
+  }
+  if (originalViewport) await page.setViewportSize(originalViewport);
+}
 
 export const currentUser = {
   id: 'user-current',
@@ -963,10 +991,7 @@ export async function installApiMocks(
           updatedById: signedInUser.id,
         },
       });
-    if (
-      path === `/api/admin/seasons/${leagueSeason.id}/features/preview` &&
-      method === 'POST'
-    )
+    if (path === `/api/admin/seasons/${leagueSeason.id}/features/preview` && method === 'POST')
       return json({
         previewId: 'preview-feature-rollback',
         affectedCount: 1,

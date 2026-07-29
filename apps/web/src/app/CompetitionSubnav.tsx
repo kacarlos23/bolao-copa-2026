@@ -1,10 +1,11 @@
-import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { SeasonDto } from '@bolao/shared';
 import { ResponsiveContainer } from '../components/DesignSystem';
 import { competitionSectionsForCapabilities } from '../navigation/competition-navigation';
 import { pathForCompetition, pathForScreen, type CompetitionSection } from '../navigation/routes';
 import { RouteLink } from '../navigation/RouteLink';
+import { MotionPressable } from '../motion';
 import { theme } from '../theme/tokens';
 import { useCompetition } from './CompetitionContext';
 
@@ -135,11 +136,12 @@ export function CompetitionSubnav({
               {seasons.map((season) => {
                 const selected = season.id === selectedSeasonId;
                 return (
-                  <Pressable
+                  <MotionPressable
                     key={season.id}
                     {...({ 'aria-pressed': selected } as object)}
                     accessibilityRole="button"
                     accessibilityLabel={`${season.name}${selected ? ', atual' : ''}`}
+                    motionSelected={selected}
                     onPress={() => onSelectSeason?.(season.id)}
                     style={({ pressed }) => [
                       styles.seasonButton,
@@ -150,7 +152,7 @@ export function CompetitionSubnav({
                     <Text style={[styles.seasonText, selected && styles.seasonTextActive]}>
                       {season.year ?? season.name}
                     </Text>
-                  </Pressable>
+                  </MotionPressable>
                 );
               })}
             </ScrollView>

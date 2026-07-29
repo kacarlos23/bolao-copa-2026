@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -105,7 +105,8 @@ export function scanRepository(root = repositoryRoot, allowlistDocument) {
     .split('\0')
     .filter(Boolean)
     .map(normalized)
-    .filter(shouldInspect);
+    .filter(shouldInspect)
+    .filter((file) => existsSync(path.join(root, file)));
 
   return files.flatMap((file) => {
     const source = readFileSync(path.join(root, file), 'utf8');
@@ -114,11 +115,9 @@ export function scanRepository(root = repositoryRoot, allowlistDocument) {
       .filter(
         (finding) =>
           category !== 'seed' ||
-          ![
-            'comparacao literal por slug',
-            'switch por slug',
-            'consulta por slug fixo',
-          ].includes(finding.kind),
+          !['comparacao literal por slug', 'switch por slug', 'consulta por slug fixo'].includes(
+            finding.kind,
+          ),
       )
       .map((finding) => ({ file, ...finding }));
   });

@@ -1,5 +1,111 @@
 Set-StrictMode -Version Latest
 
+function Get-PgClusterMajor {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$DataDir
+  )
+
+  $versionFile = Join-Path $DataDir "PG_VERSION"
+  if (-not (Test-Path -LiteralPath $versionFile)) {
+    throw "PG_VERSION nao encontrado no cluster: $DataDir"
+  }
+  $version = (Get-Content -LiteralPath $versionFile -Raw).Trim()
+  if ($version -notmatch "^(?<major>\d+)") {
+    throw "Versao PostgreSQL invalida em ${versionFile}: $version"
+  }
+  return [int]$Matches["major"]
+}
+
+function Get-PgBinMajor {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$PgBin
+  )
+
+  $pgCtl = Join-Path $PgBin "pg_ctl.exe"
+  if (-not (Test-Path -LiteralPath $pgCtl)) {
+    throw "pg_ctl.exe nao encontrado em $PgBin"
+  }
+  $versionOutput = (& $pgCtl --version 2>&1) -join " "
+  if ($LASTEXITCODE -ne 0 -or $versionOutput -notmatch "PostgreSQL\)?\s+(?<major>\d+)") {
+    throw "Nao foi possivel identificar a versao PostgreSQL de $pgCtl"
+  }
+  return [int]$Matches["major"]
+}
+
+function Resolve-ProjectPgBin {
+  param(
+    [string]$ConfiguredPath,
+    [Parameter(Mandatory = $true)]
+    [string]$DataDir
+  )
+
+  $requiredMajor = Get-PgClusterMajor -DataDir $DataDir
+  $candidates = @()
+  if (-not [string]::IsNullOrWhiteSpace($ConfiguredPath)) {
+    $candidates += $ConfiguredPath
+  } else {
+    if ($env:ProgramFiles) {
+      $candidates += Join-Path $env:ProgramFiles "PostgreSQL\$requiredMajor\bin"
+    }
+    $pathCommand = Get-Command "pg_ctl.exe" -ErrorAction SilentlyContinue
+    if ($null -ne $pathCommand) {
+      $candidates += Split-Path -Parent $pathCommand.Source
+    }
+    if ($env:ProgramFiles) {
+      $postgresRoot = Join-Path $env:ProgramFiles "PostgreSQL"
+      if (Test-Path -LiteralPath $postgresRoot) {
+        $candidates += Get-ChildItem -LiteralPath $postgresRoot -Directory -ErrorAction SilentlyContinue |
+          Sort-Object { [int]($_.Name -replace '[^0-9].*$', '') } -Descending |
+          ForEach-Object { Join-Path $_.FullName "bin" }
+      }
+    }
+  }
+
+  foreach ($candidate in ($candidates | Select-Object -Unique)) {
+    if ([string]::IsNullOrWhiteSpace($candidate) -or -not (Test-Path -LiteralPath $candidate)) {
+      continue
+    }
+    $resolvedCandidate = (Resolve-Path -LiteralPath $candidate).Path
+    $requiredTools = @("pg_ctl.exe", "pg_isready.exe", "psql.exe")
+    if ($requiredTools | Where-Object { -not (Test-Path -LiteralPath (Join-Path $resolvedCandidate $_)) }) {
+      continue
+    }
+    $candidateMajor = Get-PgBinMajor -PgBin $resolvedCandidate
+    if ($candidateMajor -eq $requiredMajor) {
+      return $resolvedCandidate
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ConfiguredPath)) {
+      throw "Cluster PostgreSQL $requiredMajor nao pode usar binarios PostgreSQL $candidateMajor em $resolvedCandidate"
+    }
+  }
+
+  throw "Binarios PostgreSQL $requiredMajor nao encontrados para o cluster $DataDir."
+}
+
+function Get-ProjectPgPort {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$DataDir,
+    [int]$DefaultPort = 5432
+  )
+
+  $port = $DefaultPort
+  foreach ($configName in @("postgresql.conf", "postgresql.auto.conf")) {
+    $configPath = Join-Path $DataDir $configName
+    if (-not (Test-Path -LiteralPath $configPath)) {
+      continue
+    }
+    foreach ($line in Get-Content -LiteralPath $configPath) {
+      if ($line -match "^\s*port\s*=\s*'?(?<port>\d+)'?") {
+        $port = [int]$Matches["port"]
+      }
+    }
+  }
+  return $port
+}
+
 function Resolve-PgExecutable {
   param(
     [string]$ConfiguredPath,

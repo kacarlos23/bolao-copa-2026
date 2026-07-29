@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react';
-import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useRef } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import { MotionModal, MotionPressable } from '../motion';
 import { theme } from '../theme/tokens';
 
 export function UnsavedChangesModal({
@@ -14,84 +15,52 @@ export function UnsavedChangesModal({
   onDiscard: () => void;
 }) {
   const continueRef = useRef<View>(null);
-  const originRef = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    if (!visible || Platform.OS !== 'web' || typeof document === 'undefined') return;
-    originRef.current = document.activeElement as HTMLElement | null;
-    const frame = requestAnimationFrame(() => {
-      const node = continueRef.current as unknown as { focus?: () => void };
-      node?.focus?.();
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [visible]);
-
-  function close(action: () => void) {
-    action();
-    if (Platform.OS === 'web') requestAnimationFrame(() => originRef.current?.focus?.());
-  }
 
   return (
-    <Modal
-      transparent
-      animationType="fade"
+    <MotionModal
+      describedBy="unsaved-description"
+      initialFocusRef={continueRef}
+      labelledBy="unsaved-title"
+      onRequestClose={onContinue}
+      panelStyle={styles.card}
       visible={visible}
-      onRequestClose={() => close(onContinue)}
     >
-      <View
-        role="dialog"
-        aria-modal
-        aria-labelledby="unsaved-title"
-        aria-describedby="unsaved-description"
-        accessibilityViewIsModal
-        style={styles.backdrop}
-      >
-        <View style={styles.card}>
-          <Text nativeID="unsaved-title" role="heading" aria-level={2} style={styles.title}>
-            Alterações não salvas
-          </Text>
-          <Text nativeID="unsaved-description" style={styles.description}>
-            Há edições que ainda não foram confirmadas pelo servidor neste contexto.
-          </Text>
-          <View style={styles.actions}>
-            <Pressable
-              ref={continueRef}
-              {...({ tabIndex: 0 } as object)}
-              accessibilityRole="button"
-              onPress={() => close(onContinue)}
-              style={[styles.button, styles.secondary]}
-            >
-              <Text style={styles.secondaryText}>Continuar editando</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => close(onKeepDraft)}
-              style={[styles.button, styles.secondary]}
-            >
-              <Text style={styles.secondaryText}>Sair e manter rascunho</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => close(onDiscard)}
-              style={[styles.button, styles.danger]}
-            >
-              <Text style={styles.dangerText}>Descartar alterações e sair</Text>
-            </Pressable>
-          </View>
-        </View>
+      <Text nativeID="unsaved-title" role="heading" aria-level={2} style={styles.title}>
+        Alterações não salvas
+      </Text>
+      <Text nativeID="unsaved-description" style={styles.description}>
+        Há edições que ainda não foram confirmadas pelo servidor neste contexto.
+      </Text>
+      <View style={styles.actions}>
+        <MotionPressable
+          ref={continueRef}
+          {...({ tabIndex: 0 } as object)}
+          accessibilityRole="button"
+          onPress={onContinue}
+          style={[styles.button, styles.secondary]}
+        >
+          <Text style={styles.secondaryText}>Continuar editando</Text>
+        </MotionPressable>
+        <MotionPressable
+          accessibilityRole="button"
+          onPress={onKeepDraft}
+          style={[styles.button, styles.secondary]}
+        >
+          <Text style={styles.secondaryText}>Sair e manter rascunho</Text>
+        </MotionPressable>
+        <MotionPressable
+          accessibilityRole="button"
+          onPress={onDiscard}
+          style={[styles.button, styles.danger]}
+        >
+          <Text style={styles.dangerText}>Descartar alterações e sair</Text>
+        </MotionPressable>
       </View>
-    </Modal>
+    </MotionModal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    alignItems: 'center',
-    backgroundColor: theme.color.overlay,
-    flex: 1,
-    justifyContent: 'center',
-    padding: theme.space.lg,
-  },
   card: {
     backgroundColor: theme.color.surfaceRaised,
     borderColor: theme.color.border,

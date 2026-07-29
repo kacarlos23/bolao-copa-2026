@@ -1,33 +1,46 @@
 import { createContext, useContext, useRef, useState, type ReactNode } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { CelebrationBurst, MotionPressable, MotionToast } from '../motion';
 import { theme } from '../theme/tokens';
 
 type ToastTone = 'success' | 'error' | 'info';
-interface ToastMessage { id: number; message: string; tone: ToastTone }
-interface ToastContextValue { showToast: (message: string, tone?: ToastTone) => void }
+interface ToastMessage {
+  id: number;
+  message: string;
+  tone: ToastTone;
+}
+interface ToastContextValue {
+  showToast: (message: string, tone?: ToastTone) => void;
+}
 
 const ToastContext = createContext<ToastContextValue>({ showToast: () => undefined });
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const nextId = useRef(0);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  const [toastVisible, setToastVisible] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function showToast(message: string, tone: ToastTone = 'info') {
     if (timer.current) clearTimeout(timer.current);
     const next = { id: ++nextId.current, message, tone };
     setToast(next);
-    timer.current = setTimeout(() => setToast((current) => (current?.id === next.id ? null : current)), 5000);
+    setToastVisible(true);
+    timer.current = setTimeout(() => setToastVisible(false), 5000);
   }
 
   return (
     <ToastContext.Provider value={{ showToast }}>
       {children}
       {toast ? (
-        <View
+        <MotionToast
+          key={toast.id}
           accessibilityLiveRegion={toast.tone === 'error' ? 'assertive' : 'polite'}
           accessibilityRole={toast.tone === 'error' ? 'alert' : 'summary'}
+          durationMs={5000}
+          onExited={() => setToast((current) => (current?.id === toast.id ? null : current))}
+          visible={toastVisible}
           style={[
             styles.toast,
             Platform.OS === 'web' ? toastWeb : undefined,
@@ -53,15 +66,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             }
           />
           <Text style={styles.text}>{toast.message}</Text>
-          <Pressable
+          {toast.tone === 'success' ? <CelebrationBurst intensity="compact" /> : null}
+          <MotionPressable
             accessibilityRole="button"
             accessibilityLabel="Fechar aviso"
-            onPress={() => setToast(null)}
+            onPress={() => setToastVisible(false)}
             style={styles.close}
           >
             <Text style={styles.closeText}>Fechar</Text>
-          </Pressable>
-        </View>
+          </MotionPressable>
+        </MotionToast>
       ) : null}
     </ToastContext.Provider>
   );
@@ -87,6 +101,7 @@ const styles = StyleSheet.create({
     minHeight: theme.touchTarget,
     paddingHorizontal: theme.space.lg,
     paddingVertical: theme.space.sm,
+    overflow: 'visible',
     position: 'absolute',
     shadowColor: '#000',
     shadowOpacity: 0.32,

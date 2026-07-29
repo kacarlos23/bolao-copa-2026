@@ -1,18 +1,19 @@
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { installApiMocks } from './fixtures';
+import { captureResponsiveUi, installApiMocks } from './fixtures';
 
 test.beforeEach(async ({ page }) => {
   await installApiMocks(page);
 });
 
-test('abre o diretório e navega pelas subseções do perfil oficial', async ({ page }) => {
+test('abre o diretório e navega pelas subseções do perfil oficial', async ({ page }, testInfo) => {
   await page.goto('/competicoes/brasileirao-serie-a-2026/times');
 
   await expect(
     page.getByRole('heading', { name: 'Times de Brasileirão Série A 2026' }),
   ).toBeVisible();
   await expect(page.getByRole('link', { name: 'Times' })).toHaveAttribute('aria-current', 'page');
+  await captureResponsiveUi(page, testInfo, 'times');
   await page.getByLabel('Buscar time por nome, sigla ou estado').fill('Vasco');
   await expect(page.getByText('1 clube')).toBeVisible();
   await page.getByRole('link', { name: 'Abrir perfil de Vasco da Gama' }).click();

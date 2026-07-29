@@ -9,7 +9,7 @@ import {
   type NativeSyntheticEvent,
 } from 'react-native';
 import type { User } from '../api';
-import { SoftReveal } from '../motion';
+import { PageTransition, useAppMotion } from '../motion';
 import {
   competitionSectionForScreen,
   pageTitle,
@@ -50,6 +50,7 @@ export function RoutedWorkspace({
   onLogout: () => void;
 }) {
   const context = useCompetition();
+  const motion = useAppMotion();
   const { width } = useWindowDimensions();
   const compact = width < theme.breakpoint.compact;
 
@@ -119,16 +120,24 @@ export function RoutedWorkspace({
           compact && styles.contentCompact,
           compact && Platform.OS === 'web' ? contentCompactWeb : undefined,
         ]}
-        onScroll={onScroll}
+        onScroll={(event) => {
+          onScroll(event);
+          const nativeEvent = event.nativeEvent;
+          motion.updateScroll({
+            contentHeight: nativeEvent.contentSize.height,
+            viewportHeight: nativeEvent.layoutMeasurement.height,
+            y: nativeEvent.contentOffset.y,
+          });
+        }}
         scrollEventThrottle={16}
       >
-        <SoftReveal key={screen} style={styles.reveal}>
+        <PageTransition key={screen} style={styles.reveal}>
           <Suspense
             fallback={<ActivityIndicator color={theme.color.accent} style={styles.loader} />}
           >
             {content}
           </Suspense>
-        </SoftReveal>
+        </PageTransition>
       </ScrollView>
     </>
   );

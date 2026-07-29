@@ -1,10 +1,11 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Request } from '@playwright/test';
-import { installApiMocks } from './fixtures';
+import { captureResponsiveUi, installApiMocks } from './fixtures';
 
-test('login funciona por teclado e expõe nomes acessíveis', async ({ page }) => {
+test('login funciona por teclado e expõe nomes acessíveis', async ({ page }, testInfo) => {
   await installApiMocks(page, { authenticated: false });
   await page.goto('/');
+  await captureResponsiveUi(page, testInfo, 'login');
 
   await page.getByRole('button', { name: 'Usar login' }).focus();
   await page.keyboard.press('Tab');
@@ -32,9 +33,10 @@ test('login e logout revogam a navegação autenticada', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Entrar no Bolão Sirel' })).toBeVisible();
 });
 
-test('palpite diário preserva feedback por item e salva por lote', async ({ page }) => {
+test('palpite diário preserva feedback por item e salva por lote', async ({ page }, testInfo) => {
   await installApiMocks(page);
   await page.goto('/competicoes/copa-do-mundo-2026/palpites');
+  await captureResponsiveUi(page, testInfo, 'palpites');
 
   await page.getByLabel('Placar de Brasil, mandante').fill('2');
   await page.getByLabel('Placar de Argentina, visitante').fill('1');
@@ -212,23 +214,11 @@ test('Copa aparece somente dentro da central e abre como rota legada', async ({
     'Copa',
   );
   await expect(page.getByRole('heading', { name: 'Visão geral' })).toBeVisible();
-  if (process.env.CAPTURE_UI === '1') {
-    await page.waitForTimeout(800);
-    await testInfo.attach('home-bolao-sirel', {
-      body: await page.screenshot({ fullPage: true }),
-      contentType: 'image/png',
-    });
-  }
+  await captureResponsiveUi(page, testInfo, 'home-bolao-sirel');
 
   await page.getByRole('link', { name: 'Competições' }).click();
   await expect(page.getByRole('link', { name: 'Abrir Copa do Mundo, área legada' })).toBeVisible();
-  if (process.env.CAPTURE_UI === '1') {
-    await page.waitForTimeout(800);
-    await testInfo.attach('central-de-competicoes', {
-      body: await page.screenshot({ fullPage: true }),
-      contentType: 'image/png',
-    });
-  }
+  await captureResponsiveUi(page, testInfo, 'central-de-competicoes');
   await page.getByRole('link', { name: 'Abrir Copa do Mundo, área legada' }).click();
   await expect(page).toHaveURL('/competicoes/copa-do-mundo-2026');
   await expect(page.getByText('LEGADO')).toBeVisible();
@@ -256,9 +246,12 @@ test('V1 mantém paridade de login, preenchimento e salvamento atrás da flag', 
   await expect(page.getByText(/Palpite salvo/i)).toBeVisible();
 });
 
-test('mata-mata exige classificado no empate e envia resumo completo', async ({ page }) => {
+test('mata-mata exige classificado no empate e envia resumo completo', async ({
+  page,
+}, testInfo) => {
   await installApiMocks(page);
   await page.goto('/competicoes/copa-do-mundo-2026/eliminatorias');
+  await captureResponsiveUi(page, testInfo, 'chave');
 
   await page.getByLabel('Placar de Brasil, mandante').fill('1');
   await page.getByLabel('Placar de Argentina, visitante').fill('1');
@@ -375,7 +368,9 @@ test('copas usam a mesma experiência por capability em grupos, ida e volta e fi
   ).toEqual([]);
 });
 
-test('ranking destaca usuário, líder da rodada, distância e desempates', async ({ page }) => {
+test('ranking destaca usuário, líder da rodada, distância e desempates', async ({
+  page,
+}, testInfo) => {
   await installApiMocks(page);
   await page.goto('/competicoes/brasileirao-serie-a-2026/ranking');
 
@@ -384,15 +379,19 @@ test('ranking destaca usuário, líder da rodada, distância e desempates', asyn
   await expect(page.getByText(/Líder da rodada.*Ana/)).toBeVisible();
   await expect(page.getByText('Critérios de desempate', { exact: true })).toBeVisible();
   await expect(page.getByText(/Maria · Você/)).toBeVisible();
+  await captureResponsiveUi(page, testInfo, 'ranking');
 });
 
-test('admin importa, inspeciona override e bloqueia usuário com feedback', async ({ page }) => {
+test('admin importa, inspeciona override e bloqueia usuário com feedback', async ({
+  page,
+}, testInfo) => {
   await installApiMocks(page, { admin: true });
   await page.goto('/');
   await page.getByRole('button', { name: 'Abrir menu de Maria' }).click();
   await page.getByRole('button', { name: 'Administração' }).click();
   await expect(page.getByText('Overrides de partida')).toBeVisible();
   await expect(page.getByText(/1 overrides visíveis/)).toBeVisible();
+  await captureResponsiveUi(page, testInfo, 'admin');
   await page.getByRole('button', { name: 'Importar Copa 2026' }).click();
   await expect(page.getByText(/Tabela importada: 48 seleções e 72 jogos/)).toBeVisible();
   await page

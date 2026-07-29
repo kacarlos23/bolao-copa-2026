@@ -1,15 +1,8 @@
-import {
-  ActivityIndicator,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { MatchDto, PublicMatchPredictionDto, ScoreType } from '@bolao/shared';
 import { TeamBadge } from '../../components/TeamBadge';
 import { UserAvatar } from '../../components/UserAvatar';
+import { MotionModal, MotionPressable } from '../../motion';
 import { theme } from '../../theme/tokens';
 import { predictionPresentation } from './publicPredictionsPresentation';
 
@@ -38,119 +31,118 @@ export function PublicPredictionsModal({
 }) {
   const score = match ? officialScore(match) : null;
   return (
-    <Modal transparent animationType="fade" visible={Boolean(match)} onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <View
-          style={styles.card}
-          accessibilityViewIsModal
-          accessibilityLabel="Palpites dos participantes"
-        >
-          <View style={styles.header}>
-            <View style={styles.headerCopy}>
-              <Text role="heading" aria-level={2} style={styles.title}>
-                Palpites dos participantes
-              </Text>
-              <Text style={styles.subtitle}>Liberados após o encerramento do prazo</Text>
-            </View>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Fechar modal de palpites"
-              onPress={onClose}
-              style={styles.closeButton}
-            >
-              <Text style={styles.closeText}>×</Text>
-            </Pressable>
-          </View>
-
-          {match ? (
-            <View style={styles.matchup}>
-              <View style={styles.team}>
-                <TeamBadge team={match.homeTeam} kind="crest" size={34} />
-                <Text style={styles.teamName} numberOfLines={2}>
-                  {match.homeTeam.name}
-                </Text>
-              </View>
-              <View style={styles.scoreBlock}>
-                <Text style={styles.score}>{score ?? '×'}</Text>
-                <Text style={styles.scoreStatus}>
-                  {score
-                    ? match.status === 'LIVE'
-                      ? 'AO VIVO'
-                      : 'PLACAR OFICIAL'
-                    : 'AGUARDANDO PLACAR'}
-                </Text>
-              </View>
-              <View style={styles.team}>
-                <TeamBadge team={match.awayTeam} kind="crest" size={34} />
-                <Text style={styles.teamName} numberOfLines={2}>
-                  {match.awayTeam.name}
-                </Text>
-              </View>
-            </View>
-          ) : null}
-
-          <View style={styles.legend} accessibilityLabel="Legenda dos palpites">
-            {(Object.keys(predictionPresentation) as ScoreType[]).map((type) => {
-              const presentation = predictionPresentation[type];
-              return (
-                <View key={type} style={styles.legendItem}>
-                  <View style={[styles.legendDot, { backgroundColor: presentation.borderColor }]} />
-                  <Text style={styles.legendText}>{presentation.label}</Text>
-                </View>
-              );
-            })}
-          </View>
-
-          {loading ? <ActivityIndicator color={theme.color.accent} style={styles.loading} /> : null}
-          {!loading && error ? <Text style={styles.error}>{error}</Text> : null}
-          {!loading && !error ? (
-            <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
-              {predictions.map((prediction) => {
-                const presentation = prediction.scoreType
-                  ? predictionPresentation[prediction.scoreType]
-                  : null;
-                return (
-                  <View
-                    key={prediction.id}
-                    style={[
-                      styles.prediction,
-                      presentation && {
-                        backgroundColor: presentation.backgroundColor,
-                        borderColor: presentation.borderColor,
-                      },
-                    ]}
-                    accessibilityLabel={`${prediction.user.nickname}, ${prediction.predictedHomeScore} a ${prediction.predictedAwayScore}${presentation ? `, ${presentation.label}` : ''}`}
-                  >
-                    <View style={styles.participant}>
-                      <UserAvatar
-                        nickname={prediction.user.nickname}
-                        avatarUrl={prediction.user.avatarUrl}
-                        size={36}
-                      />
-                      <View style={styles.participantCopy}>
-                        <Text style={styles.nickname} numberOfLines={1}>
-                          {prediction.user.nickname}
-                        </Text>
-                        {prediction.userId === currentUserId ? (
-                          <Text style={styles.you}>VOCÊ</Text>
-                        ) : null}
-                      </View>
-                    </View>
-                    <Text style={styles.predictionScore}>
-                      {prediction.predictedHomeScore} × {prediction.predictedAwayScore}
-                    </Text>
-                    <Text style={styles.category}>{presentation?.shortLabel ?? 'Aguardando'}</Text>
-                  </View>
-                );
-              })}
-              {!predictions.length ? (
-                <Text style={styles.empty}>Nenhum palpite enviado para esta partida.</Text>
-              ) : null}
-            </ScrollView>
-          ) : null}
+    <MotionModal
+      accessibilityLabel="Palpites dos participantes"
+      backdropStyle={styles.backdrop}
+      onRequestClose={onClose}
+      panelStyle={styles.card}
+      visible={Boolean(match)}
+    >
+      <View style={styles.header}>
+        <View style={styles.headerCopy}>
+          <Text role="heading" aria-level={2} style={styles.title}>
+            Palpites dos participantes
+          </Text>
+          <Text style={styles.subtitle}>Liberados após o encerramento do prazo</Text>
         </View>
+        <MotionPressable
+          accessibilityRole="button"
+          accessibilityLabel="Fechar modal de palpites"
+          onPress={onClose}
+          style={styles.closeButton}
+        >
+          <Text style={styles.closeText}>×</Text>
+        </MotionPressable>
       </View>
-    </Modal>
+
+      {match ? (
+        <View style={styles.matchup}>
+          <View style={styles.team}>
+            <TeamBadge team={match.homeTeam} kind="crest" size={34} />
+            <Text style={styles.teamName} numberOfLines={2}>
+              {match.homeTeam.name}
+            </Text>
+          </View>
+          <View style={styles.scoreBlock}>
+            <Text style={styles.score}>{score ?? '×'}</Text>
+            <Text style={styles.scoreStatus}>
+              {score
+                ? match.status === 'LIVE'
+                  ? 'AO VIVO'
+                  : 'PLACAR OFICIAL'
+                : 'AGUARDANDO PLACAR'}
+            </Text>
+          </View>
+          <View style={styles.team}>
+            <TeamBadge team={match.awayTeam} kind="crest" size={34} />
+            <Text style={styles.teamName} numberOfLines={2}>
+              {match.awayTeam.name}
+            </Text>
+          </View>
+        </View>
+      ) : null}
+
+      <View style={styles.legend} accessibilityLabel="Legenda dos palpites">
+        {(Object.keys(predictionPresentation) as ScoreType[]).map((type) => {
+          const presentation = predictionPresentation[type];
+          return (
+            <View key={type} style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: presentation.borderColor }]} />
+              <Text style={styles.legendText}>{presentation.label}</Text>
+            </View>
+          );
+        })}
+      </View>
+
+      {loading ? <ActivityIndicator color={theme.color.accent} style={styles.loading} /> : null}
+      {!loading && error ? <Text style={styles.error}>{error}</Text> : null}
+      {!loading && !error ? (
+        <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
+          {predictions.map((prediction) => {
+            const presentation = prediction.scoreType
+              ? predictionPresentation[prediction.scoreType]
+              : null;
+            return (
+              <View
+                key={prediction.id}
+                style={[
+                  styles.prediction,
+                  presentation && {
+                    backgroundColor: presentation.backgroundColor,
+                    borderColor: presentation.borderColor,
+                  },
+                ]}
+                accessibilityLabel={`${prediction.user.nickname}, ${prediction.predictedHomeScore} a ${prediction.predictedAwayScore}${presentation ? `, ${presentation.label}` : ''}`}
+              >
+                <View style={styles.participant}>
+                  <UserAvatar
+                    nickname={prediction.user.nickname}
+                    avatarUrl={prediction.user.avatarUrl}
+                    size={36}
+                    accessibilityLabel={`Avatar de ${prediction.user.nickname}`}
+                  />
+                  <View style={styles.participantCopy}>
+                    <Text style={styles.nickname} numberOfLines={1}>
+                      {prediction.user.nickname}
+                    </Text>
+                    {prediction.userId === currentUserId ? (
+                      <Text style={styles.you}>VOCÊ</Text>
+                    ) : null}
+                  </View>
+                </View>
+                <Text style={styles.predictionScore}>
+                  {prediction.predictedHomeScore} × {prediction.predictedAwayScore}
+                </Text>
+                <Text style={styles.category}>{presentation?.shortLabel ?? 'Aguardando'}</Text>
+              </View>
+            );
+          })}
+          {!predictions.length ? (
+            <Text style={styles.empty}>Nenhum palpite enviado para esta partida.</Text>
+          ) : null}
+        </ScrollView>
+      ) : null}
+    </MotionModal>
   );
 }
 
