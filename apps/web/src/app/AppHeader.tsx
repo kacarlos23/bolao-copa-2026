@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react';
+import { createElement, type ChangeEvent, useRef, useState } from 'react';
 import {
-  Image,
   Platform,
   Pressable,
   StyleSheet,
@@ -9,8 +8,9 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { API_URL, api, type User } from '../api';
+import { api, type User } from '../api';
 import { ResponsiveContainer } from '../components/DesignSystem';
+import { UserAvatar } from '../components/UserAvatar';
 import {
   activePrimaryDestination,
   pathForScreen,
@@ -33,40 +33,8 @@ const primaryItems: readonly PrimaryItem[] = [
   { key: 'ranking', label: 'Ranking', icon: 'podium-outline' },
 ];
 
-function initials(value: string) {
-  return (
-    value
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase())
-      .join('') || '?'
-  );
-}
-
-function avatarUri(value?: string | null) {
-  if (!value) return null;
-  if (/^https?:\/\//i.test(value)) return value;
-  return `${API_URL}${value.startsWith('/') ? '' : '/'}${value}`;
-}
-
 function Avatar({ user, size = 36 }: { user: User; size?: number }) {
-  const uri = avatarUri(user.avatarUrl);
-  const [imageFailed, setImageFailed] = useState(false);
-  useEffect(() => setImageFailed(false), [uri]);
-  return (
-    <View style={[styles.avatar, { width: size, height: size, borderRadius: size / 2 }]}>
-      {uri && !imageFailed ? (
-        <Image
-          source={{ uri }}
-          onError={() => setImageFailed(true)}
-          style={{ width: size, height: size, borderRadius: size / 2 }}
-        />
-      ) : (
-        <Text style={styles.avatarText}>{initials(user.nickname)}</Text>
-      )}
-    </View>
-  );
+  return <UserAvatar nickname={user.nickname} avatarUrl={user.avatarUrl} size={size} />;
 }
 
 function PrimaryNavigation({
@@ -133,6 +101,9 @@ function PrimaryNavigation({
   );
 }
 
+const MAX_AVATAR_BYTES = 8 * 1024 * 1024;
+const ACCEPTED_AVATAR_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
 export function AppHeader({
   user,
   screen,
@@ -161,6 +132,7 @@ export function AppHeader({
   const condensed = width < theme.breakpoint.content;
   const [profileOpen, setProfileOpen] = useState(false);
   const [avatarBusy, setAvatarBusy] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const active = activePrimaryDestination(screen);
   const resolvePrimaryScreen =
     primaryScreenFor ?? ((destination: PrimaryDestination) => destination as AppScreen);
@@ -171,25 +143,34 @@ export function AppHeader({
   }
 
   function pickAvatar() {
-    if (typeof document === 'undefined') return;
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/jpeg,image/png,image/webp';
-    input.onchange = () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      if (file.size > 8 * 1024 * 1024) {
-        showAvatarError(new Error('Escolha uma imagem de até 8 MB.'));
-        return;
-      }
-      setAvatarBusy(true);
-      api
-        .uploadAvatar(file)
-        .then((result) => onUserChange(result.user))
-        .catch(showAvatarError)
-        .finally(() => setAvatarBusy(false));
-    };
+    if (avatarBusy) return;
+    const input = avatarInputRef.current;
+    if (!input) {
+      showAvatarError(new Error('A troca de foto está disponível na versão web.'));
+      return;
+    }
+    input.value = '';
     input.click();
+  }
+
+  function uploadSelectedAvatar(event: ChangeEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    if (!ACCEPTED_AVATAR_TYPES.has(file.type) || file.size > MAX_AVATAR_BYTES) {
+      showAvatarError(new Error('Escolha uma imagem JPG, PNG ou WEBP de até 8 MB.'));
+      return;
+    }
+    setAvatarBusy(true);
+    api
+      .uploadAvatar(file)
+      .then((result) => {
+        onUserChange(result.user);
+        setProfileOpen(false);
+      })
+      .catch(showAvatarError)
+      .finally(() => setAvatarBusy(false));
   }
 
   function removeAvatar() {
@@ -256,6 +237,25 @@ export function AppHeader({
             {!condensed ? <Text style={styles.utilityText}>Atualizar</Text> : null}
           </Pressable>
           <View style={styles.profileAnchor}>
+            {Platform.OS === 'web'
+              ? createElement('input', {
+                  ref: avatarInputRef,
+                  type: 'file',
+                  accept: 'image/jpeg,image/png,image/webp',
+                  'aria-label': 'Selecionar nova foto de perfil',
+                  disabled: avatarBusy,
+                  onChange: uploadSelectedAvatar,
+                  style: {
+                    height: 1,
+                    opacity: 0,
+                    overflow: 'hidden',
+                    pointerEvents: 'none',
+                    position: 'absolute',
+                    width: 1,
+                  },
+                  tabIndex: -1,
+                })
+              : null}
             <Pressable
               {...({ 'aria-controls': 'menu-perfil', 'aria-haspopup': 'menu' } as object)}
               accessibilityRole="button"
@@ -298,19 +298,26 @@ export function AppHeader({
               >
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Trocar foto"
+                  accessibilityLabel="Alterar foto de perfil"
+                  accessibilityHint="Escolha uma imagem JPG, PNG ou WEBP de até 8 MB"
+                  accessibilityState={{ busy: avatarBusy, disabled: avatarBusy }}
                   disabled={avatarBusy}
                   onPress={pickAvatar}
                   style={({ pressed }) => [
                     styles.menuItem,
                     pressed && styles.menuItemPressed,
-                    avatarBusy && styles.disabled,
+                    avatarBusy && styles.menuItemDisabled,
                   ]}
                 >
                   <Ionicons name="camera-outline" size={18} color={theme.color.text} />
-                  <Text style={styles.menuText}>
-                    {avatarBusy ? 'Atualizando...' : 'Trocar foto'}
-                  </Text>
+                  <View style={styles.menuCopy}>
+                    <Text style={styles.menuText}>
+                      {avatarBusy ? 'Atualizando...' : 'Alterar foto'}
+                    </Text>
+                    {!avatarBusy ? (
+                      <Text style={styles.menuHint}>JPG, PNG ou WEBP · até 8 MB</Text>
+                    ) : null}
+                  </View>
                 </Pressable>
                 {user.avatarUrl ? (
                   <Pressable
@@ -388,6 +395,9 @@ const styles = StyleSheet.create({
     gap: theme.space.lg,
     minHeight: theme.size.headerDesktop,
     paddingHorizontal: theme.space.xl,
+    position: 'relative',
+    width: '100%',
+    zIndex: 2,
   },
   topbarCompact: {
     minHeight: theme.size.headerMobile,
@@ -529,15 +539,6 @@ const styles = StyleSheet.create({
   profileText: { maxWidth: 132 },
   profileName: { color: theme.color.text, fontSize: theme.font.size.sm, fontWeight: '900' },
   profileRole: { color: theme.color.textSubtle, fontSize: 9, marginTop: 1 },
-  avatar: {
-    alignItems: 'center',
-    backgroundColor: theme.color.surfaceRaised,
-    borderColor: theme.color.accent,
-    borderWidth: 1,
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  avatarText: { color: theme.color.text, fontSize: theme.font.size.sm, fontWeight: '900' },
   profileMenu: {
     backgroundColor: theme.color.surfaceRaised,
     borderColor: theme.color.border,
@@ -559,7 +560,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.space.md,
   },
   menuItemPressed: { backgroundColor: theme.color.surfacePressed },
+  menuItemDisabled: { opacity: 0.55 },
+  menuCopy: { flex: 1 },
   menuText: { color: theme.color.text, fontSize: theme.font.size.sm, fontWeight: '800' },
+  menuHint: { color: theme.color.textMuted, fontSize: 9, marginTop: 2 },
   dangerText: { color: theme.color.danger },
   menuDivider: { backgroundColor: theme.color.borderMuted, height: 1, marginVertical: 5 },
   disabled: { opacity: 0.48 },

@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RankingRowDto } from '@bolao/shared';
 import type { EngagementDashboard, RankingAward } from '../../api';
-import { PremiumRanking } from './PremiumRanking';
+import { PremiumRanking, RankingUserAvatar } from './PremiumRanking';
 
 vi.mock('@expo/vector-icons', () => {
   const Icon = ({ name }: { name: string }) => <span>{name}</span>;
@@ -47,7 +47,29 @@ describe('PremiumRanking', () => {
     setViewport(1366);
   });
 
-  it('renderiza pódio, indicadores, filtros e destaque do usuário', () => {
+  it('usa uma imagem web real e mostra as iniciais quando o avatar falha', () => {
+    const { rerender } = render(
+      <RankingUserAvatar
+        row={{ nickname: 'Ana Beatriz', avatarUrl: '/uploads/avatars/ana.webp' }}
+      />,
+    );
+
+    const image = screen.getByRole('img', { name: 'Foto de perfil de Ana Beatriz' });
+    expect(image.getAttribute('src')).toBe('/uploads/avatars/ana.webp');
+    expect(image.getAttribute('style')).toContain('object-fit: cover');
+
+    fireEvent.error(image);
+    expect(screen.getByText('AB')).toBeTruthy();
+
+    rerender(
+      <RankingUserAvatar
+        row={{ nickname: 'Ana Beatriz', avatarUrl: '/uploads/avatars/ana-v2.webp' }}
+      />,
+    );
+    expect(screen.getByRole('img', { name: 'Foto de perfil de Ana Beatriz' })).toBeTruthy();
+  });
+
+  it('renderiza pódio, indicadores, filtros, radar e destaque do usuário', () => {
     const ranking = [row(1, 'Ana', 30), row(2, 'Bruno', 24), row(3, 'Carla', 20)];
     render(
       <PremiumRanking

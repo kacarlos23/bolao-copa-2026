@@ -4,6 +4,7 @@ import { extname, join, normalize } from 'node:path';
 
 const root = join(process.cwd(), 'dist');
 const port = Number(process.env.PORT ?? 4173);
+const host = process.env.HOST ?? '127.0.0.1';
 const types = {
   '.css': 'text/css; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
@@ -36,8 +37,8 @@ const server = createServer((request, response) => {
   }
   response.writeHead(200, { 'content-type': types[extname(file)] ?? 'application/octet-stream' });
   createReadStream(file).pipe(response);
-}).listen(port, '127.0.0.1', () => {
-  process.stdout.write(`Frontend disponivel em http://127.0.0.1:${port}\n`);
+}).listen(port, host, () => {
+  process.stdout.write(`Frontend disponivel em http://${host}:${port}\n`);
 });
 
 function shutdown() {

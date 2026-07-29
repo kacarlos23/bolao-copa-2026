@@ -67,4 +67,40 @@ describe('api client session csrf lifecycle', () => {
       code: 'INVALID_RESPONSE',
     });
   });
+
+  it('preserves explicit 403 messages for authorization and CSRF diagnostics', async () => {
+    const { ApiError, errorMessage } = await import('./api-client');
+
+    expect(
+      errorMessage(
+        new ApiError('Origem da requisição não permitida.', 403, 'INVALID_REQUEST_ORIGIN'),
+      ),
+    ).toBe('Origem da requisição não permitida.');
+  });
+});
+
+describe('api client browser URL', () => {
+  it('keeps public HTTPS requests on the current origin', async () => {
+    const { apiUrlForBrowserLocation } = await import('./api-client');
+
+    expect(
+      apiUrlForBrowserLocation({
+        hostname: 'bolao.sirel.com.br',
+        origin: 'https://bolao.sirel.com.br',
+        protocol: 'https:',
+      }, 'production'),
+    ).toBe('https://bolao.sirel.com.br');
+  });
+
+  it('uses the API development port for local HTTP requests', async () => {
+    const { apiUrlForBrowserLocation } = await import('./api-client');
+
+    expect(
+      apiUrlForBrowserLocation({
+        hostname: '192.168.18.245',
+        origin: 'http://192.168.18.245:8080',
+        protocol: 'http:',
+      }, 'development'),
+    ).toBe('http://192.168.18.245:3001');
+  });
 });

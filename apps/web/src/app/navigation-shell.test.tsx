@@ -1,6 +1,6 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { User } from '../api';
+import { api, type User } from '../api';
 import { AppHeader } from './AppHeader';
 import { CompetitionSubnav } from './CompetitionSubnav';
 
@@ -90,6 +90,41 @@ describe('shell de navegação', () => {
 
     fireEvent.click(screen.getByRole('link', { name: 'Palpites' }));
     expect(onNavigatePrimary).toHaveBeenCalledWith('predictions');
+  });
+
+  it('mantém um seletor de arquivo conectado e permite alterar a foto de perfil', async () => {
+    const onUserChange = vi.fn();
+    const updatedUser = { ...user, avatarUrl: '/uploads/avatars/new-avatar.webp' };
+    const upload = vi.spyOn(api, 'uploadAvatar').mockResolvedValue({ user: updatedUser });
+    const inputClick = vi
+      .spyOn(HTMLInputElement.prototype, 'click')
+      .mockImplementation(() => undefined);
+
+    render(
+      <AppHeader
+        user={user}
+        screen="home"
+        onNavigatePrimary={vi.fn()}
+        onRefresh={vi.fn()}
+        onUserChange={onUserChange}
+        onLogout={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir menu de Tarmac' }));
+    const changeButton = screen.getByRole('button', { name: 'Alterar foto de perfil' });
+    const fileInput = screen.getByLabelText('Selecionar nova foto de perfil');
+    expect(changeButton.hasAttribute('disabled')).toBe(false);
+    expect(screen.getByText('JPG, PNG ou WEBP · até 8 MB')).toBeTruthy();
+
+    fireEvent.click(changeButton);
+    expect(inputClick).toHaveBeenCalledOnce();
+
+    const file = new File(['valid-image'], 'avatar.png', { type: 'image/png' });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    await waitFor(() => expect(upload).toHaveBeenCalledWith(file));
+    expect(onUserChange).toHaveBeenCalledWith(updatedUser);
   });
 
   it('abre a Copa como competição legada com subpáginas próprias', () => {

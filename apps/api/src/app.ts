@@ -21,6 +21,7 @@ import { knockoutBracketRouter, predictionBoardRouter } from './routes/predictio
 import { internalRouter } from './routes/internal.routes.js';
 import { csrfProtection } from './middleware/csrf.js';
 import { requestContext } from './middleware/request-context.js';
+import { isConfiguredWebOrigin } from './http/origins.js';
 import { competitionRouter } from './modules/competitions/competition.routes.js';
 import { seasonRouter } from './modules/seasons/season.routes.js';
 import { poolRouter } from './modules/pools/pool.routes.js';
@@ -32,6 +33,12 @@ const pinoHttp = pinoHttpModule as unknown as (options: {
 }) => express.RequestHandler;
 
 const EXPO_ROUTER_HYDRATION_SCRIPT_HASH = "'sha256-67fhrP0+BkBqmgGGXTtgiVO/9EQs3QruYNU/7fnRkI8='";
+
+function sessionCookieSecure() {
+  if (config.SESSION_COOKIE_SECURE === 'true') return true;
+  if (config.SESSION_COOKIE_SECURE === 'false') return false;
+  return 'auto';
+}
 
 export function createApp(options: { sessionStore?: Store } = {}) {
   const app = express();
@@ -52,6 +59,7 @@ export function createApp(options: { sessionStore?: Store } = {}) {
             EXPO_ROUTER_HYDRATION_SCRIPT_HASH,
             'https://static.cloudflareinsights.com',
           ],
+          upgradeInsecureRequests: null,
         },
       },
     }),
@@ -60,7 +68,9 @@ export function createApp(options: { sessionStore?: Store } = {}) {
   app.use(pinoHttp({ logger }));
   app.use(
     cors({
-      origin: config.WEB_ORIGIN,
+      origin(origin, callback) {
+        callback(null, !origin || isConfiguredWebOrigin(origin));
+      },
       credentials: true,
     }),
   );
@@ -74,7 +84,7 @@ export function createApp(options: { sessionStore?: Store } = {}) {
       rolling: true,
       cookie: {
         httpOnly: true,
-        secure: config.NODE_ENV === 'production',
+        secure: sessionCookieSecure(),
         sameSite: 'lax',
         maxAge: 1000 * 60 * 60 * 24 * 7,
       },

@@ -1,5 +1,8 @@
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import request from 'supertest';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createApp } from './app.js';
 import { config } from './config.js';
 
@@ -9,6 +12,25 @@ describe('app', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.ok).toBe(true);
+  });
+
+  it('serves legacy avatars with a cross-origin resource policy', async () => {
+    const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'bolao-avatar-'));
+    const legacyAvatarDir = path.join(temporaryRoot, 'apps', 'api', 'uploads', 'avatars');
+    const filename = 'legacy-avatar.webp';
+    await fs.mkdir(legacyAvatarDir, { recursive: true });
+    await fs.writeFile(path.join(legacyAvatarDir, filename), 'legacy-avatar');
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(temporaryRoot);
+
+    try {
+      const response = await request(createApp()).get(`/uploads/avatars/${filename}`);
+
+      expect(response.status).toBe(200);
+      expect(response.headers['cross-origin-resource-policy']).toBe('cross-origin');
+    } finally {
+      cwd.mockRestore();
+      await fs.rm(temporaryRoot, { recursive: true, force: true });
+    }
   });
 
   it('returns JSON for unknown API routes instead of the web application HTML', async () => {
@@ -33,6 +55,7 @@ describe('app', () => {
     );
     expect(policy).toContain("connect-src 'self' https://cloudflareinsights.com");
     expect(policy).not.toContain("script-src 'self' 'unsafe-inline'");
+    expect(policy).not.toContain('upgrade-insecure-requests');
   });
 
   it('protects the internal realtime relay', async () => {
@@ -85,6 +108,31 @@ describe('app', () => {
 
     expect(webResponse.status).toBe(401);
     expect(nativeResponse.status).toBe(401);
+  });
+
+  it('sets session cookies on HTTP local access and marks HTTPS proxy cookies secure', async () => {
+    const httpResponse = await request(createApp()).get('/api/auth/csrf');
+    const httpsResponse = await request(createApp())
+      .get('/api/auth/csrf')
+      .set('x-forwarded-proto', 'https');
+    const cookieHeader = (value: string | string[] | undefined) =>
+      Array.isArray(value) ? value.join(';') : (value ?? '');
+
+    expect(cookieHeader(httpResponse.headers['set-cookie'])).not.toContain('Secure');
+    expect(cookieHeader(httpsResponse.headers['set-cookie'])).toContain('Secure');
+  });
+
+  it('accepts a same-origin mobile LAN request with a valid CSRF token', async () => {
+    const agent = request.agent(createApp());
+    const csrf = await agent.get('/api/auth/csrf');
+
+    const response = await agent
+      .post('/api/auth/logout')
+      .set('host', '192.168.18.245:8080')
+      .set('origin', 'http://192.168.18.245:8080')
+      .set('x-csrf-token', csrf.body.csrfToken);
+
+    expect(response.status).toBe(401);
   });
 
   it('rejects a cross-site request even when it presents a valid token', async () => {

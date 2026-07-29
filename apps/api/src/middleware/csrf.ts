@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
-import { config } from '../config.js';
+import { isTrustedStateChangingOrigin } from '../http/origins.js';
 import { AppError } from '../http/errors.js';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -24,7 +24,7 @@ export function csrfProtection(req: Request, _res: Response, next: NextFunction)
   }
 
   const origin = req.get('origin');
-  if (origin && origin !== config.WEB_ORIGIN) {
+  if (origin && !isTrustedStateChangingOrigin(req, origin)) {
     next(new AppError(403, 'Origem da requisição não permitida.', 'INVALID_REQUEST_ORIGIN'));
     return;
   }

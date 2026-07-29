@@ -5,6 +5,8 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3001),
   WEB_ORIGIN: z.string().url().default('http://localhost:8080'),
+  WEB_ORIGINS: z.string().default(''),
+  SESSION_COOKIE_SECURE: z.enum(['auto', 'true', 'false']).default('auto'),
   DATABASE_URL: z.string().min(1),
   SESSION_SECRET: z.string().min(24),
   INTERNAL_EVENTS_SECRET: z.string().min(24).optional(),

@@ -523,6 +523,14 @@ test('SSE sinaliza Ao vivo, Offline e reconecta', async ({ page, context }) => {
   await expect(page.getByText('Ao vivo')).toBeVisible({ timeout: 10_000 });
 });
 
+test('viewport mobile usa a largura do dispositivo', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-chromium', 'Coberto pelo projeto mobile');
+  await installApiMocks(page, { authenticated: false });
+  await page.goto('/');
+
+  await expect.poll(() => page.evaluate(() => window.innerWidth)).toBeLessThan(500);
+});
+
 for (const width of [320, 375, 768, 1024, 1366, 1920]) {
   test(`layout crítico não cria overflow global em ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });

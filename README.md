@@ -53,7 +53,7 @@ Pré-requisitos: Node.js 20 ou superior, npm e PostgreSQL.
    npm run dev
    ```
 
-Por padrão, a API usa `3001` e o Expo Web usa `8080`. Confirme `WEB_ORIGIN` e `EXPO_PUBLIC_API_URL` de acordo com o modo de publicação; não presuma que portas diferentes serão roteadas automaticamente.
+Por padrão, a API usa `3001` e o Expo Web usa `8080`. Confirme `WEB_ORIGIN`, `WEB_ORIGINS`, `SESSION_COOKIE_SECURE` e `EXPO_PUBLIC_API_URL` de acordo com o modo de publicação; não presuma que portas diferentes serão roteadas automaticamente. Para teste pelo celular em rede local, inclua a origem usada pelo aparelho em `WEB_ORIGINS`, por exemplo `http://192.168.18.245:8080`, e mantenha `SESSION_COOKIE_SECURE=auto` para que HTTPS receba cookie seguro e HTTP local continue aceitando sessão.
 
 ## Qualidade
 

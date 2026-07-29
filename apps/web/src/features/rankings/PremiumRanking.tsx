@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
-  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -12,7 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { RankingRowDto } from '@bolao/shared';
-import { API_URL, type EngagementDashboard, type RankingAward } from '../../api';
+import { type EngagementDashboard, type RankingAward } from '../../api';
 import {
   Card,
   PrimaryButton,
@@ -21,6 +20,7 @@ import {
   SectionHeader,
   StatusChip,
 } from '../../components/DesignSystem';
+import { UserAvatar } from '../../components/UserAvatar';
 import type { ConnectionStatus } from '../../services/realtime';
 import { theme } from '../../theme/tokens';
 import { formatBrlCents } from '../../fundraising';
@@ -42,25 +42,6 @@ const rankingScopeCapability: Record<
 
 const allRankingScopes = new Set(['OVERALL', 'STAGE', 'ROUND', 'MONTH', 'TURN']);
 
-function initials(name: string) {
-  return (
-    name
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase())
-      .join('') || '?'
-  );
-}
-
-function avatarUri(value?: string | null) {
-  if (!value) return null;
-  return /^https?:\/\//i.test(value)
-    ? value
-    : `${API_URL}${value.startsWith('/') ? '' : '/'}${value}`;
-}
-
 export function RankingUserAvatar({
   row,
   size = 44,
@@ -68,24 +49,7 @@ export function RankingUserAvatar({
   row: Pick<RankingRowDto, 'nickname' | 'avatarUrl'>;
   size?: number;
 }) {
-  const uri = avatarUri(row.avatarUrl);
-  const [imageFailed, setImageFailed] = useState(false);
-  useEffect(() => setImageFailed(false), [uri]);
-  const dimensions = { width: size, height: size, borderRadius: size / 2 };
-  return uri && !imageFailed ? (
-    <Image
-      source={{ uri }}
-      resizeMode="cover"
-      onError={() => setImageFailed(true)}
-      style={[styles.avatar, dimensions]}
-    />
-  ) : (
-    <View style={[styles.avatar, styles.avatarFallback, dimensions]}>
-      <Text style={[styles.avatarInitials, { fontSize: Math.max(11, size * 0.3) }]}>
-        {initials(row.nickname)}
-      </Text>
-    </View>
-  );
+  return <UserAvatar nickname={row.nickname} avatarUrl={row.avatarUrl} size={size} />;
 }
 
 export function RankingMovementBadge({ row }: { row: RankingRowDto }) {
@@ -1105,14 +1069,6 @@ const styles = StyleSheet.create({
   currentPodiumName: { color: theme.color.accent },
   medal: { fontSize: 27 },
   medalCompact: { fontSize: 21 },
-  avatar: {
-    backgroundColor: theme.color.surfaceRaised,
-    borderColor: theme.color.accent,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
-  avatarFallback: { alignItems: 'center', justifyContent: 'center' },
-  avatarInitials: { color: theme.color.text, fontWeight: '900' },
   podiumName: { color: theme.color.text, fontSize: 16, fontWeight: '900', maxWidth: '100%' },
   podiumNameCompact: { fontSize: 11 },
   podiumPoints: { color: theme.color.accent, fontSize: 22, fontWeight: '900' },

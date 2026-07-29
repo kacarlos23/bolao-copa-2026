@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { createElement, useState } from 'react';
+import { Image, Platform, StyleSheet, Text, View } from 'react-native';
 import { API_URL } from '../services/api-client';
 import { theme } from '../theme/tokens';
 
@@ -15,7 +15,7 @@ function initials(value: string) {
   );
 }
 
-function avatarUri(value?: string | null) {
+export function userAvatarUri(value?: string | null) {
   if (!value) return null;
   return /^https?:\/\//i.test(value)
     ? value
@@ -25,32 +25,49 @@ function avatarUri(value?: string | null) {
 export function UserAvatar({
   nickname,
   avatarUrl,
-  size = 36,
+  size = 44,
 }: {
   nickname: string;
   avatarUrl?: string | null;
   size?: number;
 }) {
-  const uri = avatarUri(avatarUrl);
-  const [imageFailed, setImageFailed] = useState(false);
-  useEffect(() => setImageFailed(false), [uri]);
-
+  const uri = userAvatarUri(avatarUrl);
+  const [failedUri, setFailedUri] = useState<string | null>(null);
+  const visibleUri = uri && failedUri !== uri ? uri : null;
   const dimensions = { width: size, height: size, borderRadius: size / 2 };
+  const imageLabel = `Foto de perfil de ${nickname}`;
+
   return (
     <View
-      accessibilityLabel={`Avatar de ${nickname}`}
+      accessibilityLabel={visibleUri ? imageLabel : `Avatar com iniciais de ${nickname}`}
       accessibilityRole="image"
-      style={[styles.avatar, dimensions]}
+      style={[styles.container, dimensions]}
     >
-      {uri && !imageFailed ? (
-        <Image
-          source={{ uri }}
-          resizeMode="cover"
-          onError={() => setImageFailed(true)}
-          style={dimensions}
-        />
+      {visibleUri ? (
+        Platform.OS === 'web' ? (
+          createElement('img', {
+            alt: imageLabel,
+            draggable: false,
+            onError: () => setFailedUri(visibleUri),
+            src: visibleUri,
+            style: {
+              display: 'block',
+              height: '100%',
+              objectFit: 'cover',
+              width: '100%',
+            },
+          })
+        ) : (
+          <Image
+            accessibilityLabel={imageLabel}
+            onError={() => setFailedUri(visibleUri)}
+            resizeMode="cover"
+            source={{ uri: visibleUri }}
+            style={styles.image}
+          />
+        )
       ) : (
-        <Text style={[styles.initials, { fontSize: Math.max(10, size * 0.3) }]}>
+        <Text style={[styles.initials, { fontSize: Math.max(11, size * 0.3) }]}>
           {initials(nickname)}
         </Text>
       )}
@@ -59,13 +76,20 @@ export function UserAvatar({
 }
 
 const styles = StyleSheet.create({
-  avatar: {
+  container: {
     alignItems: 'center',
-    backgroundColor: theme.color.surfaceHover,
+    backgroundColor: theme.color.surfaceRaised,
     borderColor: theme.color.accent,
     borderWidth: 1,
     justifyContent: 'center',
     overflow: 'hidden',
   },
-  initials: { color: theme.color.text, fontWeight: '900' },
+  image: {
+    height: '100%',
+    width: '100%',
+  },
+  initials: {
+    color: theme.color.text,
+    fontWeight: '900',
+  },
 });

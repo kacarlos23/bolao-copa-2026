@@ -1,15 +1,25 @@
 import { apiErrorSchema, type ApiIssue } from '@bolao/shared';
 import type { z } from 'zod';
 
+type BrowserLocation = Pick<Location, 'hostname' | 'origin' | 'protocol'>;
+
+export function apiUrlForBrowserLocation(
+  location: BrowserLocation,
+  environment = process.env.NODE_ENV,
+) {
+  if (environment === 'production' || location.protocol === 'https:') return location.origin;
+  return location.hostname ? `${location.protocol}//${location.hostname}:3001` : '';
+}
+
 function browserLocalApiUrl() {
   if (process.env.NODE_ENV === 'test') return '';
   if (typeof window === 'undefined') return '';
-  const { protocol, hostname } = window.location;
-  return hostname ? `${protocol}//${hostname}:3001` : '';
+  return apiUrlForBrowserLocation(window.location);
 }
 
 // On a phone opened through the local network, "localhost" would refer to the phone itself.
-// When no explicit deployment URL is configured, keep API and web on the same host instead.
+// Keep local HTTP development on port 3001. Production is served by the API itself,
+// so requests must stay on the current origin and pass through the Cloudflare Tunnel.
 export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? browserLocalApiUrl();
 
 export class ApiError extends Error {
@@ -196,7 +206,7 @@ export class LatestRequest {
 export function errorMessage(error: unknown) {
   if (error instanceof ApiError) {
     if (error.status === 401) return 'Sua sessão expirou. Entre novamente para continuar.';
-    if (error.status === 403) return 'Você não tem permissão para esta ação.';
+    if (error.status === 403) return error.message || 'Você não tem permissão para esta ação.';
     if (error.status === 409) return error.message;
     if (error.status >= 500) return `${error.message} Tente novamente em instantes.`;
   }
