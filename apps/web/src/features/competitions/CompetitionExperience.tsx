@@ -121,9 +121,7 @@ export function CompetitionHero({
               syncing && styles.dimmed,
             ]}
           >
-            <Text style={styles.refreshButtonText}>
-              {syncing ? 'Atualizando…' : 'Atualizar'}
-            </Text>
+            <Text style={styles.refreshButtonText}>{syncing ? 'Atualizando…' : 'Atualizar'}</Text>
           </Pressable>
         ) : null}
       </View>
@@ -412,6 +410,7 @@ export function MatchPredictionCard({
   onEdit,
   onSave,
   onDiscard,
+  onOpenPredictionSubmissionStatus,
   onOpenPublicPredictions,
 }: {
   match: MatchDto;
@@ -425,6 +424,7 @@ export function MatchPredictionCard({
   onEdit: (side: ScoreSide, value: string) => void;
   onSave: () => void;
   onDiscard: () => void;
+  onOpenPredictionSubmissionStatus?: () => void;
   onOpenPublicPredictions?: () => void;
 }) {
   const officialHome =
@@ -440,7 +440,8 @@ export function MatchPredictionCard({
   }).format(new Date(match.startsAt));
   const canDiscard = item?.dirty.home || item?.dirty.away;
   const hasFilledScore = value.home !== '' && value.away !== '';
-  const registered = hasFilledScore && (!item || item.status === 'clean' || item.status === 'saved');
+  const registered =
+    hasFilledScore && (!item || item.status === 'clean' || item.status === 'saved');
   const syncLabel =
     saveStatusLabel(item) ||
     (registered
@@ -529,6 +530,16 @@ export function MatchPredictionCard({
               style={styles.secondaryButton}
             >
               <Text style={styles.secondaryButtonText}>Descartar</Text>
+            </Pressable>
+          ) : null}
+          {open && onOpenPredictionSubmissionStatus ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Ver quem falta palpitar em ${match.homeTeam.name} contra ${match.awayTeam.name}`}
+              onPress={onOpenPredictionSubmissionStatus}
+              style={styles.submissionStatusButton}
+            >
+              <Text style={styles.submissionStatusButtonText}>Quem falta palpitar</Text>
             </Pressable>
           ) : null}
           <Pressable
@@ -789,6 +800,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.space.md,
   },
   secondaryButtonText: { color: theme.color.textMuted, fontSize: 11, fontWeight: '800' },
+  submissionStatusButton: {
+    alignItems: 'center',
+    borderColor: theme.color.accent,
+    borderRadius: theme.radius.sm,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: theme.touchTarget,
+    paddingHorizontal: theme.space.md,
+  },
+  submissionStatusButtonText: {
+    color: theme.color.accent,
+    fontSize: 11,
+    fontWeight: '900',
+  },
   publicButton: { alignSelf: 'flex-end', minHeight: theme.touchTarget, justifyContent: 'center' },
   publicButtonText: { color: theme.color.gold, fontSize: 11, fontWeight: '900' },
 });

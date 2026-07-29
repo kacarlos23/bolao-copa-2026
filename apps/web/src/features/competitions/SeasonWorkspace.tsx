@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import {
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import type {
   MatchDto,
+  PredictionSubmissionParticipantDto,
   PublicMatchPredictionDto,
   RankingRowDto,
   RoundDto,
@@ -48,6 +57,7 @@ import {
   StageSelector,
 } from './CompetitionExperience';
 import { PublicPredictionsModal } from './PublicPredictionsModal';
+import { PredictionSubmissionStatusModal } from './PredictionSubmissionStatusModal';
 import {
   civilDateKey,
   civilMonthKey,
@@ -342,6 +352,14 @@ export function SeasonWorkspace({
   const [publicPredictions, setPublicPredictions] = useState<PublicMatchPredictionDto[]>([]);
   const [publicPredictionsLoading, setPublicPredictionsLoading] = useState(false);
   const [publicPredictionsError, setPublicPredictionsError] = useState('');
+  const [predictionSubmissionVisible, setPredictionSubmissionVisible] = useState(false);
+  const [predictionSubmissionMatch, setPredictionSubmissionMatch] = useState<MatchDto | null>(null);
+  const [predictionSubmissionParticipants, setPredictionSubmissionParticipants] = useState<
+    PredictionSubmissionParticipantDto[]
+  >([]);
+  const [predictionSubmissionRequired, setPredictionSubmissionRequired] = useState(0);
+  const [predictionSubmissionLoading, setPredictionSubmissionLoading] = useState(false);
+  const [predictionSubmissionError, setPredictionSubmissionError] = useState('');
   const stages = useMemo(
     () =>
       [...new Map(rounds.map((round) => [round.stage.id, round.stage])).values()].sort(
@@ -358,6 +376,7 @@ export function SeasonWorkspace({
   const confirmedValuesRef = useRef<Record<string, { home: string; away: string }>>({});
   const visitedSeasonRef = useRef('');
   const publicPredictionsRequestRef = useRef(0);
+  const predictionSubmissionRequestRef = useRef(0);
   const poolSeasonIdRef = useRef(poolSeasonId);
   draftRef.current = draft;
   poolSeasonIdRef.current = poolSeasonId;
@@ -374,6 +393,13 @@ export function SeasonWorkspace({
   );
   const selectedPredictionDay = predictionDays.find((day) => day.key === selectedDayKey);
   const selectedDayMatches = selectedPredictionDay?.matches ?? [];
+  const selectedDayOpenMatches = selectedDayMatches.filter((match) =>
+    isPredictionOpen(
+      match,
+      rounds.find((round) => round.id === match.roundId),
+      rules,
+    ),
+  );
   const todayKey = civilDateKey(new Date(), timezone);
   const matchesByDay = useMemo(() => {
     const grouped = new Map<string, MatchDto[]>();
@@ -404,6 +430,13 @@ export function SeasonWorkspace({
     setPredictionMonth(civilMonthKey(new Date(), season.timezone));
     setSelectedDayKey('');
     setPredictionMatches([]);
+    predictionSubmissionRequestRef.current += 1;
+    setPredictionSubmissionVisible(false);
+    setPredictionSubmissionMatch(null);
+    setPredictionSubmissionParticipants([]);
+    setPredictionSubmissionRequired(0);
+    setPredictionSubmissionLoading(false);
+    setPredictionSubmissionError('');
   }, [season?.id, season?.timezone]);
 
   useEffect(() => {
@@ -869,6 +902,45 @@ export function SeasonWorkspace({
     setPublicPredictionsLoading(false);
   }
 
+  async function loadPredictionSubmissionStatus(
+    match: MatchDto | null = predictionSubmissionMatch,
+  ) {
+    if (!season || !match) return;
+    const requestId = predictionSubmissionRequestRef.current + 1;
+    predictionSubmissionRequestRef.current = requestId;
+    setPredictionSubmissionParticipants([]);
+    setPredictionSubmissionRequired(0);
+    setPredictionSubmissionError('');
+    setPredictionSubmissionLoading(true);
+    try {
+      const result = await api.seasonPredictionSubmissionStatus(POOL_SLUG, season.id, [match.id]);
+      if (predictionSubmissionRequestRef.current !== requestId) return;
+      setPredictionSubmissionParticipants(result.participants);
+      setPredictionSubmissionRequired(result.requiredPredictions);
+    } catch (cause) {
+      if (predictionSubmissionRequestRef.current !== requestId) return;
+      setPredictionSubmissionError(errorMessage(cause));
+    } finally {
+      if (predictionSubmissionRequestRef.current === requestId) {
+        setPredictionSubmissionLoading(false);
+      }
+    }
+  }
+
+  function openPredictionSubmissionStatus(match: MatchDto) {
+    setPredictionSubmissionMatch(match);
+    setPredictionSubmissionVisible(true);
+    void loadPredictionSubmissionStatus(match);
+  }
+
+  function closePredictionSubmissionStatus() {
+    predictionSubmissionRequestRef.current += 1;
+    setPredictionSubmissionVisible(false);
+    setPredictionSubmissionMatch(null);
+    setPredictionSubmissionLoading(false);
+    setPredictionSubmissionError('');
+  }
+
   if (!season && status === 'loading') return <AsyncState status="loading" skeletonLines={6} />;
 
   const dirtyOpenIds = selectedDayMatches
@@ -881,13 +953,6 @@ export function SeasonWorkspace({
         ) && draft.items[match.id]?.status === 'dirty',
     )
     .map((match) => match.id);
-  const selectedDayOpenMatches = selectedDayMatches.filter((match) =>
-    isPredictionOpen(
-      match,
-      rounds.find((round) => round.id === match.roundId),
-      rules,
-    ),
-  );
   const selectedDayFilledCount = selectedDayMatches.filter((match) => {
     const value = draft.items[match.id]?.value;
     return Boolean(value && value.home !== '' && value.away !== '');
@@ -1221,7 +1286,10 @@ export function SeasonWorkspace({
                     </Text>
                   </View>
                   {selectedDayMatches.length ? (
-                    <View style={styles.predictionSummary} accessibilityLabel="Resumo dos palpites do dia">
+                    <View
+                      style={styles.predictionSummary}
+                      accessibilityLabel="Resumo dos palpites do dia"
+                    >
                       <View style={styles.predictionSummaryMetric}>
                         <Text style={styles.predictionSummaryValue}>
                           {selectedDayFilledCount}/{selectedDayMatches.length}
@@ -1229,9 +1297,7 @@ export function SeasonWorkspace({
                         <Text style={styles.predictionSummaryLabel}>Preenchidos</Text>
                       </View>
                       <View style={styles.predictionSummaryMetric}>
-                        <Text style={styles.predictionSummaryValue}>
-                          {selectedDayPendingCount}
-                        </Text>
+                        <Text style={styles.predictionSummaryValue}>{selectedDayPendingCount}</Text>
                         <Text style={styles.predictionSummaryLabel}>Pendentes abertos</Text>
                       </View>
                       <View style={styles.predictionSummaryMetric}>
@@ -1271,6 +1337,9 @@ export function SeasonWorkspace({
                           }
                           onSave={() => void saveMatches([match.id])}
                           onDiscard={() => discardMatches([match.id])}
+                          onOpenPredictionSubmissionStatus={
+                            open ? () => openPredictionSubmissionStatus(match) : undefined
+                          }
                           onOpenPublicPredictions={
                             publicAvailable ? () => void openPublicPredictions(match) : undefined
                           }
@@ -1331,12 +1400,18 @@ export function SeasonWorkspace({
               </Text>
             </View>
             {context.capabilities.has('LEAGUE') ? (
-              <View accessibilityRole="tablist" accessibilityLabel="Filtro de mando de campo" style={styles.standingsFilters}>
-                {([
-                  ['ALL', 'Todos'],
-                  ['HOME', 'Casa'],
-                  ['AWAY', 'Fora'],
-                ] as const).map(([venue, label]) => {
+              <View
+                accessibilityRole="tablist"
+                accessibilityLabel="Filtro de mando de campo"
+                style={styles.standingsFilters}
+              >
+                {(
+                  [
+                    ['ALL', 'Todos'],
+                    ['HOME', 'Casa'],
+                    ['AWAY', 'Fora'],
+                  ] as const
+                ).map(([venue, label]) => {
                   const active = standingsVenue === venue;
                   return (
                     <Pressable
@@ -1347,7 +1422,14 @@ export function SeasonWorkspace({
                       onPress={() => setStandingsVenue(venue)}
                       style={[styles.standingsFilter, active && styles.standingsFilterActive]}
                     >
-                      <Text style={[styles.standingsFilterText, active && styles.standingsFilterTextActive]}>{label}</Text>
+                      <Text
+                        style={[
+                          styles.standingsFilterText,
+                          active && styles.standingsFilterTextActive,
+                        ]}
+                      >
+                        {label}
+                      </Text>
                     </Pressable>
                   );
                 })}
@@ -1356,20 +1438,18 @@ export function SeasonWorkspace({
             {standingsByGroup.length ? (
               context.capabilities.has('GROUPS') ? (
                 <GroupStandings groups={standingsByGroup} onOpenTeam={onOpenTeam} />
+              ) : Platform.OS === 'web' ? (
+                <StandingsTable
+                  rows={standingsByGroup.flatMap((group) => group.rows)}
+                  competitionSlug={competitionSlug}
+                  onOpenTeam={onOpenTeam}
+                />
               ) : (
-                Platform.OS === 'web' ? (
-                  <StandingsTable
-                    rows={standingsByGroup.flatMap((group) => group.rows)}
-                    competitionSlug={competitionSlug}
-                    onOpenTeam={onOpenTeam}
-                  />
-                ) : (
-                  standingsTable(
-                    standingsByGroup.flatMap((group) => group.rows),
-                    compact,
-                    competitionSlug,
-                    onOpenTeam,
-                  )
+                standingsTable(
+                  standingsByGroup.flatMap((group) => group.rows),
+                  compact,
+                  competitionSlug,
+                  onOpenTeam,
                 )
               )
             ) : (
@@ -1520,6 +1600,21 @@ export function SeasonWorkspace({
           </View>
         </View>
       ) : null}
+      <PredictionSubmissionStatusModal
+        visible={predictionSubmissionVisible}
+        matchTitle={
+          predictionSubmissionMatch
+            ? `${predictionSubmissionMatch.homeTeam.name} × ${predictionSubmissionMatch.awayTeam.name}`
+            : 'Partida selecionada'
+        }
+        requiredPredictions={predictionSubmissionRequired}
+        participants={predictionSubmissionParticipants}
+        currentUserId={currentUserId}
+        loading={predictionSubmissionLoading}
+        error={predictionSubmissionError}
+        onRefresh={() => void loadPredictionSubmissionStatus()}
+        onClose={closePredictionSubmissionStatus}
+      />
       <PublicPredictionsModal
         match={publicMatch}
         predictions={publicPredictions}
@@ -1705,7 +1800,12 @@ const styles = StyleSheet.create({
     maxWidth: 120,
     textAlign: 'center',
   },
-  fixturePrediction: { color: theme.color.warning, fontSize: 9, fontWeight: '800', textAlign: 'center' },
+  fixturePrediction: {
+    color: theme.color.warning,
+    fontSize: 9,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
   fixturePredictionRegistered: { color: theme.color.success },
   sectionHeading: {
     alignItems: 'flex-end',

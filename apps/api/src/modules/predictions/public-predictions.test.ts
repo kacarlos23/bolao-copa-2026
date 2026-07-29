@@ -8,8 +8,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('./prediction.repository.js', () => ({
   findMatchForPublicPredictions: mocks.findMatch,
+  listMatchesForPredictionSubmissionStatus: vi.fn(),
   listPublicMatchPredictionRecords: mocks.listPublic,
   listPredictionRecords: vi.fn(),
+  listPredictionSubmissionParticipantRecords: vi.fn(),
 }));
 
 vi.mock('../../services/prediction-settings.service.js', () => ({

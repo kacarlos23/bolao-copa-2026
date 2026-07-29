@@ -191,6 +191,7 @@ describe('experiência genérica de competições', () => {
   it('fecha o palpite individualmente, expõe sync e só abre previsões públicas após o prazo', () => {
     const save = vi.fn();
     const discard = vi.fn();
+    const submissionStatus = vi.fn();
     const publicPredictions = vi.fn();
     render(
       <MatchPredictionCard
@@ -208,12 +209,38 @@ describe('experiência genérica de competições', () => {
         onEdit={vi.fn()}
         onSave={save}
         onDiscard={discard}
+        onOpenPredictionSubmissionStatus={submissionStatus}
       />,
     );
     expect(screen.getByText('Não salvo')).toBeTruthy();
     expect(screen.queryByText('Ver palpites públicos')).toBeNull();
+    expect(
+      screen.queryByRole('button', {
+        name: 'Ver quem falta palpitar em Atlético contra Nacional',
+      }),
+    ).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Descartar palpite não salvo' }));
     expect(discard).toHaveBeenCalledOnce();
+
+    render(
+      <MatchPredictionCard
+        match={match}
+        value={{ home: '1', away: '0' }}
+        open
+        availabilityLabel="ABERTO"
+        timezone="America/Sao_Paulo"
+        onEdit={vi.fn()}
+        onSave={save}
+        onDiscard={discard}
+        onOpenPredictionSubmissionStatus={submissionStatus}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Ver quem falta palpitar em Atlético contra Nacional',
+      }),
+    );
+    expect(submissionStatus).toHaveBeenCalledOnce();
 
     render(
       <MatchPredictionCard

@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import {
   calculatePredictionScore,
+  predictionSubmissionStatusResponseSchema,
   predictionDtoSchema,
   publicMatchPredictionsResponseSchema,
   type PaginationQuery,
@@ -20,7 +21,9 @@ import {
 } from '../../services/prediction-settings.service.js';
 import {
   findMatchForPublicPredictions,
+  listMatchesForPredictionSubmissionStatus,
   listPredictionRecords,
+  listPredictionSubmissionParticipantRecords,
   listPublicMatchPredictionRecords,
 } from './prediction.repository.js';
 import { inspectCompetitionFeatureFlagsValue } from '../competitions/competition-feature.service.js';
@@ -110,6 +113,63 @@ export async function listPublicMatchPredictions(
               actualAwayScore,
             }).scoreType,
     })),
+  });
+}
+
+export async function listPredictionSubmissionStatus(
+  context: PoolSeasonContext,
+  requestedMatchIds: string[],
+  now = new Date(),
+) {
+  const matchIds = [...new Set(requestedMatchIds)];
+  const [matches, predictionCloseMinutes] = await Promise.all([
+    listMatchesForPredictionSubmissionStatus(context.seasonId, matchIds),
+    getPredictionCloseMinutes(),
+  ]);
+  if (matches.length !== matchIds.length) {
+    throw new AppError(
+      404,
+      'Um ou mais jogos não pertencem a esta temporada.',
+      'PREDICTION_STATUS_MATCH_NOT_FOUND',
+    );
+  }
+
+  const requiredMatchIds = matches
+    .filter(
+      (match) => {
+        const closesAt =
+          match.predictionClosesAt ??
+          new Date(match.startsAt.getTime() - predictionCloseMinutes * 60_000);
+        return (
+          match.status === 'SCHEDULED' &&
+          now < closesAt &&
+          isPoolMatchScoreable(context, {
+            startsAt: match.startsAt,
+            roundOrder: match.round?.order ?? null,
+          })
+        );
+      },
+    )
+    .map((match) => match.id);
+  const participants = await listPredictionSubmissionParticipantRecords(
+    context,
+    requiredMatchIds,
+  );
+
+  return predictionSubmissionStatusResponseSchema.parse({
+    matchIds,
+    requiredPredictions: requiredMatchIds.length,
+    participants: participants.map(({ user }) => {
+      const savedMatchIds = new Set(user.predictions.map((prediction) => prediction.matchId));
+      return {
+        userId: user.id,
+        nickname: user.nickname,
+        avatarUrl: user.avatarUrl,
+        hasSavedPredictions:
+          requiredMatchIds.length > 0 &&
+          requiredMatchIds.every((matchId) => savedMatchIds.has(matchId)),
+      };
+    }),
   });
 }
 

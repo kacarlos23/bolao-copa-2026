@@ -3,6 +3,8 @@ import {
   apiErrorSchema,
   listMatchesQuerySchema,
   matchDtoSchema,
+  predictionStatusQuerySchema,
+  predictionSubmissionStatusResponseSchema,
   realtimeEventEnvelopeSchema,
   tieDtoSchema,
   teamProfileDtoSchema,
@@ -118,6 +120,38 @@ describe('generic competition contracts', () => {
     });
     expect(() => listMatchesQuerySchema.parse({ pageSize: 101 })).toThrow();
     expect(() => listMatchesQuerySchema.parse({ include: 'everything' })).toThrow();
+  });
+
+  it('keeps prediction submission status score-free and deduplicates requested matches', () => {
+    expect(predictionStatusQuerySchema.parse({ matchIds: 'match-1, match-2,match-1' })).toEqual({
+      matchIds: ['match-1', 'match-2'],
+    });
+
+    const safeStatus = {
+      matchIds: ['match-1', 'match-2'],
+      requiredPredictions: 2,
+      participants: [
+        {
+          userId: 'user-1',
+          nickname: 'Ana',
+          avatarUrl: '/avatars/ana.webp',
+          hasSavedPredictions: true,
+        },
+      ],
+    };
+    expect(predictionSubmissionStatusResponseSchema.parse(safeStatus)).toEqual(safeStatus);
+    expect(() =>
+      predictionSubmissionStatusResponseSchema.parse({
+        ...safeStatus,
+        participants: [
+          {
+            ...safeStatus.participants[0],
+            predictedHomeScore: 2,
+            predictedAwayScore: 1,
+          },
+        ],
+      }),
+    ).toThrow();
   });
 
   it('documents safe errors and filterable versioned events', () => {

@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import type { MatchDto, PublicMatchPredictionDto, ScoreType } from '@bolao/shared';
 import { TeamBadge } from '../../components/TeamBadge';
+import { UserAvatar } from '../../components/UserAvatar';
 import { theme } from '../../theme/tokens';
 import { predictionPresentation } from './publicPredictionsPresentation';
 
@@ -121,12 +122,19 @@ export function PublicPredictionsModal({
                     accessibilityLabel={`${prediction.user.nickname}, ${prediction.predictedHomeScore} a ${prediction.predictedAwayScore}${presentation ? `, ${presentation.label}` : ''}`}
                   >
                     <View style={styles.participant}>
-                      <Text style={styles.nickname} numberOfLines={1}>
-                        {prediction.user.nickname}
-                      </Text>
-                      {prediction.userId === currentUserId ? (
-                        <Text style={styles.you}>VOCÊ</Text>
-                      ) : null}
+                      <UserAvatar
+                        nickname={prediction.user.nickname}
+                        avatarUrl={prediction.user.avatarUrl}
+                        size={36}
+                      />
+                      <View style={styles.participantCopy}>
+                        <Text style={styles.nickname} numberOfLines={1}>
+                          {prediction.user.nickname}
+                        </Text>
+                        {prediction.userId === currentUserId ? (
+                          <Text style={styles.you}>VOCÊ</Text>
+                        ) : null}
+                      </View>
                     </View>
                     <Text style={styles.predictionScore}>
                       {prediction.predictedHomeScore} × {prediction.predictedAwayScore}
@@ -223,7 +231,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.space.md,
     paddingVertical: theme.space.sm,
   },
-  participant: { flex: 1, minWidth: 0 },
+  participant: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    gap: theme.space.sm,
+    minWidth: 0,
+  },
+  participantCopy: { flex: 1, minWidth: 0 },
   nickname: { color: theme.color.text, fontSize: 13, fontWeight: '900' },
   you: {
     color: theme.color.gold,

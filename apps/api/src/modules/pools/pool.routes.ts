@@ -3,6 +3,7 @@ import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import {
   poolSeasonParamsSchema,
+  predictionStatusQuerySchema,
   predictionsQuerySchema,
   rankingQuerySchema,
   upsertSeasonPredictionsSchema,
@@ -11,6 +12,7 @@ import { asyncHandler } from '../../http/async-handler.js';
 import { requireAuth } from '../../middleware/auth.js';
 import {
   listPredictions,
+  listPredictionSubmissionStatus,
   listPublicMatchPredictions,
   savePredictions,
 } from '../predictions/prediction.use-cases.js';
@@ -208,6 +210,15 @@ poolRouter.get(
     const context = await engagementContext(req, res);
     const matchId = z.string().trim().min(1).max(120).parse(req.params.matchId);
     res.json(await listPublicMatchPredictions(context, matchId));
+  }),
+);
+
+poolRouter.get(
+  '/:poolSlug/seasons/:seasonId/prediction-status',
+  asyncHandler(async (req, res) => {
+    const context = await engagementContext(req, res);
+    const query = predictionStatusQuerySchema.parse(req.query);
+    res.json(await listPredictionSubmissionStatus(context, query.matchIds));
   }),
 );
 

@@ -2,6 +2,7 @@ import {
   competitionSeasonsResponseSchema,
   competitionsResponseSchema,
   matchesResponseSchema,
+  predictionSubmissionStatusResponseSchema,
   predictionsResponseSchema,
   publicMatchPredictionsResponseSchema,
   rankingResponseSchema,
@@ -661,6 +662,17 @@ export const api = {
     request<PublicMatchPredictionsResponse>(
       `/api/pools/${encodeURIComponent(poolSlug)}/seasons/${encodeURIComponent(seasonId)}/matches/${encodeURIComponent(matchId)}/predictions`,
       { schema: publicMatchPredictionsResponseSchema },
+    ),
+  seasonPredictionSubmissionStatus: (
+    poolSlug: string,
+    seasonId: string,
+    matchIds: string[],
+  ) =>
+    request(
+      `/api/pools/${encodeURIComponent(poolSlug)}/seasons/${encodeURIComponent(seasonId)}/prediction-status?matchIds=${matchIds
+        .map((matchId) => encodeURIComponent(matchId))
+        .join(',')}`,
+      { schema: predictionSubmissionStatusResponseSchema },
     ),
   saveSeasonPredictions: (
     poolSlug: string,

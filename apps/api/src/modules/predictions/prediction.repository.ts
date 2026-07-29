@@ -77,3 +77,50 @@ export function listPublicMatchPredictionRecords(
     },
   });
 }
+
+export function listMatchesForPredictionSubmissionStatus(seasonId: string, matchIds: string[]) {
+  return prisma.match.findMany({
+    where: { id: { in: matchIds }, seasonId },
+    select: {
+      id: true,
+      startsAt: true,
+      predictionClosesAt: true,
+      status: true,
+      round: { select: { order: true } },
+    },
+  });
+}
+
+export function listPredictionSubmissionParticipantRecords(
+  context: { poolSeasonId: string },
+  matchIds: string[],
+) {
+  return prisma.poolSeasonMembership.findMany({
+    where: {
+      poolSeasonId: context.poolSeasonId,
+      status: 'ACTIVE',
+      user: {
+        role: { in: ['USER', 'ADMIN'] },
+        status: 'ACTIVE',
+      },
+    },
+    orderBy: { user: { nickname: 'asc' } },
+    select: {
+      userId: true,
+      user: {
+        select: {
+          id: true,
+          nickname: true,
+          avatarUrl: true,
+          predictions: {
+            where: {
+              poolSeasonId: context.poolSeasonId,
+              matchId: { in: matchIds },
+            },
+            select: { matchId: true },
+          },
+        },
+      },
+    },
+  });
+}

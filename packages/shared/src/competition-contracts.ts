@@ -123,6 +123,24 @@ export const predictionsQuerySchema = paginationQuerySchema.extend({
   matchDayId: entityIdSchema.optional(),
 });
 
+export const predictionStatusQuerySchema = z
+  .object({
+    matchIds: z
+      .string()
+      .trim()
+      .min(1)
+      .transform((value) => [
+        ...new Set(
+          value
+            .split(',')
+            .map((matchId) => matchId.trim())
+            .filter(Boolean),
+        ),
+      ])
+      .pipe(z.array(entityIdSchema).min(1).max(50)),
+  })
+  .strict();
+
 export const eventsQuerySchema = z
   .object({
     seasonId: entityIdSchema.optional(),
@@ -494,6 +512,15 @@ export const publicMatchPredictionDtoSchema = z
   })
   .strict();
 
+export const predictionSubmissionParticipantDtoSchema = z
+  .object({
+    userId: entityIdSchema,
+    nickname: z.string().min(1),
+    avatarUrl: z.string().nullable(),
+    hasSavedPredictions: z.boolean(),
+  })
+  .strict();
+
 export const rankingRowDtoSchema = z
   .object({
     rank: z.number().int().positive(),
@@ -639,6 +666,14 @@ export const publicMatchPredictionsResponseSchema = z
   })
   .strict();
 
+export const predictionSubmissionStatusResponseSchema = z
+  .object({
+    matchIds: z.array(entityIdSchema).min(1).max(50),
+    requiredPredictions: z.number().int().nonnegative(),
+    participants: z.array(predictionSubmissionParticipantDtoSchema),
+  })
+  .strict();
+
 export const savedPredictionsResponseSchema = z
   .object({ predictions: z.array(predictionDtoSchema) })
   .strict();
@@ -675,6 +710,13 @@ export type StandingRowDto = z.infer<typeof standingRowDtoSchema>;
 export type PredictionDto = z.infer<typeof predictionDtoSchema>;
 export type PublicMatchPredictionDto = z.infer<typeof publicMatchPredictionDtoSchema>;
 export type PublicMatchPredictionsResponse = z.infer<typeof publicMatchPredictionsResponseSchema>;
+export type PredictionStatusQuery = z.infer<typeof predictionStatusQuerySchema>;
+export type PredictionSubmissionParticipantDto = z.infer<
+  typeof predictionSubmissionParticipantDtoSchema
+>;
+export type PredictionSubmissionStatusResponse = z.infer<
+  typeof predictionSubmissionStatusResponseSchema
+>;
 export type RankingRowDto = z.infer<typeof rankingRowDtoSchema>;
 export type RankingAwardDto = z.infer<typeof rankingAwardDtoSchema>;
 export type ApiIssue = z.infer<typeof apiIssueSchema>;
