@@ -10,7 +10,8 @@ function normalizeOrigin(origin: string) {
 }
 
 function configuredOrigins() {
-  return [config.WEB_ORIGIN, ...config.WEB_ORIGINS.split(',')]
+  return [config.WEB_ORIGIN, config.PRODUCTION_WEB_URL, ...config.WEB_ORIGINS.split(',')]
+    .filter((origin): origin is string => Boolean(origin))
     .map((origin) => origin.trim())
     .filter(Boolean)
     .map(normalizeOrigin);

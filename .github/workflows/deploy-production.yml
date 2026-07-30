@@ -1,0 +1,357 @@
+name: deploy-production
+
+on:
+  workflow_run:
+    workflows: [release-gates]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: bolao-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  verify-candidate:
+    name: Validar candidato aprovado
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    outputs:
+      target_sha: ${{ steps.candidate.outputs.target_sha }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+      - name: Confirmar que o candidato ainda é a main
+        shell: pwsh
+        env:
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          $expected = $env:TARGET_SHA.ToLowerInvariant()
+          if ($expected -notmatch '^[0-9a-f]{40}$') {
+            throw 'SHA alvo inválido.'
+          }
+          git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Falha ao atualizar origin/main.'
+          }
+          $current = (git rev-parse refs/remotes/origin/main).Trim().ToLowerInvariant()
+          if ($current -ne $expected) {
+            throw "Candidato obsoleto: esperado $expected, main atual $current."
+          }
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: production-candidate-${{ github.event.workflow_run.head_sha }}
+          path: candidate-artifact
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - name: Validar SHA e hashes do manifesto
+        id: candidate
+        shell: pwsh
+        env:
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          $manifestFile = Get-ChildItem -LiteralPath candidate-artifact -Filter release-candidate-manifest.json -File -Recurse
+          if (@($manifestFile).Count -ne 1) {
+            throw 'O artefato deve conter exatamente um manifesto de candidato.'
+          }
+          $manifestPath = $manifestFile[0].FullName
+          $env:DEPLOY_MANIFEST_PATH = $manifestPath
+          $manifestValidator = @'
+          import { spawnSync } from "node:child_process";
+          import { createHash } from "node:crypto";
+          import { readFileSync } from "node:fs";
+
+          const manifest = JSON.parse(readFileSync(process.env.DEPLOY_MANIFEST_PATH, "utf8"));
+          const { manifestSha256, ...payload } = manifest;
+          const payloadHash = createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+          if (payloadHash !== manifestSha256) {
+            throw new Error("Hash interno do manifesto inválido.");
+          }
+
+          const targetSha = process.env.TARGET_SHA.toLowerCase();
+          const head = spawnSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" });
+          if (head.status !== 0 || head.stdout.trim().toLowerCase() !== targetSha) {
+            throw new Error("Checkout não corresponde ao SHA aprovado.");
+          }
+
+          const seen = new Set();
+          for (const entry of payload.files ?? []) {
+            const relative = String(entry.path).replaceAll("\\", "/");
+            if (
+              !relative ||
+              relative.startsWith("/") ||
+              /^[A-Za-z]:/.test(relative) ||
+              relative.split("/").includes("..") ||
+              /[\0\r\n]/.test(relative) ||
+              seen.has(relative)
+            ) {
+              throw new Error(`Caminho inseguro ou duplicado no manifesto: ${relative}`);
+            }
+            seen.add(relative);
+            const blob = spawnSync("git", ["show", `${targetSha}:${relative}`], {
+              encoding: null,
+              maxBuffer: 50 * 1024 * 1024,
+            });
+            if (blob.status !== 0) {
+              throw new Error(`Blob ausente no candidato: ${relative}`);
+            }
+            const actualHash = createHash("sha256").update(blob.stdout).digest("hex");
+            if (!/^[a-f0-9]{64}$/.test(String(entry.sha256)) || actualHash !== entry.sha256) {
+              throw new Error(`Hash Git inválido no candidato: ${relative}`);
+            }
+          }
+          '@
+          node --input-type=module -e $manifestValidator
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Falha na validação de integridade do manifesto.'
+          }
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          $expected = $env:TARGET_SHA.ToLowerInvariant()
+          if ($manifest.formatVersion -ne 1 -or $manifest.status -ne 'passed') {
+            throw 'Formato ou estado do manifesto inválido.'
+          }
+          if ($manifest.commitSha.ToLowerInvariant() -ne $expected) {
+            throw 'O SHA do manifesto não corresponde ao workflow aprovado.'
+          }
+
+          $sourceRoot = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)
+          $sourcePrefix = $sourceRoot.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+          $manifestPaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+          foreach ($entry in $manifest.files) {
+            $relative = ([string]$entry.path).Replace('/', [IO.Path]::DirectorySeparatorChar)
+            $absolute = [IO.Path]::GetFullPath([IO.Path]::Combine($sourceRoot, $relative))
+            if (-not $absolute.StartsWith($sourcePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+              throw "Caminho fora do checkout no manifesto: $($entry.path)"
+            }
+            if (-not (Test-Path -LiteralPath $absolute -PathType Leaf)) {
+              throw "Arquivo ausente no candidato: $($entry.path)"
+            }
+            [void]$manifestPaths.Add(([string]$entry.path).Replace('\', '/'))
+          }
+
+          $required = @(
+            '.gitattributes',
+            'package-lock.json',
+            'apps/api/prisma/schema.prisma',
+            '.github/workflows/release-gates.yml',
+            '.github/workflows/deploy-production.yml',
+            'ecosystem.config.cjs'
+          )
+          $required += Get-ChildItem -LiteralPath apps/api/prisma/migrations -File -Recurse |
+            ForEach-Object {
+              [IO.Path]::GetRelativePath($sourceRoot, $_.FullName).Replace('\', '/')
+            }
+          $required += Get-ChildItem -LiteralPath scripts/deployment -File -Recurse |
+            ForEach-Object {
+              [IO.Path]::GetRelativePath($sourceRoot, $_.FullName).Replace('\', '/')
+            }
+          foreach ($requiredPath in $required) {
+            if (-not $manifestPaths.Contains($requiredPath)) {
+              throw "Hash obrigatório ausente no manifesto: $requiredPath"
+            }
+          }
+
+          "target_sha=$expected" >> $env:GITHUB_OUTPUT
+
+  deployment-enabled:
+    name: Verificar política de ativação
+    needs: verify-candidate
+    runs-on: ubuntu-latest
+    environment: production
+    outputs:
+      enabled: ${{ steps.policy.outputs.enabled }}
+    env:
+      AUTO_DEPLOY_ENABLED: ${{ vars.AUTO_DEPLOY_ENABLED }}
+    steps:
+      - name: Validar kill switch do environment
+        id: policy
+        shell: pwsh
+        run: |
+          $value = ([string]$env:AUTO_DEPLOY_ENABLED).Trim().ToLowerInvariant()
+          if ([string]::IsNullOrWhiteSpace($value)) {
+            $value = 'false'
+          }
+          if ($value -notin @('true', 'false')) {
+            throw 'AUTO_DEPLOY_ENABLED deve ser true ou false.'
+          }
+          "enabled=$value" >> $env:GITHUB_OUTPUT
+
+  inspect-production:
+    name: Inspecionar produção
+    if: needs.deployment-enabled.outputs.enabled == 'true'
+    needs: [verify-candidate, deployment-enabled]
+    runs-on: [self-hosted, Windows, X64, bolao-production]
+    environment: production
+    env:
+      AUTO_DEPLOY_ENABLED: ${{ vars.AUTO_DEPLOY_ENABLED }}
+      PRODUCTION_ENV_FILE: ${{ vars.PRODUCTION_ENV_FILE }}
+      PRODUCTION_ROOT: ${{ vars.PRODUCTION_ROOT }}
+      TARGET_SHA: ${{ needs.verify-candidate.outputs.target_sha }}
+    outputs:
+      migration_required: ${{ steps.inspect.outputs.migration_required }}
+      auto_deploy_enabled: ${{ steps.inspect.outputs.auto_deploy_enabled }}
+      release_exists: ${{ steps.inspect.outputs.release_exists }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.verify-candidate.outputs.target_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: production-candidate-${{ needs.verify-candidate.outputs.target_sha }}
+          path: candidate-artifact
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - name: Executar preflight sem alterar produção
+        id: inspect
+        shell: powershell
+        run: |
+          $manifest = Get-ChildItem -LiteralPath candidate-artifact -Filter release-candidate-manifest.json -File -Recurse |
+            Select-Object -First 1
+          if ($null -eq $manifest) {
+            throw 'Manifesto de produção não encontrado.'
+          }
+          & .\scripts\deployment\inspect-production.ps1 `
+            -TargetSha $env:TARGET_SHA `
+            -ManifestPath $manifest.FullName `
+            -SourceRoot $env:GITHUB_WORKSPACE `
+            -ProductionRoot $env:PRODUCTION_ROOT `
+            -EnvironmentFile $env:PRODUCTION_ENV_FILE `
+            -GithubOutput $env:GITHUB_OUTPUT
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+  deploy-application:
+    name: Deploy sem migration
+    if: >-
+      needs.deployment-enabled.outputs.enabled == 'true' &&
+      needs.inspect-production.outputs.auto_deploy_enabled == 'true' &&
+      needs.inspect-production.outputs.migration_required == 'false'
+    needs: [verify-candidate, deployment-enabled, inspect-production]
+    runs-on: [self-hosted, Windows, X64, bolao-production]
+    environment: production
+    env:
+      AUTO_DEPLOY_ENABLED: ${{ vars.AUTO_DEPLOY_ENABLED }}
+      PRODUCTION_API_URL: ${{ vars.PRODUCTION_API_URL }}
+      PRODUCTION_ENV_FILE: ${{ vars.PRODUCTION_ENV_FILE }}
+      PRODUCTION_ROOT: ${{ vars.PRODUCTION_ROOT }}
+      PRODUCTION_WEB_URL: ${{ vars.PRODUCTION_WEB_URL }}
+      TARGET_SHA: ${{ needs.verify-candidate.outputs.target_sha }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.verify-candidate.outputs.target_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: production-candidate-${{ needs.verify-candidate.outputs.target_sha }}
+          path: candidate-artifact
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - name: Revalidar main imediatamente antes do deploy
+        shell: powershell
+        run: |
+          $current = (git ls-remote origin refs/heads/main).Split("`t")[0].Trim().ToLowerInvariant()
+          if ($LASTEXITCODE -ne 0 -or $current -ne $env:TARGET_SHA.ToLowerInvariant()) {
+            throw 'O candidato ficou obsoleto antes do deploy.'
+          }
+      - name: Implantar aplicação
+        shell: powershell
+        run: |
+          $manifest = Get-ChildItem -LiteralPath candidate-artifact -Filter release-candidate-manifest.json -File -Recurse |
+            Select-Object -First 1
+          & .\scripts\deployment\deploy-production.ps1 `
+            -TargetSha $env:TARGET_SHA `
+            -ManifestPath $manifest.FullName `
+            -SourceRoot $env:GITHUB_WORKSPACE `
+            -ProductionRoot $env:PRODUCTION_ROOT `
+            -EnvironmentFile $env:PRODUCTION_ENV_FILE `
+            -ApiUrl $env:PRODUCTION_API_URL `
+            -WebUrl $env:PRODUCTION_WEB_URL
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+  deploy-migration:
+    name: Deploy com migration aprovada
+    if: >-
+      needs.deployment-enabled.outputs.enabled == 'true' &&
+      needs.inspect-production.outputs.auto_deploy_enabled == 'true' &&
+      needs.inspect-production.outputs.migration_required == 'true'
+    needs: [verify-candidate, deployment-enabled, inspect-production]
+    runs-on: [self-hosted, Windows, X64, bolao-production]
+    environment: production-migration
+    env:
+      AUTO_DEPLOY_ENABLED: ${{ vars.AUTO_DEPLOY_ENABLED }}
+      PRODUCTION_API_URL: ${{ vars.PRODUCTION_API_URL }}
+      PRODUCTION_ENV_FILE: ${{ vars.PRODUCTION_ENV_FILE }}
+      PRODUCTION_ROOT: ${{ vars.PRODUCTION_ROOT }}
+      PRODUCTION_WEB_URL: ${{ vars.PRODUCTION_WEB_URL }}
+      TARGET_SHA: ${{ needs.verify-candidate.outputs.target_sha }}
+    steps:
+      - name: Revalidar ativação do environment de migration
+        shell: powershell
+        run: |
+          $value = ([string]$env:AUTO_DEPLOY_ENABLED).Trim().ToLowerInvariant()
+          if ($value -ne 'true') {
+            throw 'AUTO_DEPLOY_ENABLED precisa estar true no environment production-migration.'
+          }
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.verify-candidate.outputs.target_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: production-candidate-${{ needs.verify-candidate.outputs.target_sha }}
+          path: candidate-artifact
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - name: Revalidar main imediatamente antes da migration
+        shell: powershell
+        run: |
+          $current = (git ls-remote origin refs/heads/main).Split("`t")[0].Trim().ToLowerInvariant()
+          if ($LASTEXITCODE -ne 0 -or $current -ne $env:TARGET_SHA.ToLowerInvariant()) {
+            throw 'O candidato ficou obsoleto antes da migration.'
+          }
+      - name: Backup, migration e deploy
+        shell: powershell
+        run: |
+          $manifest = Get-ChildItem -LiteralPath candidate-artifact -Filter release-candidate-manifest.json -File -Recurse |
+            Select-Object -First 1
+          & .\scripts\deployment\deploy-production.ps1 `
+            -TargetSha $env:TARGET_SHA `
+            -ManifestPath $manifest.FullName `
+            -SourceRoot $env:GITHUB_WORKSPACE `
+            -ProductionRoot $env:PRODUCTION_ROOT `
+            -EnvironmentFile $env:PRODUCTION_ENV_FILE `
+            -ApiUrl $env:PRODUCTION_API_URL `
+            -WebUrl $env:PRODUCTION_WEB_URL `
+            -AllowMigration
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }

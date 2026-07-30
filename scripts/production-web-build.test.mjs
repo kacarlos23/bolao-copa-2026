@@ -15,6 +15,10 @@ test('the production web build always publishes the approved competition experie
   assert.match(buildScript, /expoCli,\s*'export',\s*'--platform',\s*'web',\s*'--clear'/);
   assert.match(startupScript, /node dist\/src\/server\.js/);
   assert.doesNotMatch(startupScript, /set WEB_ORIGIN=http:\/\/localhost:\$Port/);
-  assert.match(ecosystem, /script:\s*'scripts\/serve-dist\.mjs'/);
+  assert.match(ecosystem, /const releaseRoot = path\.resolve\(__dirname\)/);
+  assert.match(
+    ecosystem,
+    /script:\s*path\.join\(releaseRoot,\s*'apps',\s*'web',\s*'scripts',\s*'serve-dist\.mjs'\)/,
+  );
   assert.doesNotMatch(ecosystem, /expo start/);
 });

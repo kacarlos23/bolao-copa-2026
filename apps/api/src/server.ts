@@ -14,8 +14,9 @@ await removeOrphanAvatarFiles();
 const sessionResources = createPostgresSessionResources();
 const app = createApp({ sessionStore: sessionResources.store });
 const server = app.listen(config.PORT, () => {
-  logger.info({ port: config.PORT }, 'API listening');
+  logger.info({ port: config.PORT, releaseSha: config.APP_RELEASE_SHA }, 'API listening');
   if (config.NODE_ENV !== 'test') startJobs();
+  process.send?.('ready');
 });
 
 const shutdown = createShutdownController({
@@ -37,3 +38,6 @@ function handleShutdown(signal: string) {
 
 process.on('SIGINT', () => handleShutdown('SIGINT'));
 process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+process.on('message', (message) => {
+  if (message === 'shutdown') handleShutdown('PM2_SHUTDOWN');
+});

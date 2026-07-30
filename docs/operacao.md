@@ -20,8 +20,12 @@ npm install
 npm run prisma:generate
 $env:EXPO_PUBLIC_API_URL = "https://api.seu-dominio.example"
 npm run build
-npm run seed
 ```
+
+O seed é exclusivo da preparação consciente de um ambiente novo e nunca faz
+parte do deploy de produção. Migrations em produção usam somente
+`npm run prisma:migrate:deploy`, depois de backup validado e da aprovação
+descrita no [runbook de auto deploy](auto-deploy-windows.md).
 
 Quando frontend e API forem publicados em portas ou origens diferentes,
 `EXPO_PUBLIC_API_URL` precisa conter a origem HTTPS pública da API durante o
@@ -47,6 +51,10 @@ pm2 startup
 O PM2 serve o `apps/web/dist` estático na porta `8080`; ele não expõe o servidor
 de desenvolvimento Expo/Metro em produção. Refaça `npm run build` antes de
 reiniciar o processo web sempre que o frontend ou `EXPO_PUBLIC_API_URL` mudar.
+
+O procedimento manual acima serve para recuperação e diagnóstico. A implantação
+normal da máquina Windows segue o [auto deploy da produção](auto-deploy-windows.md),
+com releases imutáveis, healthchecks e rollback da aplicação.
 
 Depois de rodar `pm2 startup`, execute o comando que o PM2 imprimir para registrar o serviço no Windows.
 
@@ -246,5 +254,13 @@ powershell -ExecutionPolicy Bypass -File .\scripts\healthcheck.ps1
 
 Endpoints:
 
-- API: `GET /health`.
-- Web: `http://localhost:8080`.
+- API viva: `GET http://127.0.0.1:3001/health`.
+- API pronta e conectada ao PostgreSQL: `GET http://127.0.0.1:3001/ready`.
+- Web e marcador da release: `GET http://127.0.0.1:8080/health`.
+
+Para exigir uma release específica:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\healthcheck.ps1 `
+  -ExpectedSha "<sha-git-completo>"
+```

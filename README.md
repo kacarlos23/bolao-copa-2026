@@ -83,6 +83,7 @@ Consulte também:
 - [Plano e prompts — Copa do Brasil, Libertadores e Sul-Americana 2026](docs/PROMPTS_CODEX_EXPANSAO_COPAS_2026.md)
 - [Evidência do Prompt 0 — Copas 2026](docs/evidencia-prompt-0-copas-2026.md)
 - [Operação](docs/operacao.md)
+- [Auto deploy da produção Windows](docs/auto-deploy-windows.md)
 - [Evidência do Prompt 0](docs/evidencia-prompt-0-hardening.md)
 - [ADRs e evidência do Prompt 1](docs/evidencia-prompt-1-adrs.md)
 - [Schema, backfill e evidência do Prompt 2](docs/evidencia-prompt-2-schema-backfill.md)

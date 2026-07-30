@@ -16,4 +16,20 @@ const build = spawnSync('npx expo export --platform web --clear', {
 });
 if (build.status !== 0) process.exit(build.status ?? 1);
 Object.assign(process.env, env);
-await import('./serve-dist.mjs');
+const { startDistributionServer } = await import('./serve-dist.mjs');
+startDistributionServer({
+  testRequestHandler(request, response) {
+    if (!request.url?.startsWith('/api/events')) return false;
+
+    response.writeHead(200, {
+      'cache-control': 'no-cache',
+      connection: 'keep-alive',
+      'content-type': 'text/event-stream',
+    });
+    response.write(': connected\n\n');
+    const heartbeat = setInterval(() => response.write(': heartbeat\n\n'), 10_000);
+    heartbeat.unref?.();
+    request.once('close', () => clearInterval(heartbeat));
+    return true;
+  },
+});

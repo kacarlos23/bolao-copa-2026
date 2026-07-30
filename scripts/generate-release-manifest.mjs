@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { promisify } from 'node:util';
@@ -14,19 +14,25 @@ function sha256(value) {
 }
 
 async function fileHash(relativePath) {
+  const normalizedPath = relativePath.replaceAll('\\', '/');
+  const { stdout } = await exec('git', ['show', `HEAD:${normalizedPath}`], {
+    cwd: root,
+    encoding: 'buffer',
+    maxBuffer: 50 * 1024 * 1024,
+  });
   return {
-    path: relativePath.replaceAll('\\', '/'),
-    sha256: sha256(await readFile(path.join(root, relativePath))),
+    path: normalizedPath,
+    sha256: sha256(stdout),
   };
 }
 
-async function migrationFiles(directory, prefix = '') {
+async function recursiveFiles(directory, prefix = '') {
   const entries = await readdir(directory, { withFileTypes: true });
   const files = [];
   for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
     const absolute = path.join(directory, entry.name);
     const relative = path.join(prefix, entry.name);
-    if (entry.isDirectory()) files.push(...(await migrationFiles(absolute, relative)));
+    if (entry.isDirectory()) files.push(...(await recursiveFiles(absolute, relative)));
     else files.push(relative);
   }
   return files;
@@ -52,13 +58,19 @@ if (process.env.REQUIRE_RC_TAG === 'true' && rcTags.length === 0) {
 }
 
 const migrationRoot = path.join(root, 'apps', 'api', 'prisma', 'migrations');
-const migrations = await migrationFiles(migrationRoot);
+const migrations = await recursiveFiles(migrationRoot);
+const deploymentRoot = path.join(root, 'scripts', 'deployment');
+const deploymentScripts = await recursiveFiles(deploymentRoot);
 const files = await Promise.all([
+  fileHash('.gitattributes'),
   fileHash('package-lock.json'),
   fileHash('.github/workflows/release-gates.yml'),
+  fileHash('.github/workflows/deploy-production.yml'),
+  fileHash('ecosystem.config.cjs'),
   fileHash('apps/api/prisma/schema.prisma'),
   fileHash('apps/api/src/modules/providers/adapters/cbf-serie-a-2026.provider.ts'),
   ...migrations.map((file) => fileHash(path.join('apps', 'api', 'prisma', 'migrations', file))),
+  ...deploymentScripts.map((file) => fileHash(path.join('scripts', 'deployment', file))),
 ]);
 const manifest = {
   formatVersion: 1,

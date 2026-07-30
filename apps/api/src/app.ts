@@ -27,6 +27,7 @@ import { seasonRouter } from './modules/seasons/season.routes.js';
 import { poolRouter } from './modules/pools/pool.routes.js';
 import { publicFundraisingRouter } from './modules/fundraising/fundraising.routes.js';
 import { AppError } from './http/errors.js';
+import { prisma } from './prisma.js';
 
 const pinoHttp = pinoHttpModule as unknown as (options: {
   logger: typeof logger;
@@ -40,11 +41,23 @@ function sessionCookieSecure() {
   return 'auto';
 }
 
-export function createApp(options: { sessionStore?: Store } = {}) {
+interface CreateAppOptions {
+  sessionStore?: Store;
+  readinessCheck?: () => Promise<void>;
+}
+
+async function checkDatabaseReadiness() {
+  await prisma.$queryRaw`SELECT 1`;
+}
+
+export function createApp(options: CreateAppOptions = {}) {
   const app = express();
-  // Older local runs started the API from apps/api and stored avatars there.
-  // Keep those files readable while new production runs store uploads from the workspace root.
-  const legacyAvatarUploadDir = path.resolve(process.cwd(), 'apps', 'api', 'uploads', 'avatars');
+  // Keep both historic working-directory layouts readable while the production
+  // bootstrap moves validated copies into AVATAR_UPLOAD_DIR.
+  const legacyAvatarUploadDirs = [
+    path.resolve(process.cwd(), 'uploads', 'avatars'),
+    path.resolve(process.cwd(), 'apps', 'api', 'uploads', 'avatars'),
+  ].filter((candidate) => candidate !== avatarUploadDir);
 
   app.set('trust proxy', 1);
   app.use(requestContext);
@@ -66,6 +79,23 @@ export function createApp(options: { sessionStore?: Store } = {}) {
   );
   app.use(compression());
   app.use(pinoHttp({ logger }));
+
+  app.get('/health', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ok: true, status: 'ok', releaseSha: config.APP_RELEASE_SHA });
+  });
+
+  app.get('/ready', async (_req, res) => {
+    try {
+      await (options.readinessCheck ?? checkDatabaseReadiness)();
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ status: 'ready', releaseSha: config.APP_RELEASE_SHA });
+    } catch {
+      res.setHeader('Cache-Control', 'no-store');
+      res.status(503).json({ status: 'unavailable', releaseSha: config.APP_RELEASE_SHA });
+    }
+  });
+
   app.use(
     cors({
       origin(origin, callback) {
@@ -93,10 +123,6 @@ export function createApp(options: { sessionStore?: Store } = {}) {
   );
   app.use(csrfProtection);
 
-  app.get('/health', (_req, res) => {
-    res.json({ ok: true, timestamp: new Date().toISOString() });
-  });
-
   app.use('/api/auth', authRouter);
   app.use('/api/competitions', competitionRouter);
   app.use('/api/seasons', seasonRouter);
@@ -122,7 +148,7 @@ export function createApp(options: { sessionStore?: Store } = {}) {
       next();
     },
     express.static(avatarUploadDir),
-    express.static(legacyAvatarUploadDir),
+    ...legacyAvatarUploadDirs.map((directory) => express.static(directory)),
   );
 
   if (config.SERVE_WEB_DIST) {

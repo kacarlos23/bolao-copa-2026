@@ -6,6 +6,7 @@ import sharp from 'sharp';
 import { prisma } from '../prisma.js';
 import { AppError } from '../http/errors.js';
 import { logger } from '../logger.js';
+import { config } from '../config.js';
 
 export const MAX_AVATAR_BYTES = 8 * 1024 * 1024;
 const MAX_AVATAR_PIXELS = 16_000_000;
@@ -14,7 +15,7 @@ const ORPHAN_GRACE_MS = 60 * 60 * 1000;
 const allowedMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const allowedFormats = new Set(['jpeg', 'png', 'webp']);
 
-export const avatarUploadDir = path.resolve(process.cwd(), 'uploads', 'avatars');
+export const avatarUploadDir = path.resolve(config.AVATAR_UPLOAD_DIR);
 
 async function ensureAvatarUploadDir() {
   await fs.mkdir(avatarUploadDir, { recursive: true });

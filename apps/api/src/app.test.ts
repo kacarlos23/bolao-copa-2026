@@ -11,7 +11,40 @@ describe('app', () => {
     const response = await request(createApp()).get('/health');
 
     expect(response.status).toBe(200);
-    expect(response.body.ok).toBe(true);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.body).toEqual({
+      ok: true,
+      status: 'ok',
+      releaseSha: config.APP_RELEASE_SHA,
+    });
+  });
+
+  it('returns readiness and the release SHA when PostgreSQL is available', async () => {
+    const readinessCheck = vi.fn(async () => undefined);
+    const response = await request(createApp({ readinessCheck })).get('/ready');
+
+    expect(response.status).toBe(200);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.body).toEqual({
+      status: 'ready',
+      releaseSha: config.APP_RELEASE_SHA,
+    });
+    expect(readinessCheck).toHaveBeenCalledOnce();
+  });
+
+  it('returns a sanitized readiness failure when PostgreSQL is unavailable', async () => {
+    const readinessCheck = vi.fn(async () => {
+      throw new Error('postgresql://user:secret@database/bolao');
+    });
+    const response = await request(createApp({ readinessCheck })).get('/ready');
+
+    expect(response.status).toBe(503);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.body).toEqual({
+      status: 'unavailable',
+      releaseSha: config.APP_RELEASE_SHA,
+    });
+    expect(JSON.stringify(response.body)).not.toContain('secret');
   });
 
   it('serves legacy avatars with a cross-origin resource policy', async () => {
@@ -133,6 +166,23 @@ describe('app', () => {
       .set('x-csrf-token', csrf.body.csrfToken);
 
     expect(response.status).toBe(401);
+  });
+
+  it('accepts the configured production web origin without exposing a secret', async () => {
+    const originalProductionWebUrl = config.PRODUCTION_WEB_URL;
+    config.PRODUCTION_WEB_URL = 'https://bolao.example.com';
+
+    try {
+      const response = await request(createApp())
+        .get('/api/auth/csrf')
+        .set('origin', config.PRODUCTION_WEB_URL);
+
+      expect(response.status).toBe(200);
+      expect(response.headers['access-control-allow-origin']).toBe(config.PRODUCTION_WEB_URL);
+      expect(response.headers['access-control-allow-credentials']).toBe('true');
+    } finally {
+      config.PRODUCTION_WEB_URL = originalProductionWebUrl;
+    }
   });
 
   it('rejects a cross-site request even when it presents a valid token', async () => {

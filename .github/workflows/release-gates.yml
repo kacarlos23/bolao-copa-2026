@@ -29,13 +29,15 @@ jobs:
     name: PR · lint/unit/contract/component/build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with: { node-version: 24, cache: npm }
       - run: npm ci
       - run: npm run prisma:generate
       - run: npm run gate:pr
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with: { name: pr-gate-artifacts, path: output/release-gates, if-no-files-found: warn }
 
@@ -55,8 +57,10 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with: { node-version: 24, cache: npm }
       - name: Instalar cliente PostgreSQL 18
         run: |
@@ -68,20 +72,24 @@ jobs:
           echo "/usr/lib/postgresql/18/bin" >> "$GITHUB_PATH"
       - run: npm ci
       - run: npm run prisma:generate
-      - name: Gerar manifesto imutável do candidato
-        run: npm run manifest:release
+      - name: Gerar manifesto do release candidate
+        run: node scripts/generate-release-manifest.mjs
         env:
           REQUIRE_RC_TAG: ${{ startsWith(github.ref, 'refs/tags/rc-') }}
       - run: npx playwright install --with-deps chromium
       - run: npm run gate:release-candidate
       - run: npm run audit:dependencies
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with: { name: rc-gate-artifacts, path: output, if-no-files-found: warn, retention-days: 14 }
 
   migration:
     name: Migration · backup/restore/hash/rollback
-    if: startsWith(github.ref, 'refs/tags/rc-') || (github.event_name == 'workflow_dispatch' && (inputs.gate == 'migration' || inputs.gate == 'go-live'))
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      startsWith(github.ref, 'refs/tags/rc-') ||
+      (github.event_name == 'workflow_dispatch' &&
+      (inputs.gate == 'migration' || inputs.gate == 'go-live'))
     needs: release-candidate
     runs-on: ubuntu-latest
     services:
@@ -95,8 +103,10 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with: { node-version: 24, cache: npm }
       - name: Instalar cliente PostgreSQL 18
         run: |
@@ -109,7 +119,7 @@ jobs:
       - run: npm ci
       - run: npm run prisma:generate
       - run: npm run gate:migration
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
           {
@@ -119,6 +129,27 @@ jobs:
             retention-days: 30,
           }
 
+  production-candidate:
+    name: Candidato imutável para produção
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [release-candidate, migration]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with: { node-version: 24 }
+      - name: Gerar manifesto imutável do candidato aprovado
+        run: node scripts/generate-release-manifest.mjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: production-candidate-${{ github.sha }}
+          path: output/release-gates/release-candidate-manifest.json
+          if-no-files-found: error
+          retention-days: 30
+
   go-live:
     name: Go-live · evidência externa protegida
     if: github.event_name == 'workflow_dispatch' && inputs.gate == 'go-live'
@@ -126,12 +157,14 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with: { node-version: 24, cache: npm }
       - run: npm ci
       - run: npm run prisma:generate
-      - name: Materializar evidÃªncias sanitizadas do ambiente protegido
+      - name: Materializar evidências sanitizadas do ambiente protegido
         shell: bash
         env:
           SMOKE_JSON: ${{ secrets.GO_LIVE_SMOKE_JSON }}
@@ -153,6 +186,6 @@ jobs:
           GO_LIVE_EVIDENCE_HMAC_KEY: ${{ secrets.GO_LIVE_EVIDENCE_HMAC_KEY }}
           GO_LIVE_EXPECTED_COMMIT_SHA: ${{ github.sha }}
           GO_LIVE_EXPECTED_ENVIRONMENT: production
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with: { name: go-live-gate-artifacts, path: output/release-gates, if-no-files-found: error }
