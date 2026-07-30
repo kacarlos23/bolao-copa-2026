@@ -1,5 +1,5 @@
 import { createReadStream, existsSync, statSync } from 'node:fs';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -25,15 +25,73 @@ function writeJson(response, status, body) {
   response.end(payload);
 }
 
+function isApiRequest(url = '/') {
+  const pathname = new URL(url, 'http://web.local').pathname;
+  return (
+    pathname === '/health' ||
+    pathname === '/api' ||
+    pathname.startsWith('/api/') ||
+    pathname === '/uploads/avatars' ||
+    pathname.startsWith('/uploads/avatars/')
+  );
+}
+
+function normalizeApiOrigin(apiOrigin) {
+  if (!apiOrigin) return null;
+  const parsedOrigin = new URL(apiOrigin);
+  if (
+    parsedOrigin.protocol !== 'http:' ||
+    parsedOrigin.username ||
+    parsedOrigin.password ||
+    parsedOrigin.pathname !== '/' ||
+    parsedOrigin.search ||
+    parsedOrigin.hash
+  ) {
+    throw new Error('API_ORIGIN must be a plain internal HTTP origin');
+  }
+  return parsedOrigin;
+}
+
+function proxyToApi(request, response, apiOrigin) {
+  const headers = {
+    ...request.headers,
+    host: apiOrigin.host,
+    'x-forwarded-host': request.headers['x-forwarded-host'] ?? request.headers.host ?? '',
+    'x-forwarded-proto': request.headers['x-forwarded-proto'] ?? 'http',
+  };
+  const upstream = httpRequest(
+    new URL(request.url ?? '/', apiOrigin),
+    {
+      method: request.method,
+      headers,
+    },
+    (upstreamResponse) => {
+      response.writeHead(upstreamResponse.statusCode ?? 502, upstreamResponse.headers);
+      upstreamResponse.pipe(response);
+    },
+  );
+
+  upstream.on('error', () => {
+    if (!response.headersSent) {
+      response.writeHead(502, { 'content-type': 'application/json; charset=utf-8' });
+    }
+    response.end(JSON.stringify({ error: { code: 'API_UNAVAILABLE' } }));
+  });
+  request.on('aborted', () => upstream.destroy());
+  request.pipe(upstream);
+}
+
 export function createDistributionServer({
   root = join(process.cwd(), 'dist'),
   releaseSha = process.env.APP_RELEASE_SHA ?? 'development',
   testRequestHandler,
+  apiOrigin = process.env.API_ORIGIN,
 } = {}) {
   const distributionRoot = resolve(root);
   const distributionPrefix = distributionRoot.endsWith(sep)
     ? distributionRoot
     : `${distributionRoot}${sep}`;
+  const resolvedApiOrigin = normalizeApiOrigin(apiOrigin);
 
   return createServer((request, response) => {
     // E2E may inject deterministic API doubles without shipping them in the
@@ -51,6 +109,11 @@ export function createDistributionServer({
       pathname = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname);
     } catch {
       writeJson(response, 400, { status: 'invalid_request' });
+      return;
+    }
+
+    if (resolvedApiOrigin && isApiRequest(request.url)) {
+      proxyToApi(request, response, resolvedApiOrigin);
       return;
     }
 
