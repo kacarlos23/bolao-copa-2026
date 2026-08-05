@@ -329,6 +329,28 @@ function Get-ManifestPayload {
   return ($payload | ConvertTo-Json -Depth 20 -Compress)
 }
 
+function Get-ManifestPayloadSha256FromFile {
+  param([Parameter(Mandatory = $true)][string]$ManifestPath)
+
+  if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
+    throw "Manifesto de release nao encontrado."
+  }
+  $nodeScript = @'
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+
+const manifest = JSON.parse(readFileSync(process.argv[1], 'utf8'));
+const { manifestSha256, ...payload } = manifest;
+process.stdout.write(createHash('sha256').update(JSON.stringify(payload)).digest('hex'));
+'@
+  $node = Resolve-NativeTool -Candidates @("node.exe", "node")
+  $hash = @(& $node --input-type=module -e $nodeScript $ManifestPath)
+  if ($LASTEXITCODE -ne 0 -or @($hash).Count -ne 1 -or [string]$hash[0] -notmatch '^[a-f0-9]{64}$') {
+    throw "Nao foi possivel calcular o checksum do manifesto."
+  }
+  return ([string]$hash[0]).Trim().ToLowerInvariant()
+}
+
 function Test-ReleaseManifest {
   param(
     [Parameter(Mandatory = $true)][string]$ManifestPath,
@@ -367,7 +389,7 @@ function Test-ReleaseManifest {
       [string]$manifest.manifestSha256 -notmatch '^[a-fA-F0-9]{64}$') {
     throw "Checksum do manifesto ausente ou invalido."
   }
-  $calculatedManifestSha = Get-StringSha256 -Value (Get-ManifestPayload -Manifest $manifest)
+  $calculatedManifestSha = Get-ManifestPayloadSha256FromFile -ManifestPath $ManifestPath
   if ($calculatedManifestSha -ne ([string]$manifest.manifestSha256).ToLowerInvariant()) {
     throw "Checksum do manifesto diverge do conteudo."
   }
