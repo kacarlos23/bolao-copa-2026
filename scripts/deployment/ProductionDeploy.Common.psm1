@@ -56,7 +56,9 @@ function Assert-SafeProductionRoot {
   param([Parameter(Mandatory = $true)][string]$ProductionRoot)
 
   $root = Resolve-AbsolutePath -Path $ProductionRoot
-  $driveRoot = [IO.Path]::GetPathRoot($root).TrimEnd('\', '/')
+  # Keep the separator in a Unix volume root (/). Trimming it produced an
+  # empty string, making every Linux path look like the volume root.
+  $driveRoot = [IO.Path]::GetPathRoot($root)
   if ([string]::IsNullOrWhiteSpace($driveRoot) -or
       $root.Equals($driveRoot, [StringComparison]::OrdinalIgnoreCase)) {
     throw "PRODUCTION_ROOT nao pode ser a raiz de um volume."
