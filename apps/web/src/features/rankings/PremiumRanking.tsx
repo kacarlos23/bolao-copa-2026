@@ -20,6 +20,19 @@ import { formatBrlCents } from '../../fundraising';
 export type PremiumRankingScope = 'overall' | 'stage' | 'round' | 'month' | 'turn-1' | 'turn-2';
 type StatusFilter = 'all' | 'live' | 'final';
 
+export type ParticipantContributionSummary = {
+  userId: string;
+  paymentCents: number;
+  dueCents: number;
+  outstandingCents: number;
+  advanceCents: number;
+};
+
+export type RankingContributionData = {
+  status: 'loading' | 'ready' | 'error';
+  byUserId: ReadonlyMap<string, ParticipantContributionSummary>;
+};
+
 const rankingScopeCapability: Record<
   PremiumRankingScope,
   'OVERALL' | 'STAGE' | 'ROUND' | 'MONTH' | 'TURN'
@@ -126,10 +139,12 @@ function progressValues(value: unknown) {
 function ProfileModal({
   row,
   roundPoints,
+  contributions,
   onClose,
 }: {
   row: RankingRowDto | null;
   roundPoints: number;
+  contributions?: RankingContributionData;
   onClose: () => void;
 }) {
   return (
@@ -163,9 +178,47 @@ function ProfileModal({
             <MiniMetric label="Situação" value={row.hasLiveData ? 'Provisória' : 'Definitiva'} />
           </View>
           <RankingLastFive values={row.lastFive} />
+          <ProfileContributions userId={row.userId} contributions={contributions} />
         </>
       ) : null}
     </MotionModal>
+  );
+}
+
+function ProfileContributions({
+  userId,
+  contributions,
+}: {
+  userId: string;
+  contributions?: RankingContributionData;
+}) {
+  if (!contributions) return null;
+
+  const summary = contributions.byUserId.get(userId);
+  return (
+    <View testID="profile-contributions" style={styles.profileContributions}>
+      <Text style={styles.profileContributionsTitle}>Contribuições</Text>
+      {contributions.status === 'loading' ? (
+        <Text accessibilityLiveRegion="polite" style={styles.profileContributionsMessage}>
+          Carregando contribuições…
+        </Text>
+      ) : contributions.status === 'error' ? (
+        <Text accessibilityRole="alert" style={styles.profileContributionsError}>
+          Não foi possível carregar as contribuições.
+        </Text>
+      ) : !summary ? (
+        <Text style={styles.profileContributionsMessage}>
+          Não há contribuições registradas para este participante.
+        </Text>
+      ) : (
+        <View style={styles.profileStats}>
+          <MiniMetric label="Pago" value={formatBrlCents(summary.paymentCents)} />
+          <MiniMetric label="Devido" value={formatBrlCents(summary.dueCents)} />
+          <MiniMetric label="Em aberto" value={formatBrlCents(summary.outstandingCents)} />
+          <MiniMetric label="Antecipado" value={formatBrlCents(summary.advanceCents)} />
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -423,6 +476,7 @@ export function PremiumRanking({
   engagement,
   tieBreakers,
   fundraisingCents = null,
+  contributions,
 }: {
   seasonName: string;
   ranking: RankingRowDto[];
@@ -439,6 +493,7 @@ export function PremiumRanking({
   engagement: EngagementDashboard | null;
   tieBreakers: string[];
   fundraisingCents?: number | null;
+  contributions?: RankingContributionData;
 }) {
   const { width } = useWindowDimensions();
   const compact = width < theme.breakpoint.compact;
@@ -748,6 +803,7 @@ export function PremiumRanking({
         <ProfileModal
           row={profile}
           roundPoints={profile ? (roundPoints.get(profile.userId) ?? 0) : 0}
+          contributions={contributions}
           onClose={() => setProfile(null)}
         />
         <TrophyRoom
@@ -1340,6 +1396,31 @@ const styles = StyleSheet.create({
     gap: 8,
     justifyContent: 'center',
     width: '100%',
+  },
+  profileContributions: {
+    borderTopColor: theme.color.borderMuted,
+    borderTopWidth: 1,
+    gap: theme.space.sm,
+    marginTop: theme.space.xs,
+    paddingTop: theme.space.md,
+    width: '100%',
+  },
+  profileContributionsTitle: {
+    color: theme.color.accent,
+    fontSize: theme.font.size.xs,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  profileContributionsMessage: {
+    color: theme.color.textMuted,
+    fontSize: theme.font.size.sm,
+    lineHeight: 18,
+  },
+  profileContributionsError: {
+    color: theme.color.danger,
+    fontSize: theme.font.size.sm,
+    lineHeight: 18,
   },
   miniMetric: {
     backgroundColor: 'rgba(0,20,58,.28)',

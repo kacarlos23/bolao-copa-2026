@@ -188,7 +188,15 @@ enum AuditAction {
   JOB_RETRIED
   SEASON_PROVIDER_CONFIG_CHANGED
   FUNDRAISING_UPDATED
+  CONTRIBUTION_PAYMENT_RECORDED
+  CONTRIBUTION_PAYMENT_VOIDED
+  CONTRIBUTION_ACCOUNT_UPDATED
   RANKING_REPROCESSED
+}
+
+enum ContributionTransactionKind {
+  PAYMENT
+  VOID
 }
 
 enum AdminOperationStatus {
@@ -237,6 +245,8 @@ model User {
   notifications           NotificationInbox[]
   notificationPreferences NotificationPreference[]
   fundraisingUpdates      PoolSeasonFundraising[]          @relation("FundraisingUpdater")
+  contributionAccounts    PoolSeasonContributionAccount[]
+  contributionTransactions PoolSeasonContributionTransaction[] @relation("ContributionTransactionActor")
 
   @@index([role, status])
   @@index([nickname])
@@ -333,6 +343,7 @@ model Round {
   ties             Tie[]
   rankingSnapshots RankingSnapshot[]
   rankingMovements RankingMovement[]
+  contributionTransactions PoolSeasonContributionTransaction[]
 
   @@unique([stageId, order])
   @@index([seasonId, status, startsAt])
@@ -482,6 +493,8 @@ model PoolSeason {
   notifications              NotificationInbox[]
   notificationPreferences    NotificationPreference[]
   fundraising                PoolSeasonFundraising?
+  contributionConfig         PoolSeasonContributionConfig?
+  contributionAccounts       PoolSeasonContributionAccount[]
 
   @@unique([poolId, seasonId])
   @@index([seasonId])
@@ -519,6 +532,59 @@ model PoolSeasonFundraising {
   updatedBy         User?      @relation("FundraisingUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
 
   @@index([updatedById, updatedAt])
+}
+
+/// Round-based participation contributions are deliberately kept apart from the
+/// manually managed PoolSeasonFundraising amount and its prize calculation.
+model PoolSeasonContributionConfig {
+  poolSeasonId          String     @id
+  amountPerRoundCents   Int        @default(1000)
+  defaultStartRound     Int        @default(20)
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  poolSeason            PoolSeason @relation(fields: [poolSeasonId], references: [id], onDelete: Cascade)
+
+  @@index([defaultStartRound])
+}
+
+model PoolSeasonContributionAccount {
+  id           String     @id @default(cuid())
+  poolSeasonId String
+  userId       String
+  startRound   Int
+  endRound     Int?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  poolSeason   PoolSeason @relation(fields: [poolSeasonId], references: [id], onDelete: Cascade)
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions PoolSeasonContributionTransaction[]
+
+  @@unique([poolSeasonId, userId])
+  @@index([poolSeasonId, startRound, endRound])
+  @@index([userId, poolSeasonId])
+}
+
+/// Each record is immutable. A reversal is a separate VOID entry that points
+/// to the original PAYMENT, so the original receipt is never erased or edited.
+model PoolSeasonContributionTransaction {
+  id                  String                      @id @default(cuid())
+  accountId           String
+  roundId             String
+  kind                ContributionTransactionKind @default(PAYMENT)
+  amountCents         Int
+  justification       String
+  createdById         String?
+  voidsTransactionId  String?                     @unique
+  createdAt           DateTime                    @default(now())
+  account             PoolSeasonContributionAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  round               Round                       @relation(fields: [roundId], references: [id], onDelete: Restrict)
+  createdBy           User?                       @relation("ContributionTransactionActor", fields: [createdById], references: [id], onDelete: SetNull)
+  voidsTransaction    PoolSeasonContributionTransaction? @relation("ContributionTransactionVoid", fields: [voidsTransactionId], references: [id], onDelete: Restrict)
+  voidedByTransaction PoolSeasonContributionTransaction? @relation("ContributionTransactionVoid")
+
+  @@index([accountId, roundId, kind])
+  @@index([roundId, createdAt])
+  @@index([createdById, createdAt])
 }
 
 model ScoringRuleSet {

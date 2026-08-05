@@ -160,6 +160,18 @@ describe('fundraising routes', () => {
     await request(app(adminFundraisingRouter, 'USER')).put('/api/fundraising').send({}).expect(403);
   });
 
+  it('keeps the manual fundraising API free of the retired R$1-per-game estimate', async () => {
+    const response = await request(app(adminFundraisingRouter, 'ADMIN'))
+      .get('/api/fundraising?seasonId=season-1&poolSeasonId=pool-season-1')
+      .expect(200);
+
+    expect(response.body).toHaveProperty('fundraising');
+    expect(response.body).not.toHaveProperty('estimatedContributionCents');
+    expect(response.body).not.toHaveProperty('eligibleMatches');
+    expect(response.body).not.toHaveProperty('activeParticipants');
+    expect(mocks.matchCount).not.toHaveBeenCalled();
+  });
+
   it('previews and applies an audited cents-preserving update', async () => {
     const base = {
       seasonId: 'season-1',

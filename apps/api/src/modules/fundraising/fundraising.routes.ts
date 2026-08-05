@@ -49,10 +49,7 @@ async function fundraisingImpact(input: { seasonId: string; poolSeasonId: string
     where: { id: input.poolSeasonId, seasonId: input.seasonId },
     select: {
       id: true,
-      poolId: true,
       seasonId: true,
-      scoreableFromRound: true,
-      startsAtRound: true,
       fundraising: {
         select: {
           amountCents: true,
@@ -62,13 +59,7 @@ async function fundraisingImpact(input: { seasonId: string; poolSeasonId: string
         },
       },
       pool: {
-        select: {
-          name: true,
-          memberships: {
-            where: { status: 'ACTIVE', user: { status: 'ACTIVE' } },
-            select: { id: true },
-          },
-        },
+        select: { name: true },
       },
       season: { select: { name: true } },
     },
@@ -76,19 +67,7 @@ async function fundraisingImpact(input: { seasonId: string; poolSeasonId: string
   if (!poolSeason) {
     throw new AppError(400, 'PoolSeason não pertence à temporada.', 'POOL_SEASON_MISMATCH');
   }
-  const gateRound = Math.max(poolSeason.startsAtRound ?? 0, poolSeason.scoreableFromRound ?? 0);
-  const eligibleMatches = await prisma.match.count({
-    where: {
-      seasonId: poolSeason.seasonId,
-      ...(gateRound > 0 ? { round: { order: { gte: gateRound } } } : {}),
-    },
-  });
-  return {
-    poolSeason,
-    eligibleMatches,
-    activeParticipants: poolSeason.pool.memberships.length,
-    estimatedContributionCents: poolSeason.pool.memberships.length * eligibleMatches * 100,
-  };
+  return { poolSeason };
 }
 
 publicFundraisingRouter.get(
@@ -119,9 +98,6 @@ adminFundraisingRouter.get(
     const impact = await fundraisingImpact(query);
     res.json({
       fundraising: fundraisingDto(query.poolSeasonId, impact.poolSeason.fundraising),
-      eligibleMatches: impact.eligibleMatches,
-      activeParticipants: impact.activeParticipants,
-      estimatedContributionCents: impact.estimatedContributionCents,
     });
   }),
 );
@@ -149,9 +125,6 @@ adminFundraisingRouter.post(
           pool: impact.poolSeason.pool.name,
           before: fundraisingDto(body.poolSeasonId, impact.poolSeason.fundraising),
           after: { amountCents: body.amountCents },
-          activeParticipants: impact.activeParticipants,
-          eligibleMatches: impact.eligibleMatches,
-          estimatedContributionCents: impact.estimatedContributionCents,
         },
         affectedCount: 1,
       }),

@@ -26,6 +26,7 @@ import { competitionRouter } from './modules/competitions/competition.routes.js'
 import { seasonRouter } from './modules/seasons/season.routes.js';
 import { poolRouter } from './modules/pools/pool.routes.js';
 import { publicFundraisingRouter } from './modules/fundraising/fundraising.routes.js';
+import { publicContributionRouter } from './modules/contributions/contributions.routes.js';
 import { AppError } from './http/errors.js';
 import { prisma } from './prisma.js';
 
@@ -127,6 +128,7 @@ export function createApp(options: CreateAppOptions = {}) {
   app.use('/api/competitions', competitionRouter);
   app.use('/api/seasons', seasonRouter);
   app.use('/api/pools', publicFundraisingRouter);
+  app.use('/api/pools', publicContributionRouter);
   app.use('/api/pools', poolRouter);
   app.use('/api/match-days', matchDayRouter);
   app.use('/api/ranking', rankingRouter);

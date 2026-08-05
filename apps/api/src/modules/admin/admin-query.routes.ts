@@ -42,7 +42,7 @@ adminQueryRouter.get(
         endsAt: true,
         capabilities: true,
         updatedAt: true,
-        competition: { select: { id: true, slug: true, name: true } },
+        competition: { select: { id: true, slug: true, name: true, capabilities: true } },
         rounds: {
           orderBy: { order: 'asc' },
           select: { id: true, name: true, order: true, status: true, startsAt: true, endsAt: true },

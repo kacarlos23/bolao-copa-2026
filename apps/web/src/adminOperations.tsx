@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -11,6 +11,7 @@ import {
 import {
   api,
   type CompetitionFeatureFlags,
+  type ContributionOverview,
   type GenericMatch,
   type SeasonSyncResponse,
 } from './api';
@@ -18,6 +19,7 @@ import { errorMessage, request } from './services/api-client';
 import { civilDateKey, prioritizeAdminMatches } from './adminOperations.logic';
 import { FundraisingAdmin } from './features/admin/FundraisingAdmin';
 import { CompetitionMembersAdmin } from './features/admin/CompetitionMembersAdmin';
+import { ContributionsAdmin } from './features/admin/ContributionsAdmin';
 import { theme } from './theme/tokens';
 
 type PoolSeason = {
@@ -33,6 +35,8 @@ type Season = {
   rounds: unknown[];
   poolSeasons: PoolSeason[];
   _count: { matches: number; teams: number };
+  capabilities: Record<string, unknown> | null;
+  competition: { capabilities: Record<string, unknown> | null };
   featureFlags: CompetitionFeatureFlags;
   featureFlagsState: 'VALID' | 'MISSING' | 'INVALID' | 'RESTORED_DRAFT';
   nextJob: { id: string; type: string; status: string; createdAt: string } | null;
@@ -158,6 +162,12 @@ export function AdminOperationsPanel() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [contributionOverview, setContributionOverview] = useState<ContributionOverview | null>(
+    null,
+  );
+  const [contributionRoundId, setContributionRoundId] = useState<string | null>(null);
+  const [contributionLoading, setContributionLoading] = useState(false);
+  const [contributionError, setContributionError] = useState('');
 
   const selectedSeason = useMemo(
     () => seasons.find((item) => item.id === seasonId),
@@ -166,6 +176,24 @@ export function AdminOperationsPanel() {
   const selectedPool =
     selectedSeason?.poolSeasons.find((item) => item.id === poolSeasonId) ??
     selectedSeason?.poolSeasons[0];
+  const contributionsEnabled =
+    selectedSeason?.capabilities?.contributions === true ||
+    selectedSeason?.competition.capabilities?.contributions === true;
+  const contributionAccountsByUserId = useMemo(
+    () =>
+      Object.fromEntries(
+        (contributionOverview?.participants ?? [])
+          .filter((participant) => participant.contributionConfigured)
+          .map((participant) => [
+            participant.userId,
+            {
+              startRound: participant.contributionStartRound,
+              endRound: participant.contributionEndRound,
+            },
+          ]),
+      ),
+    [contributionOverview],
+  );
   const selectedMatch = useMemo(
     () => matches.find((item) => item.id === matchId),
     [matchId, matches],
@@ -180,6 +208,36 @@ export function AdminOperationsPanel() {
     return matches.filter((match) => civilDateKey(new Date(match.startsAt), timezone) === today)
       .length;
   }, [matches, selectedSeason?.timezone]);
+
+  const loadContributions = useCallback(
+    async (roundId: string | null = null) => {
+      const activeSeasonId = selectedSeason?.id;
+      const activePoolSeasonId = selectedPool?.id;
+      if (!contributionsEnabled || !activeSeasonId || !activePoolSeasonId) {
+        setContributionOverview(null);
+        setContributionError('');
+        setContributionLoading(false);
+        return;
+      }
+      setContributionLoading(true);
+      setContributionError('');
+      try {
+        const result = await api.adminContributions(activeSeasonId, activePoolSeasonId, roundId);
+        setContributionOverview(result.contribution);
+      } catch (cause) {
+        setContributionOverview(null);
+        setContributionError(errorMessage(cause));
+      } finally {
+        setContributionLoading(false);
+      }
+    },
+    [contributionsEnabled, selectedPool?.id, selectedSeason?.id],
+  );
+
+  useEffect(() => {
+    setContributionRoundId(null);
+    void loadContributions(null);
+  }, [loadContributions]);
 
   async function load() {
     setBusy(true);
@@ -477,7 +535,91 @@ export function AdminOperationsPanel() {
         />
       </View>
       <FundraisingAdmin seasonId={selectedSeason?.id ?? ''} poolSeasonId={selectedPool?.id ?? ''} />
-      <CompetitionMembersAdmin poolSeasonId={selectedPool?.id ?? ''} />
+      {contributionsEnabled ? (
+        <ContributionsAdmin
+          overview={contributionOverview}
+          selectedRoundId={contributionRoundId}
+          isLoading={contributionLoading}
+          loadError={contributionError}
+          onRoundChange={(roundId) => {
+            setContributionRoundId(roundId);
+            void loadContributions(roundId);
+          }}
+          onPreview={(input) => {
+            if (!selectedSeason || !selectedPool) {
+              return Promise.reject(new Error('Selecione uma temporada e um bolÃ£o antes de alterar contribuiÃ§Ãµes.'));
+            }
+            return api.previewContribution({
+              ...input,
+              seasonId: selectedSeason.id,
+              poolSeasonId: selectedPool.id,
+            });
+          }}
+          onConfirm={async (input) => {
+            if (!selectedSeason || !selectedPool) {
+              throw new Error('Selecione uma temporada e um bolÃ£o antes de alterar contribuiÃ§Ãµes.');
+            }
+            const result = await api.updateContribution({
+              ...input,
+              seasonId: selectedSeason.id,
+              poolSeasonId: selectedPool.id,
+            });
+            setContributionOverview(result.contribution);
+          }}
+          onRefresh={() => loadContributions(contributionRoundId)}
+        />
+      ) : null}
+      <CompetitionMembersAdmin
+        poolSeasonId={selectedPool?.id ?? ''}
+        contributionsEnabled={contributionsEnabled}
+        contributionRounds={contributionOverview?.rounds?.map((round) => ({
+          order: round.order,
+          name: round.name,
+        }))}
+        contributionAccountsByUserId={contributionAccountsByUserId}
+        onPreviewContributionAccount={
+          contributionsEnabled
+            ? async (input) => {
+                if (!selectedSeason || !selectedPool) {
+                  throw new Error('Selecione uma temporada e um bolÃ£o antes de configurar a cobranÃ§a.');
+                }
+                const result = await api.previewContribution({
+                  action: 'ACCOUNT',
+                  seasonId: selectedSeason.id,
+                  poolSeasonId: selectedPool.id,
+                  ...input,
+                  justification: 'Faixa de cobranÃ§a definida na gestÃ£o de participantes.',
+                });
+                return {
+                  previewId: result.previewId,
+                  confirmation: result.confirmation,
+                  expiresAt: result.expiresAt,
+                };
+              }
+            : undefined
+        }
+        onConfirmContributionAccount={
+          contributionsEnabled
+            ? async (input) => {
+                if (!selectedSeason || !selectedPool) {
+                  throw new Error('Selecione uma temporada e um bolÃ£o antes de configurar a cobranÃ§a.');
+                }
+                const result = await api.updateContribution({
+                  action: 'ACCOUNT',
+                  seasonId: selectedSeason.id,
+                  poolSeasonId: selectedPool.id,
+                  userId: input.userId,
+                  startRound: input.startRound,
+                  endRound: input.endRound,
+                  previewId: input.previewId,
+                  confirmation: input.confirmation,
+                  justification: 'Faixa de cobranÃ§a definida na gestÃ£o de participantes.',
+                });
+                setContributionOverview(result.contribution);
+              }
+            : undefined
+        }
+      />
       <Module
         title="Atualizar informações da competição"
         description={

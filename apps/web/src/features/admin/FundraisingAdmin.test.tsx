@@ -19,9 +19,6 @@ describe('FundraisingAdmin', () => {
         updatedById: null,
         lastJustification: null,
       },
-      eligibleMatches: 190,
-      activeParticipants: 10,
-      estimatedContributionCents: 190_000,
     });
     vi.spyOn(api, 'previewFundraising').mockResolvedValue({
       previewId: 'preview-1',
@@ -57,7 +54,7 @@ describe('FundraisingAdmin', () => {
   it('loads, previews and saves the cents value', async () => {
     render(<FundraisingAdmin seasonId="season-1" poolSeasonId="pool-season-1" />);
 
-    await screen.findByText(/Contribuição prevista:/);
+    await screen.findByText(/permanece independente das contribuições por rodada/i);
     fireEvent.change(screen.getByLabelText('Valor arrecadado'), {
       target: { value: '150,50' },
     });
@@ -89,7 +86,7 @@ describe('FundraisingAdmin', () => {
 
   it('recalculates and truncates the podium prizes as the amount changes', async () => {
     render(<FundraisingAdmin seasonId="season-1" poolSeasonId="pool-season-1" />);
-    await screen.findByText(/Contribuição prevista:/);
+    await screen.findByText(/permanece independente das contribuições por rodada/i);
 
     fireEvent.change(screen.getByLabelText('Valor arrecadado'), {
       target: { value: '265,43' },
@@ -100,5 +97,13 @@ describe('FundraisingAdmin', () => {
     expect(screen.getByText(/R\$\s*79,62/)).toBeTruthy();
     expect(screen.getByText(/R\$\s*53,08/)).toBeTruthy();
     expect(screen.getByText('Valores truncados em centavos, sem arredondamento.')).toBeTruthy();
+  });
+
+  it('keeps manual fundraising distinct from round contributions', async () => {
+    render(<FundraisingAdmin seasonId="season-1" poolSeasonId="pool-season-1" />);
+
+    await screen.findByText(/permanece independente das contribuições por rodada/i);
+    expect(screen.queryByText(/R\$\s*1,00/)).toBeNull();
+    expect(screen.queryByText(/Contribuição prevista:/)).toBeNull();
   });
 });

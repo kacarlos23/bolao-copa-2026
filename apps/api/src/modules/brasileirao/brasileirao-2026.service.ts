@@ -110,6 +110,7 @@ export async function prepareBrasileirao2026(input: {
           format: 'LEAGUE',
           standings: true,
           fundraising: true,
+          contributions: true,
           knockout: false,
           rankingScopes: ['OVERALL', 'ROUND', 'MONTH', 'TURN'],
         },
@@ -121,6 +122,7 @@ export async function prepareBrasileirao2026(input: {
           format: 'LEAGUE',
           standings: true,
           fundraising: true,
+          contributions: true,
           knockout: false,
           rankingScopes: ['OVERALL', 'ROUND', 'MONTH', 'TURN'],
         },
@@ -312,6 +314,38 @@ export async function prepareBrasileirao2026(input: {
         metadata: { policyVersion: 'brasileirao-2026-v3-round-20', canary: true },
       },
     });
+    const existingContributionConfig = await tx.poolSeasonContributionConfig.findUnique({
+      where: { poolSeasonId: poolSeason.id },
+      select: { poolSeasonId: true },
+    });
+    await tx.poolSeasonContributionConfig.upsert({
+      where: { poolSeasonId: poolSeason.id },
+      create: {
+        poolSeasonId: poolSeason.id,
+        amountPerRoundCents: 1_000,
+        defaultStartRound: BRASILEIRAO_2026_STARTS_AT_ROUND,
+      },
+      update: {},
+    });
+    // A brand-new preparation backfills the already active members. Subsequent
+    // member activations are configured through the audited contribution route.
+    if (!existingContributionConfig) {
+      const activeMembers = await tx.poolSeasonMembership.findMany({
+        where: { poolSeasonId: poolSeason.id, status: 'ACTIVE', user: { status: 'ACTIVE' } },
+        select: { userId: true },
+      });
+      for (const member of activeMembers) {
+        await tx.poolSeasonContributionAccount.upsert({
+          where: { poolSeasonId_userId: { poolSeasonId: poolSeason.id, userId: member.userId } },
+          create: {
+            poolSeasonId: poolSeason.id,
+            userId: member.userId,
+            startRound: BRASILEIRAO_2026_STARTS_AT_ROUND,
+          },
+          update: {},
+        });
+      }
+    }
 
     const mappings = [
       mapping({

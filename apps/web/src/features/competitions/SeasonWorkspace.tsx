@@ -31,6 +31,7 @@ import {
   LatestRequest,
   type EngagementDashboard,
   type PoolSeasonRules,
+  type PublicContributionParticipant,
   type RankingAward,
 } from '../../api';
 import {
@@ -316,6 +317,7 @@ export function SeasonWorkspace({
   const competitionSlug = context.competition?.slug ?? '';
   const supportsStandings = context.capabilityConfig.standings === true;
   const supportsFundraising = context.capabilityConfig.fundraising === true;
+  const supportsContributions = context.capabilityConfig.contributions === true;
   const supportsKnockout = context.capabilities.has('KNOCKOUT');
   const rankingScopes = enabledRankingScopes(context.capabilityConfig);
   const supportsRoundRanking = rankingScopes.has('ROUND');
@@ -337,6 +339,12 @@ export function SeasonWorkspace({
   const [engagement, setEngagement] = useState<EngagementDashboard | null>(null);
   const [awards, setAwards] = useState<RankingAward[]>([]);
   const [fundraisingCents, setFundraisingCents] = useState<number | null>(null);
+  const [contributionParticipants, setContributionParticipants] = useState<
+    PublicContributionParticipant[]
+  >([]);
+  const [contributionStatus, setContributionStatus] = useState<'loading' | 'ready' | 'error'>(
+    'loading',
+  );
   const [scope, setScope] = useState<RankingScope>('overall');
   const [draft, setDraft] = useState<DraftState>({ items: {} });
   const [poolSeasonId, setPoolSeasonId] = useState('');
@@ -378,9 +386,7 @@ export function SeasonWorkspace({
   const visitedSeasonRef = useRef('');
   const publicPredictionsRequestRef = useRef(0);
   const predictionSubmissionRequestRef = useRef(0);
-  const poolSeasonIdRef = useRef(poolSeasonId);
   draftRef.current = draft;
-  poolSeasonIdRef.current = poolSeasonId;
   const storageKey = draftStorageKey(
     currentUserId,
     poolSeasonId || 'pending',
@@ -410,6 +416,10 @@ export function SeasonWorkspace({
     }
     return [...grouped].map(([key, items]) => ({ key, matches: items }));
   }, [matches, timezone]);
+  const contributionByUserId = useMemo(
+    () => new Map(contributionParticipants.map((participant) => [participant.userId, participant])),
+    [contributionParticipants],
+  );
 
   function dispatch(action: Parameters<typeof draftReducer>[1]) {
     setDraft((current) => draftReducer(current, action));
@@ -427,6 +437,9 @@ export function SeasonWorkspace({
     setRanking([]);
     setRoundRanking([]);
     setFundraisingCents(null);
+    setContributionParticipants([]);
+    setContributionStatus(supportsContributions ? 'loading' : 'ready');
+    setPoolSeasonId('');
     setTies([]);
     setPredictionMonth(civilMonthKey(new Date(), season.timezone));
     setSelectedDayKey('');
@@ -438,7 +451,7 @@ export function SeasonWorkspace({
     setPredictionSubmissionRequired(0);
     setPredictionSubmissionLoading(false);
     setPredictionSubmissionError('');
-  }, [season?.id, season?.timezone]);
+  }, [season?.id, season?.timezone, supportsContributions]);
 
   useEffect(() => {
     if (!season) return;
@@ -501,6 +514,7 @@ export function SeasonWorkspace({
           engagementResult,
           awardsResult,
           fundraisingResult,
+          contributionsResult,
         ] = await Promise.all([
           api.seasonMatches(season.id, roundId),
           supportsStandings
@@ -530,6 +544,12 @@ export function SeasonWorkspace({
           supportsFundraising
             ? api.seasonFundraising(POOL_SLUG, season.id).catch(() => ({ fundraising: null }))
             : Promise.resolve({ fundraising: null }),
+          supportsContributions
+            ? api
+                .seasonContributions(POOL_SLUG, season.id)
+                .then((value) => ({ status: 'ready' as const, value: value.contribution }))
+                .catch(() => ({ status: 'error' as const, value: null }))
+            : Promise.resolve({ status: 'ready' as const, value: null }),
         ]);
         return {
           matchesResult,
@@ -542,6 +562,7 @@ export function SeasonWorkspace({
           engagementResult,
           awardsResult,
           fundraisingResult,
+          contributionsResult,
         };
       })();
       if (!active) return;
@@ -566,6 +587,8 @@ export function SeasonWorkspace({
       setEngagement(result.engagementResult);
       setAwards(result.awardsResult.awards);
       setFundraisingCents(result.fundraisingResult.fundraising?.amountCents ?? null);
+      setContributionParticipants(result.contributionsResult.value?.participants ?? []);
+      setContributionStatus(result.contributionsResult.status);
       dispatch({ type: 'hydrate', values });
       setError('');
       setStatus(result.matchesResult.matches.length ? 'success' : 'empty');
@@ -582,26 +605,29 @@ export function SeasonWorkspace({
     };
     void load();
     const interval = setInterval(() => void load(true), 30_000);
-    const realtime = createRealtimeClient({
-      seasonId: season.id,
-      poolSeasonId: poolSeasonIdRef.current || undefined,
-      eventTypes: [
-        'prediction.updated',
-        'ranking.updated',
-        'match.updated',
-        'provider.sync.completed',
-        'fundraising.updated',
-      ],
-      onEvent: () => {
-        void load(true);
-        setPredictionRefreshVersion((version) => version + 1);
-      },
-      onStatus: setConnection,
-    });
+    const realtime = poolSeasonId
+      ? createRealtimeClient({
+          seasonId: season.id,
+          poolSeasonId,
+          eventTypes: [
+            'prediction.updated',
+            'ranking.updated',
+            'match.updated',
+            'provider.sync.completed',
+            'fundraising.updated',
+            'contributions.updated',
+          ],
+          onEvent: () => {
+            void load(true);
+            setPredictionRefreshVersion((version) => version + 1);
+          },
+          onStatus: setConnection,
+        })
+      : null;
     return () => {
       active = false;
       clearInterval(interval);
-      realtime.close();
+      realtime?.close();
     };
   }, [
     season?.id,
@@ -615,6 +641,8 @@ export function SeasonWorkspace({
     supportsKnockout,
     supportsRoundRanking,
     supportsFundraising,
+    supportsContributions,
+    poolSeasonId,
   ]);
 
   useEffect(() => {
@@ -1500,6 +1528,11 @@ export function SeasonWorkspace({
             engagement={engagement}
             tieBreakers={rules?.tieBreakers.criteria.map((item) => item.label) ?? []}
             fundraisingCents={supportsFundraising ? (fundraisingCents ?? 0) : null}
+            contributions={
+              supportsContributions
+                ? { status: contributionStatus, byUserId: contributionByUserId }
+                : undefined
+            }
           />
         </View>
       ) : null}

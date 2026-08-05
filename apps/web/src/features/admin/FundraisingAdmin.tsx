@@ -139,14 +139,9 @@ export function FundraisingAdmin({
         ))}
         <Text style={styles.prizeNote}>Valores truncados em centavos, sem arredondamento.</Text>
       </View>
-      {overview ? (
-        <Text style={styles.estimate}>
-          Contribuição prevista: {overview.activeParticipants} participantes ativos ×{' '}
-          {overview.eligibleMatches} jogos elegíveis × R$ 1,00 ={' '}
-          {formatBrlCents(overview.estimatedContributionCents)}. Esta estimativa não substitui o
-          valor confirmado.
-        </Text>
-      ) : null}
+      <Text style={styles.manualNote}>
+        Este valor é informado manualmente e permanece independente das contribuições por rodada.
+      </Text>
       <Text style={styles.label}>Valor arrecadado</Text>
       <TextInput
         accessibilityLabel="Valor arrecadado"
@@ -244,7 +239,7 @@ const styles = StyleSheet.create({
   prizeLabel: { color: theme.color.textMuted, fontSize: 13, fontWeight: '800' },
   prizeValue: { color: theme.color.text, fontSize: 15, fontWeight: '900' },
   prizeNote: { color: theme.color.textSubtle, fontSize: 11, lineHeight: 16, marginTop: theme.space.xs },
-  estimate: { color: theme.color.textSubtle, fontSize: 12, lineHeight: 18 },
+  manualNote: { color: theme.color.textSubtle, fontSize: 12, lineHeight: 18 },
   label: { color: theme.color.text, fontSize: 12, fontWeight: '800', marginTop: 4 },
   input: {
     backgroundColor: theme.color.canvas,

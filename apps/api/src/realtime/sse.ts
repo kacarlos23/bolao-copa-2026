@@ -91,6 +91,10 @@ export function emitSseEnvelope(rawEnvelope: RealtimeEventEnvelope) {
   const payload = `event: ${envelope.type}\nid: ${envelope.eventId}\ndata: ${JSON.stringify(envelope)}\n\n`;
   for (const [client, state] of clients.entries()) {
     if (state.seasonId && state.seasonId !== envelope.seasonId) continue;
+    // Contribution summaries are participant financial data. Unlike generic
+    // season events, never fan them out to a season-wide SSE subscription.
+    if (envelope.type === 'contributions.updated' && state.poolSeasonId !== envelope.poolSeasonId)
+      continue;
     if (state.poolSeasonId && state.poolSeasonId !== envelope.poolSeasonId) continue;
     writeSse(client, payload);
   }

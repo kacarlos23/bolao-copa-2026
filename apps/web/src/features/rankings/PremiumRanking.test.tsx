@@ -122,6 +122,90 @@ describe('PremiumRanking', () => {
     expect(screen.getAllByText('Brasileirão Série A 2026').length).toBeGreaterThan(0);
   });
 
+  it('exibe somente os totais de contribuição no perfil do participante', () => {
+    const ranking = [row(1, 'Ana', 30)];
+    render(
+      <PremiumRanking
+        seasonName="Brasileirão Série A 2026"
+        ranking={ranking}
+        roundRanking={ranking}
+        currentUserId="user-1"
+        scope="overall"
+        onScopeChange={vi.fn()}
+        connection="live"
+        syncing={false}
+        lastSyncedAt={null}
+        onRefresh={vi.fn()}
+        awards={[]}
+        engagement={null}
+        tieBreakers={[]}
+        contributions={{
+          status: 'ready',
+          byUserId: new Map([
+            [
+              'user-1',
+              {
+                userId: 'user-1',
+                paymentCents: 2_500,
+                dueCents: 3_000,
+                outstandingCents: 500,
+                advanceCents: 1_000,
+              },
+            ],
+          ]),
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('Abrir perfil de Ana, 1º lugar'));
+    const contributionSection = screen.getByTestId('profile-contributions');
+    expect(within(contributionSection).getByText('Contribuições')).toBeTruthy();
+    expect(within(contributionSection).getByText('Pago')).toBeTruthy();
+    expect(within(contributionSection).getByText('Devido')).toBeTruthy();
+    expect(within(contributionSection).getByText('Em aberto')).toBeTruthy();
+    expect(within(contributionSection).getByText('Antecipado')).toBeTruthy();
+    expect(within(contributionSection).getByText(/R\$\s*25,00/)).toBeTruthy();
+    expect(within(contributionSection).getByText(/R\$\s*30,00/)).toBeTruthy();
+    expect(within(contributionSection).getByText(/R\$\s*5,00/)).toBeTruthy();
+    expect(within(contributionSection).getByText(/R\$\s*10,00/)).toBeTruthy();
+    expect(within(contributionSection).queryByText(/Rodada/)).toBeNull();
+  });
+
+  it('informa carregamento, erro e conta de contribuição ausente no perfil', () => {
+    const ranking = [row(1, 'Ana', 30)];
+    const props: Parameters<typeof PremiumRanking>[0] = {
+      seasonName: 'Brasileirão Série A 2026',
+      ranking,
+      roundRanking: ranking,
+      currentUserId: 'user-1',
+      scope: 'overall',
+      onScopeChange: vi.fn(),
+      connection: 'live',
+      syncing: false,
+      lastSyncedAt: null,
+      onRefresh: vi.fn(),
+      awards: [],
+      engagement: null,
+      tieBreakers: [],
+    };
+    const { rerender } = render(
+      <PremiumRanking {...props} contributions={{ status: 'loading', byUserId: new Map() }} />,
+    );
+
+    fireEvent.click(screen.getByLabelText('Abrir perfil de Ana, 1º lugar'));
+    expect(screen.getByText('Carregando contribuições…')).toBeTruthy();
+
+    rerender(
+      <PremiumRanking {...props} contributions={{ status: 'error', byUserId: new Map() }} />,
+    );
+    expect(screen.getByText('Não foi possível carregar as contribuições.')).toBeTruthy();
+
+    rerender(
+      <PremiumRanking {...props} contributions={{ status: 'ready', byUserId: new Map() }} />,
+    );
+    expect(screen.getByText('Não há contribuições registradas para este participante.')).toBeTruthy();
+  });
+
   it('identifica a sala e o hero ao trocar de temporada sem fallback para liga', () => {
     const ranking = [row(1, 'Ana', 30)];
     render(

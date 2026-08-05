@@ -24,9 +24,11 @@ sseRouter.get(
         where: {
           id: query.poolSeasonId,
           seasonId: query.seasonId,
-          pool: {
-            memberships: {
-              some: { userId: req.session.user!.id, status: 'ACTIVE' },
+          memberships: {
+            some: {
+              userId: req.session.user!.id,
+              status: 'ACTIVE',
+              user: { status: 'ACTIVE' },
             },
           },
         },

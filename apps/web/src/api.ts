@@ -494,9 +494,88 @@ export interface Fundraising {
 
 export interface AdminFundraisingOverview {
   fundraising: Fundraising;
-  eligibleMatches: number;
-  activeParticipants: number;
-  estimatedContributionCents: number;
+}
+
+export interface ContributionTotals {
+  paidCents: number;
+  dueCents: number;
+  outstandingCents: number;
+  advanceCents: number;
+}
+
+export interface ContributionParticipant extends ContributionTotals {
+  userId: string;
+  nickname: string;
+  avatarUrl: string | null;
+  accountId?: string | null;
+  membershipStatus?: 'ACTIVE' | 'INACTIVE' | 'REMOVED' | null;
+  contributionConfigured?: boolean;
+  contributionStartRound: number | null;
+  contributionEndRound: number | null;
+  paymentCents: number;
+  selectedRoundPaymentCents?: number | null;
+  selectedRoundOutstandingCents?: number | null;
+}
+
+/** Totals exposed to active competition participants from the ranking. */
+export interface PublicContributionParticipant extends ContributionTotals {
+  userId: string;
+  nickname: string;
+  avatarUrl: string | null;
+  paymentCents: number;
+}
+
+export interface ContributionRound {
+  roundId: string;
+  order: number;
+  name: string;
+  startsAt: string | null;
+  hasStarted: boolean;
+}
+
+export interface ContributionTransaction {
+  id: string;
+  accountId?: string;
+  userId: string;
+  roundId: string;
+  kind?: 'PAYMENT' | 'VOID';
+  amountCents: number;
+  justification?: string;
+  createdById?: string | null;
+  createdAt?: string;
+  voidsTransactionId?: string | null;
+  voidedByTransactionId?: string | null;
+}
+
+export interface ContributionOverview {
+  poolSeasonId: string;
+  amountPerRoundCents: number;
+  defaultStartRound: number;
+  dueThroughRound: number | null;
+  totals: ContributionTotals;
+  participants: ContributionParticipant[];
+  rounds?: ContributionRound[];
+  transactions?: ContributionTransaction[];
+}
+
+export type PublicContributionOverview = Omit<
+  ContributionOverview,
+  'participants' | 'rounds' | 'transactions'
+> & {
+  participants: PublicContributionParticipant[];
+};
+
+export interface ContributionMutationInput {
+  seasonId: string;
+  poolSeasonId: string;
+  action: 'PAYMENT' | 'VOID' | 'ACCOUNT';
+  justification: string;
+  userId?: string;
+  roundId?: string;
+  amountCents?: number;
+  transactionId?: string;
+  startRound?: number | null;
+  endRound?: number | null;
 }
 
 export interface PublicKnockoutBracket {
@@ -704,9 +783,43 @@ export const api = {
     request<{ fundraising: Fundraising }>(
       `/api/pools/${encodeURIComponent(poolSlug)}/seasons/${encodeURIComponent(seasonId)}/fundraising`,
     ),
+  seasonContributions: (poolSlug: string, seasonId: string) =>
+    request<{ contribution: PublicContributionOverview }>(
+      `/api/pools/${encodeURIComponent(poolSlug)}/seasons/${encodeURIComponent(seasonId)}/contributions`,
+    ),
   adminFundraising: (seasonId: string, poolSeasonId: string) =>
     request<AdminFundraisingOverview>(
       `/api/admin/fundraising?seasonId=${encodeURIComponent(seasonId)}&poolSeasonId=${encodeURIComponent(poolSeasonId)}`,
+    ),
+  adminContributions: (seasonId: string, poolSeasonId: string, roundId?: string | null) => {
+    const params = new URLSearchParams({ seasonId, poolSeasonId });
+    if (roundId) params.set('roundId', roundId);
+    return request<{ contribution: ContributionOverview }>(
+      `/api/admin/contributions?${params.toString()}`,
+    );
+  },
+  previewContribution: (input: ContributionMutationInput) =>
+    request<AdminMutationPreview>('/api/admin/contributions/preview', {
+      method: 'POST',
+      body: JSON.stringify(input),
+      idempotencyKey:
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `contribution-preview-${input.poolSeasonId}-${Date.now()}`,
+    }),
+  updateContribution: (
+    input: ContributionMutationInput & { previewId: string; confirmation: string },
+  ) =>
+    request<{ contribution: ContributionOverview; affectedCount: number; replayed: boolean }>(
+      '/api/admin/contributions',
+      {
+        method: 'PUT',
+        body: JSON.stringify(input),
+        idempotencyKey:
+          typeof crypto !== 'undefined' && 'randomUUID' in crypto
+            ? crypto.randomUUID()
+            : `contribution-apply-${input.poolSeasonId}-${Date.now()}`,
+      },
     ),
   previewFundraising: (input: {
     seasonId: string;

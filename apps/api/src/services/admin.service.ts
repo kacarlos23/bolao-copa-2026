@@ -112,16 +112,56 @@ export async function setPoolSeasonMemberStatus(
   userId: string,
   status: 'ACTIVE' | 'INACTIVE' | 'REMOVED',
 ) {
-  const membership = await prisma.poolSeasonMembership.upsert({
-    where: { poolSeasonId_userId: { poolSeasonId, userId } },
-    create: { poolSeasonId, userId, status },
-    update: { status },
-    select: { userId: true, status: true, role: true },
+  return prisma.$transaction(async (tx) => {
+    // Only the Brasileirão PoolSeason has a contribution configuration. Other
+    // competitions retain their historic membership-management behavior.
+    const contributionConfig = await tx.poolSeasonContributionConfig.findUnique({
+      where: { poolSeasonId },
+      select: { defaultStartRound: true },
+    });
+    if (contributionConfig) {
+      const account = await tx.poolSeasonContributionAccount.findUnique({
+        where: { poolSeasonId_userId: { poolSeasonId, userId } },
+        select: { startRound: true, endRound: true },
+      });
+      if (
+        status === 'ACTIVE' &&
+        (!account || account.startRound < contributionConfig.defaultStartRound || account.endRound != null)
+      ) {
+        throw new AppError(
+          409,
+          'Configure a rodada inicial e deixe a data final em aberto antes de ativar o participante.',
+          'CONTRIBUTION_ACCOUNT_REQUIRED_FOR_ACTIVATION',
+        );
+      }
+      if (
+        status !== 'ACTIVE' &&
+        (!account || account.endRound == null || account.endRound < account.startRound)
+      ) {
+        throw new AppError(
+          409,
+          'Configure a última rodada de contribuição antes de inativar ou remover o participante.',
+          'CONTRIBUTION_END_ROUND_REQUIRED_FOR_DEACTIVATION',
+        );
+      }
+    }
+    const membership = await tx.poolSeasonMembership.upsert({
+      where: { poolSeasonId_userId: { poolSeasonId, userId } },
+      create: { poolSeasonId, userId, status },
+      update: { status },
+      select: { userId: true, status: true, role: true },
+    });
+    await tx.adminAuditLog.create({
+      data: {
+        actorId,
+        action: 'SETTING_UPDATED',
+        targetId: userId,
+        poolSeasonId,
+        details: { operation: 'POOL_SEASON_MEMBERSHIP_UPDATED', status },
+      },
+    });
+    return membership;
   });
-  await prisma.adminAuditLog.create({
-    data: { actorId, action: 'SETTING_UPDATED', targetId: userId, poolSeasonId, details: { operation: 'POOL_SEASON_MEMBERSHIP_UPDATED', status } },
-  });
-  return membership;
 }
 
 function localDateStart(date: Date) {

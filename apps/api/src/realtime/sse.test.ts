@@ -97,6 +97,30 @@ describe('SSE delivery', () => {
     );
   });
 
+  it('delivers financial contribution updates only to the exact pool-season subscription', () => {
+    const seasonWide = {
+      write: vi.fn(() => true), flush: vi.fn(), once: vi.fn(), off: vi.fn(), end: vi.fn(),
+      writableEnded: false, destroyed: false,
+    } as unknown as Response;
+    const poolScoped = {
+      write: vi.fn(() => true), flush: vi.fn(), once: vi.fn(), off: vi.fn(), end: vi.fn(),
+      writableEnded: false, destroyed: false,
+    } as unknown as Response;
+
+    addSseClient(seasonWide, undefined, { seasonId: 'season-1', poolSeasonId: null });
+    addSseClient(poolScoped, undefined, { seasonId: 'season-1', poolSeasonId: 'pool-season-1' });
+    vi.mocked(seasonWide.write).mockClear();
+    vi.mocked(poolScoped.write).mockClear();
+
+    emitSse('contributions.updated', { contribution: { participants: [] } }, {
+      seasonId: 'season-1',
+      poolSeasonId: 'pool-season-1',
+    });
+
+    expect(seasonWide.write).not.toHaveBeenCalled();
+    expect(poolScoped.write).toHaveBeenCalledOnce();
+  });
+
   it('applies backpressure until drain instead of buffering without limit', () => {
     const handlers = new Map<string, () => void>();
     const response = {
