@@ -545,6 +545,17 @@ export function AdminOperationsPanel() {
             setContributionRoundId(roundId);
             void loadContributions(roundId);
           }}
+          onRecordPayment={async (input) => {
+            if (!selectedSeason || !selectedPool) {
+              throw new Error('Selecione uma temporada e um bolão antes de registrar contribuições.');
+            }
+            const result = await api.recordContributionPayment({
+              ...input,
+              seasonId: selectedSeason.id,
+              poolSeasonId: selectedPool.id,
+            });
+            setContributionOverview(result.contribution);
+          }}
           onPreview={(input) => {
             if (!selectedSeason || !selectedPool) {
               return Promise.reject(new Error('Selecione uma temporada e um bolÃ£o antes de alterar contribuiÃ§Ãµes.'));

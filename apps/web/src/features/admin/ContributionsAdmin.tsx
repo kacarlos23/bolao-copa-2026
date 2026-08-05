@@ -58,6 +58,12 @@ export type ContributionsAdminOverview = {
   transactions?: ContributionAdminTransaction[];
 };
 
+export type ContributionPaymentDraft = {
+  userId: string;
+  roundId: string;
+  amountCents: number;
+};
+
 export type ContributionMutationDraft =
   | {
       action: 'PAYMENT';
@@ -99,6 +105,7 @@ export type ContributionsAdminProps = {
   isLoading?: boolean;
   loadError?: string | null;
   onRoundChange?: (roundId: string) => void;
+  onRecordPayment?: (input: ContributionPaymentDraft) => Promise<unknown>;
   onPreview?: (input: ContributionMutationDraft) => Promise<ContributionMutationPreview>;
   onConfirm?: (input: ContributionMutationConfirmation) => Promise<unknown>;
   onRefresh?: () => Promise<void> | void;
@@ -148,6 +155,7 @@ export function ContributionsAdmin({
   isLoading = false,
   loadError = null,
   onRoundChange,
+  onRecordPayment,
   onPreview,
   onConfirm,
   onRefresh,
@@ -156,7 +164,6 @@ export function ContributionsAdmin({
   const [paymentInputs, setPaymentInputs] = useState<Record<string, string>>({});
   const [accountEdits, setAccountEdits] = useState<Record<string, AccountEdit>>({});
   const [openAccountId, setOpenAccountId] = useState<string | null>(null);
-  const [justification, setJustification] = useState('');
   const [pendingPreview, setPendingPreview] = useState<PendingPreview | null>(null);
   const [confirmation, setConfirmation] = useState('');
   const [busy, setBusy] = useState(false);
@@ -175,7 +182,8 @@ export function ContributionsAdmin({
     rounds[0]?.roundId ??
     null;
   const selectedRound = rounds.find((round) => round.roundId === activeRoundId) ?? null;
-  const mutationsReady = Boolean(onPreview && onConfirm);
+  const paymentMutationsReady = Boolean(onRecordPayment);
+  const protectedMutationsReady = Boolean(onPreview && onConfirm);
   const error = localError || loadError || '';
 
   const voidedTransactionIds = useMemo(
@@ -205,12 +213,8 @@ export function ContributionsAdmin({
   }
 
   async function createPreview(draft: ContributionMutationDraft) {
-    if (!mutationsReady || !onPreview) {
+    if (!protectedMutationsReady || !onPreview) {
       setLocalError('A integração de contribuições ainda não está disponível neste painel.');
-      return;
-    }
-    if (draft.justification.trim().length < 10) {
-      setLocalError('A justificativa deve ter pelo menos 10 caracteres.');
       return;
     }
     setBusy(true);
@@ -243,7 +247,6 @@ export function ContributionsAdmin({
       setMessage(completionMessage(pendingPreview.draft.action));
       setPendingPreview(null);
       setConfirmation('');
-      setJustification('');
       setPaymentInputs({});
       setOpenAccountId(null);
     } catch (cause) {
@@ -253,11 +256,15 @@ export function ContributionsAdmin({
     }
   }
 
-  function requestPayment(
+  async function recordPayment(
     participant: ContributionAdminParticipant,
     amountCents: number,
     outstandingCents: number,
   ) {
+    if (!paymentMutationsReady || !onRecordPayment) {
+      setLocalError('A integração de pagamentos de contribuição ainda não está disponível neste painel.');
+      return;
+    }
     if (!selectedRound) return;
     if (!Number.isInteger(amountCents) || amountCents <= 0 || amountCents > outstandingCents) {
       setLocalError(
@@ -265,13 +272,23 @@ export function ContributionsAdmin({
       );
       return;
     }
-    void createPreview({
-      action: 'PAYMENT',
-      userId: participant.userId,
-      roundId: selectedRound.roundId,
-      amountCents,
-      justification,
-    });
+    setBusy(true);
+    setLocalError('');
+    setMessage('');
+    try {
+      await onRecordPayment({
+        userId: participant.userId,
+        roundId: selectedRound.roundId,
+        amountCents,
+      });
+      await onRefresh?.();
+      setMessage('Pagamento registrado.');
+      setPaymentInputs({});
+    } catch (cause) {
+      setLocalError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
   }
 
   function requestAccountChange(participant: ContributionAdminParticipant) {
@@ -298,7 +315,7 @@ export function ContributionsAdmin({
       userId: participant.userId,
       startRound,
       endRound,
-      justification,
+      justification: 'Faixa de cobrança atualizada pelo administrador.',
     });
   }
 
@@ -372,24 +389,6 @@ export function ContributionsAdmin({
         ) : (
           <Text style={styles.roundContext}>Nenhuma rodada disponível para lançamento.</Text>
         )}
-      </View>
-
-      <View style={styles.justificationBlock}>
-        <Text style={styles.label}>Justificativa da alteração</Text>
-        <TextInput
-          accessibilityLabel="Justificativa da alteração de contribuição"
-          value={justification}
-          onChangeText={(value) => {
-            setJustification(value);
-            setPendingPreview(null);
-            setConfirmation('');
-          }}
-          multiline
-          placeholder="Ex.: Pagamento recebido por PIX"
-          placeholderTextColor={theme.color.textMuted}
-          style={styles.input}
-        />
-        <Text style={styles.fieldHint}>Ela será preservada na auditoria junto da operação.</Text>
       </View>
 
       <View style={styles.participantList}>
@@ -470,22 +469,22 @@ export function ContributionsAdmin({
                     />
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel={`Revisar pagamento parcial de ${participant.nickname}`}
-                      disabled={busy || isLoading || outstandingCents <= 0 || !selectedRound}
+                      accessibilityLabel={`Registrar pagamento parcial de ${participant.nickname}`}
+                      disabled={busy || isLoading || !paymentMutationsReady || outstandingCents <= 0 || !selectedRound}
                       onPress={() => {
                         const amountCents = parseBrlInputToCents(defaultPaymentInput(participant, outstandingCents));
-                        requestPayment(participant, amountCents ?? -1, outstandingCents);
+                        void recordPayment(participant, amountCents ?? -1, outstandingCents);
                       }}
-                      style={[styles.button, styles.secondaryButton, (busy || isLoading || outstandingCents <= 0 || !selectedRound) && styles.disabled]}
+                      style={[styles.button, styles.secondaryButton, (busy || isLoading || !paymentMutationsReady || outstandingCents <= 0 || !selectedRound) && styles.disabled]}
                     >
-                      <Text style={styles.secondaryButtonText}>Revisar parcial</Text>
+                      <Text style={styles.secondaryButtonText}>Registrar parcial</Text>
                     </Pressable>
                     <Pressable
                       accessibilityRole="button"
                       accessibilityLabel={`Quitar ${participant.nickname}`}
-                      disabled={busy || isLoading || outstandingCents <= 0 || !selectedRound}
-                      onPress={() => requestPayment(participant, outstandingCents, outstandingCents)}
-                      style={[styles.button, (busy || isLoading || outstandingCents <= 0 || !selectedRound) && styles.disabled]}
+                      disabled={busy || isLoading || !paymentMutationsReady || outstandingCents <= 0 || !selectedRound}
+                      onPress={() => void recordPayment(participant, outstandingCents, outstandingCents)}
+                      style={[styles.button, (busy || isLoading || !paymentMutationsReady || outstandingCents <= 0 || !selectedRound) && styles.disabled]}
                     >
                       <Text style={styles.buttonText}>Quitar {formatBrlCents(outstandingCents)}</Text>
                     </Pressable>
@@ -493,15 +492,15 @@ export function ContributionsAdmin({
                       <Pressable
                         accessibilityRole="button"
                         accessibilityLabel={`Estornar pagamento de ${participant.nickname}`}
-                        disabled={busy || isLoading}
+                        disabled={busy || isLoading || !protectedMutationsReady}
                         onPress={() =>
                           void createPreview({
                             action: 'VOID',
                             transactionId: activePayment.id,
-                            justification,
+                            justification: 'Estorno de contribuição registrado pelo administrador.',
                           })
                         }
-                        style={[styles.button, styles.voidButton, (busy || isLoading) && styles.disabled]}
+                        style={[styles.button, styles.voidButton, (busy || isLoading || !protectedMutationsReady) && styles.disabled]}
                       >
                         <Text style={styles.voidButtonText}>Estornar lançamento</Text>
                       </Pressable>
@@ -515,9 +514,9 @@ export function ContributionsAdmin({
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`Ajustar faixa de cobrança de ${participant.nickname}`}
-                disabled={busy || isLoading}
+                disabled={busy || isLoading || !protectedMutationsReady}
                 onPress={() => setOpenAccountId((current) => (current === participant.userId ? null : participant.userId))}
-                style={[styles.accountToggle, (busy || isLoading) && styles.disabled]}
+                style={[styles.accountToggle, (busy || isLoading || !protectedMutationsReady) && styles.disabled]}
               >
                 <Text style={styles.accountToggleText}>
                   {openAccountId === participant.userId ? 'Fechar ajuste de cobrança' : 'Ajustar cobrança'}
@@ -563,9 +562,9 @@ export function ContributionsAdmin({
                   </View>
                   <Pressable
                     accessibilityRole="button"
-                    disabled={busy || isLoading}
+                    disabled={busy || isLoading || !protectedMutationsReady}
                     onPress={() => requestAccountChange(participant)}
-                    style={[styles.button, styles.accountSave, (busy || isLoading) && styles.disabled]}
+                    style={[styles.button, styles.accountSave, (busy || isLoading || !protectedMutationsReady) && styles.disabled]}
                   >
                     <Text style={styles.buttonText}>Revisar faixa de cobrança</Text>
                   </Pressable>
@@ -624,7 +623,7 @@ export function ContributionsAdmin({
           {error}
         </Text>
       ) : null}
-      {!mutationsReady ? (
+      {!paymentMutationsReady && !protectedMutationsReady ? (
         <Text style={styles.integrationNote}>As ações ficam disponíveis quando a integração administrativa for carregada.</Text>
       ) : null}
     </View>
@@ -678,9 +677,7 @@ const styles = StyleSheet.create({
   roundChipText: { color: theme.color.textMuted, fontSize: 12, fontWeight: '900' },
   roundChipTextActive: { color: theme.color.accent },
   roundContext: { color: theme.color.textSubtle, fontSize: 12 },
-  justificationBlock: { borderTopColor: theme.color.borderMuted, borderTopWidth: 1, gap: theme.space.xs, paddingTop: theme.space.md },
   label: { color: theme.color.text, fontSize: 12, fontWeight: '800' },
-  fieldHint: { color: theme.color.textSubtle, fontSize: 11, lineHeight: 16 },
   input: { backgroundColor: theme.color.canvas, borderColor: theme.color.borderStrong, borderRadius: theme.radius.sm, borderWidth: 1, color: theme.color.text, minHeight: theme.touchTarget, outlineColor: theme.color.focus, paddingHorizontal: theme.space.md, paddingVertical: theme.space.sm },
   participantList: { borderTopColor: theme.color.borderMuted, borderTopWidth: 1, gap: 0, paddingTop: theme.space.md },
   listHeader: { gap: theme.space.xs, marginBottom: theme.space.sm },

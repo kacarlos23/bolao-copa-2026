@@ -181,6 +181,42 @@ describe('contribution routes', () => {
     expect(mocks.dispatch).toHaveBeenCalledWith('event-1');
   });
 
+  it('records a payment directly without a justification or reinforced confirmation', async () => {
+    mocks.execute.mockResolvedValueOnce({
+      result: {
+        contribution: { poolSeasonId: 'pool-season-1', participants: [] },
+        eventId: 'event-payment-1',
+        payment: { id: 'payment-1', amountCents: 500, roundId: 'round-20' },
+      },
+      affectedCount: 1,
+      replayed: false,
+    });
+
+    const response = await request(app(adminContributionRouter, 'ADMIN'))
+      .post('/api/contributions/payment')
+      .set('idempotency-key', 'contribution-payment-1')
+      .send({
+        action: 'PAYMENT',
+        seasonId: 'season-1',
+        poolSeasonId: 'pool-season-1',
+        userId: 'user-1',
+        roundId: 'round-20',
+        amountCents: 500,
+      })
+      .expect(200);
+
+    expect(mocks.preview).not.toHaveBeenCalled();
+    expect(mocks.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: 'CONTRIBUTION_PAYMENT',
+        justification: 'Pagamento de contribuição registrado diretamente pelo administrador.',
+      }),
+    );
+    expect(mocks.execute.mock.calls[0]?.[0]?.confirmation).toBeUndefined();
+    expect(mocks.dispatch).toHaveBeenCalledWith('event-payment-1');
+    expect(response.body.mutation.payment).toMatchObject({ id: 'payment-1', amountCents: 500 });
+  });
+
   it('allows an active system user to configure an account before its season membership exists', async () => {
     await request(app(adminContributionRouter, 'ADMIN'))
       .post('/api/contributions/preview')

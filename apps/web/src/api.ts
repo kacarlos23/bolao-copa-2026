@@ -578,6 +578,14 @@ export interface ContributionMutationInput {
   endRound?: number | null;
 }
 
+export interface ContributionPaymentInput {
+  seasonId: string;
+  poolSeasonId: string;
+  userId: string;
+  roundId: string;
+  amountCents: number;
+}
+
 export interface PublicKnockoutBracket {
   id: string;
   submittedAt: string;
@@ -798,6 +806,18 @@ export const api = {
       `/api/admin/contributions?${params.toString()}`,
     );
   },
+  recordContributionPayment: (input: ContributionPaymentInput) =>
+    request<{ contribution: ContributionOverview; affectedCount: number; replayed: boolean }>(
+      '/api/admin/contributions/payment',
+      {
+        method: 'POST',
+        body: JSON.stringify({ action: 'PAYMENT', ...input }),
+        idempotencyKey:
+          typeof crypto !== 'undefined' && 'randomUUID' in crypto
+            ? crypto.randomUUID()
+            : `contribution-payment-${input.poolSeasonId}-${input.userId}-${input.roundId}-${Date.now()}`,
+      },
+    ),
   previewContribution: (input: ContributionMutationInput) =>
     request<AdminMutationPreview>('/api/admin/contributions/preview', {
       method: 'POST',

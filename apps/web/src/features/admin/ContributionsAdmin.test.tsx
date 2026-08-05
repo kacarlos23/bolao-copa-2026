@@ -55,12 +55,10 @@ describe('ContributionsAdmin', () => {
     vi.restoreAllMocks();
   });
 
-  it('previews and confirms a remaining payment with its justification', async () => {
-    const onPreview = vi.fn<(input: ContributionMutationDraft) => Promise<any>>().mockResolvedValue({
-      previewId: 'preview-1',
-      confirmation: 'CONFIRMAR 1 ABCDEF123456',
-    });
-    const onConfirm = vi.fn<(input: ContributionMutationConfirmation) => Promise<void>>().mockResolvedValue();
+  it('records a remaining payment directly without a justification or reinforced confirmation', async () => {
+    const onRecordPayment = vi.fn().mockResolvedValue(undefined);
+    const onPreview = vi.fn<(input: ContributionMutationDraft) => Promise<any>>();
+    const onConfirm = vi.fn<(input: ContributionMutationConfirmation) => Promise<void>>();
     const onRefresh = vi.fn<() => Promise<void>>().mockResolvedValue();
 
     render(
@@ -76,6 +74,7 @@ describe('ContributionsAdmin', () => {
             },
           ],
         }}
+        onRecordPayment={onRecordPayment}
         onPreview={onPreview}
         onConfirm={onConfirm}
         onRefresh={onRefresh}
@@ -84,54 +83,35 @@ describe('ContributionsAdmin', () => {
 
     expect(screen.getByText('Contribuições por rodada')).toBeTruthy();
     expect(screen.getByText(/R\$\s*10,00 por participante/)).toBeTruthy();
-    fireEvent.change(screen.getByLabelText('Justificativa da alteração de contribuição'), {
-      target: { value: 'PIX recebido pelo participante' },
-    });
     fireEvent.click(screen.getByLabelText('Quitar Leoncio'));
 
     await waitFor(() =>
-      expect(onPreview).toHaveBeenCalledWith({
-        action: 'PAYMENT',
+      expect(onRecordPayment).toHaveBeenCalledWith({
         userId: 'user-1',
         roundId: 'round-20',
         amountCents: 500,
-        justification: 'PIX recebido pelo participante',
       }),
     );
-    await screen.findByText(/Digite exatamente:/);
-    fireEvent.change(screen.getByLabelText('Confirmação da alteração de contribuição'), {
-      target: { value: 'CONFIRMAR 1 ABCDEF123456' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Confirmar alteração' }));
 
-    await screen.findByText('Pagamento registrado com auditoria.');
-    expect(onConfirm).toHaveBeenCalledWith({
-      action: 'PAYMENT',
-      userId: 'user-1',
-      roundId: 'round-20',
-      amountCents: 500,
-      justification: 'PIX recebido pelo participante',
-      previewId: 'preview-1',
-      confirmation: 'CONFIRMAR 1 ABCDEF123456',
-    });
+    await screen.findByText('Pagamento registrado.');
+    expect(onPreview).not.toHaveBeenCalled();
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText('Justificativa da alteração de contribuição')).toBeNull();
+    expect(screen.queryByLabelText('Confirmação da alteração de contribuição')).toBeNull();
     expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 
   it('prevents a partial entry greater than the selected round balance', async () => {
-    const onPreview = vi.fn<(input: ContributionMutationDraft) => Promise<any>>();
-    const onConfirm = vi.fn<(input: ContributionMutationConfirmation) => Promise<void>>();
-    render(<ContributionsAdmin overview={overview} onPreview={onPreview} onConfirm={onConfirm} />);
+    const onRecordPayment = vi.fn().mockResolvedValue(undefined);
+    render(<ContributionsAdmin overview={overview} onRecordPayment={onRecordPayment} />);
 
-    fireEvent.change(screen.getByLabelText('Justificativa da alteração de contribuição'), {
-      target: { value: 'Pagamento parcial conferido' },
-    });
     fireEvent.change(screen.getByLabelText('Valor para Leoncio na Rodada 20'), {
       target: { value: '5,01' },
     });
-    fireEvent.click(screen.getByLabelText('Revisar pagamento parcial de Leoncio'));
+    fireEvent.click(screen.getByLabelText('Registrar pagamento parcial de Leoncio'));
 
     expect((await screen.findByRole('alert')).textContent).toContain('R$ 5,00');
-    expect(onPreview).not.toHaveBeenCalled();
+    expect(onRecordPayment).not.toHaveBeenCalled();
   });
 
   it('selects the most recent active receipt for an auditable void', async () => {
@@ -161,16 +141,13 @@ describe('ContributionsAdmin', () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText('Justificativa da alteração de contribuição'), {
-      target: { value: 'Pagamento lançado em duplicidade' },
-    });
     fireEvent.click(screen.getByLabelText('Estornar pagamento de Leoncio'));
 
     await waitFor(() =>
       expect(onPreview).toHaveBeenCalledWith({
         action: 'VOID',
         transactionId: 'payment-2',
-        justification: 'Pagamento lançado em duplicidade',
+        justification: 'Estorno de contribuição registrado pelo administrador.',
       }),
     );
   });
@@ -194,9 +171,6 @@ describe('ContributionsAdmin', () => {
     fireEvent.click(screen.getByLabelText('Selecionar Rodada 21'));
     expect(onRoundChange).toHaveBeenCalledWith('round-21');
 
-    fireEvent.change(screen.getByLabelText('Justificativa da alteração de contribuição'), {
-      target: { value: 'Participante entrou após a rodada inicial' },
-    });
     fireEvent.click(screen.getByLabelText('Ajustar faixa de cobrança de Leoncio'));
     fireEvent.change(screen.getByLabelText('Rodada inicial de Leoncio'), { target: { value: '21' } });
     fireEvent.change(screen.getByLabelText('Rodada final de Leoncio'), { target: { value: '21' } });
@@ -208,7 +182,7 @@ describe('ContributionsAdmin', () => {
         userId: 'user-1',
         startRound: 21,
         endRound: 21,
-        justification: 'Participante entrou após a rodada inicial',
+        justification: 'Faixa de cobrança atualizada pelo administrador.',
       }),
     );
   });

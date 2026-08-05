@@ -48,7 +48,7 @@ const adminQuerySchema = z
   })
   .strict();
 
-const paymentSchema = z
+const paymentInputSchema = z
   .object({
     action: z.literal('PAYMENT'),
     seasonId: entityIdSchema,
@@ -56,9 +56,10 @@ const paymentSchema = z
     userId: entityIdSchema,
     roundId: entityIdSchema,
     amountCents: z.number().int().min(1).max(CONTRIBUTION_AMOUNT_PER_ROUND_CENTS),
-    justification: justificationSchema,
   })
   .strict();
+
+const paymentSchema = paymentInputSchema.extend({ justification: justificationSchema }).strict();
 
 const voidSchema = z
   .object({
@@ -98,6 +99,9 @@ type ContributionMutationResult = {
   voided?: { id: string; voidsTransactionId: string | null; amountCents: number; roundId: string };
   account?: { id: string; userId: string; startRound: number; endRound: number | null };
 };
+
+const DIRECT_PAYMENT_JUSTIFICATION =
+  'Pagamento de contribuição registrado diretamente pelo administrador.';
 
 function contributionOperation(action: ContributionAction['action']) {
   if (action === 'PAYMENT') return 'CONTRIBUTION_PAYMENT';
@@ -371,6 +375,69 @@ adminContributionRouter.get(
     const lookup = await getContributionLookup(query.poolSeasonId);
     ensureSeason(lookup, query.seasonId);
     res.json({ contribution });
+  }),
+);
+
+/**
+ * Routine payments are intentionally one-step: the admin does not need to enter
+ * a repetitive reason or type a confirmation proof. The immutable transaction,
+ * idempotency record, before/after audit and realtime event remain in place.
+ */
+adminContributionRouter.post(
+  '/contributions/payment',
+  asyncHandler(async (req, res) => {
+    const input = paymentInputSchema.parse(req.body);
+    const body: z.infer<typeof paymentSchema> = {
+      ...input,
+      justification: DIRECT_PAYMENT_JUSTIFICATION,
+    };
+    setAdminScope(req, body);
+    const context = adminRequestContext(req);
+    const scope = contributionScope(body);
+    const response = await executeSensitiveMutation<ContributionMutationResult>({
+      context,
+      action: contributionAuditAction(body.action),
+      operation: contributionOperation(body.action),
+      scope,
+      justification: body.justification,
+      request: contributionRequest(body),
+      mutate: async (tx) => {
+        const prepared = await preparePayment(body, tx);
+        const before = await adminOverview(body.poolSeasonId, body.roundId, tx);
+        const payment = await tx.poolSeasonContributionTransaction.create({
+          data: {
+            accountId: prepared.account.id,
+            roundId: body.roundId,
+            kind: ContributionTransactionKind.PAYMENT,
+            amountCents: body.amountCents,
+            justification: body.justification,
+            createdById: context.actorId,
+          },
+          select: { id: true, amountCents: true, roundId: true },
+        });
+        const contribution = await adminOverview(body.poolSeasonId, body.roundId, tx);
+        const event = await eventForContribution(tx, body, context.idempotencyKey);
+        return {
+          before,
+          after: contribution,
+          result: { contribution, eventId: event.id, payment },
+          affectedCount: 1,
+          details: {
+            action: body.action,
+            userId: body.userId,
+            roundId: body.roundId,
+            amountCents: body.amountCents,
+          },
+        };
+      },
+    });
+    await dispatchOutboxEvent(response.result.eventId);
+    res.json({
+      contribution: response.result.contribution,
+      mutation: { payment: response.result.payment },
+      affectedCount: response.affectedCount,
+      replayed: response.replayed,
+    });
   }),
 );
 
