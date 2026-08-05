@@ -96,12 +96,6 @@ export function createDistributionServer({
   return createServer((request, response) => {
     if (testRequestHandler?.(request, response) === true) return;
 
-    if (request.method !== 'GET' && request.method !== 'HEAD') {
-      response.writeHead(405, { allow: 'GET, HEAD', 'cache-control': 'no-store' });
-      response.end();
-      return;
-    }
-
     let pathname;
     try {
       pathname = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname);
@@ -112,6 +106,12 @@ export function createDistributionServer({
 
     if (resolvedApiOrigin && isApiRequest(request.url)) {
       proxyToApi(request, response, resolvedApiOrigin);
+      return;
+    }
+
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      response.writeHead(405, { allow: 'GET, HEAD', 'cache-control': 'no-store' });
+      response.end();
       return;
     }
 

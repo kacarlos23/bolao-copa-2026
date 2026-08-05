@@ -75,4 +75,41 @@ describe('production web server', () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ path: '/api/fundraising?season=2026' });
   });
+
+  it('forwards POST login requests to the configured internal API origin', async () => {
+    const upstream = createServer(async (request, response) => {
+      const body = await new Promise<string>((resolve, reject) => {
+        const chunks: Buffer[] = [];
+        request.on('data', (chunk: Buffer) => chunks.push(chunk));
+        request.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+        request.on('error', reject);
+      });
+
+      response.writeHead(201, { 'content-type': 'application/json; charset=utf-8' });
+      response.end(JSON.stringify({ method: request.method, path: request.url, body }));
+    });
+    await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+    const upstreamPort = (upstream.address() as AddressInfo).port;
+    cleanup.push(
+      () =>
+        new Promise<void>((resolve) => {
+          upstream.closeAllConnections?.();
+          upstream.close(() => resolve());
+        }),
+    );
+
+    const baseUrl = await startServer({ apiOrigin: `http://127.0.0.1:${upstreamPort}` });
+    const response = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ nickname: 'proxy-test-user', password: 'proxy-test-password' }),
+    });
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({
+      method: 'POST',
+      path: '/api/auth/login',
+      body: '{"nickname":"proxy-test-user","password":"proxy-test-password"}',
+    });
+  });
 });
