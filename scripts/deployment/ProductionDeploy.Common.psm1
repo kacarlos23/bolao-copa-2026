@@ -298,6 +298,24 @@ function Get-AutoDeployStatus {
 function Get-ManifestPayload {
   param([Parameter(Mandatory = $true)]$Manifest)
 
+  # ConvertFrom-Json represents an empty JSON array differently between
+  # Windows PowerShell and PowerShell Core. Build typed collections explicitly
+  # so [] is always hashed as [], never as [null] or null.
+  $rcTags = New-Object Collections.Generic.List[string]
+  foreach ($tag in $Manifest.rcTags) {
+    if ($null -ne $tag) {
+      $rcTags.Add([string]$tag)
+    }
+  }
+  $files = New-Object Collections.Generic.List[object]
+  foreach ($file in $Manifest.files) {
+    if ($null -ne $file) {
+      $files.Add([ordered]@{
+        path = [string]$file.path
+        sha256 = [string]$file.sha256
+      })
+    }
+  }
   $payload = [ordered]@{
     formatVersion = [int]$Manifest.formatVersion
     suite = [string]$Manifest.suite
@@ -305,8 +323,8 @@ function Get-ManifestPayload {
     pii = [bool]$Manifest.pii
     generatedAt = [string]$Manifest.generatedAt
     commitSha = [string]$Manifest.commitSha
-    rcTags = @($Manifest.rcTags)
-    files = @($Manifest.files)
+    rcTags = [string[]]$rcTags.ToArray()
+    files = [object[]]$files.ToArray()
   }
   return ($payload | ConvertTo-Json -Depth 20 -Compress)
 }

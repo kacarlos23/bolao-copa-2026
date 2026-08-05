@@ -50,6 +50,24 @@ function Write-Utf8File {
   [IO.File]::WriteAllText($Path, $Value, (New-Object Text.UTF8Encoding($false)))
 }
 
+function Get-NodeManifestPayloadSha256 {
+  param([Parameter(Mandatory = $true)][string]$ManifestPath)
+
+  $nodeScript = @'
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+
+const manifest = JSON.parse(readFileSync(process.argv[1], 'utf8'));
+const { manifestSha256, ...payload } = manifest;
+process.stdout.write(createHash('sha256').update(JSON.stringify(payload)).digest('hex'));
+'@
+  $hash = @(& node --input-type=module -e $nodeScript $ManifestPath)
+  if ($LASTEXITCODE -ne 0 -or @($hash).Count -ne 1 -or [string]$hash[0] -notmatch '^[a-f0-9]{64}$') {
+    throw "Nao foi possivel calcular o checksum Node do manifesto de teste."
+  }
+  return ([string]$hash[0]).Trim().ToLowerInvariant()
+}
+
 function New-TestReleaseManifest {
   param(
     [Parameter(Mandatory = $true)][string]$Repository,
@@ -316,6 +334,8 @@ try {
     $manifest["manifestSha256"] = Get-StringSha256 -Value (Get-ManifestPayload -Manifest $payloadObject)
     $manifestPath = Join-Path $testRoot "manifest.json"
     Write-Utf8File -Path $manifestPath -Value ($manifest | ConvertTo-Json -Depth 20)
+    Assert-Equal ([string]$manifest.manifestSha256) (Get-NodeManifestPayloadSha256 -ManifestPath $manifestPath) `
+      "checksum PowerShell precisa coincidir com o manifesto Node"
     Test-ReleaseManifest -ManifestPath $manifestPath -TargetSha $sha -SourceRoot $repository | Out-Null
 
     Write-Utf8File -Path (Join-Path $repository "package-lock.json") -Value "working-tree-crlf`r`n"
