@@ -46,24 +46,12 @@ test('the production web build always publishes the approved competition experie
   assert.match(buildScript, /expoCli,\s*'export',\s*'--platform',\s*'web',\s*'--clear'/);
   assert.match(startupScript, /node dist\/src\/server\.js/);
   assert.doesNotMatch(startupScript, /set WEB_ORIGIN=http:\/\/localhost:\$Port/);
-<<<<<<< HEAD
   assert.match(ecosystem, /const releaseRoot = path\.resolve\(__dirname\)/);
   assert.match(
     ecosystem,
     /script:\s*path\.join\(releaseRoot,\s*'apps',\s*'web',\s*'scripts',\s*'serve-dist\.mjs'\)/,
   );
-=======
-<<<<<<< HEAD
-  assert.match(ecosystem, /script:\s*'scripts\/serve-dist\.mjs'/);
->>>>>>> a6ada8c (Add deployment rollback and smoke test scripts)
   assert.match(ecosystem, /API_ORIGIN:\s*'http:\/\/127\.0\.0\.1:3001'/);
-=======
-  assert.match(ecosystem, /const releaseRoot = path\.resolve\(__dirname\)/);
-  assert.match(
-    ecosystem,
-    /script:\s*path\.join\(releaseRoot,\s*'apps',\s*'web',\s*'scripts',\s*'serve-dist\.mjs'\)/,
-  );
->>>>>>> df72695 (Add deployment rollback and smoke test scripts)
   assert.doesNotMatch(ecosystem, /expo start/);
 });
 

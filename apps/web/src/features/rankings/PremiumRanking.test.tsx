@@ -173,7 +173,9 @@ describe('PremiumRanking', () => {
     expect(screen.getByText('Corrida pelo topo')).toBeTruthy();
     expect(screen.getByText('Valor arrecadado')).toBeTruthy();
     expect(screen.getByText(/R\$\s*0,00/)).toBeTruthy();
-    expect(screen.getByText('Ação entre amigos para custear a viagem')).toBeTruthy();
+    expect(
+      screen.getByText('Premiação do pódio: 50% para o 1º, 30% para o 2º e 20% para o 3º lugar'),
+    ).toBeTruthy();
     expect(screen.getByText('0 participante(s)')).toBeTruthy();
   });
 
@@ -198,6 +200,35 @@ describe('PremiumRanking', () => {
     );
 
     expect(screen.getByText(/R\$\s*1\.250,00/)).toBeTruthy();
+  });
+
+  it('shows the truncated cash prize for each podium place', () => {
+    const ranking = [row(1, 'Ana', 30), row(2, 'Bruno', 24), row(3, 'Carla', 20)];
+    render(
+      <PremiumRanking
+        seasonName="Brasileirão Série A 2026"
+        ranking={ranking}
+        roundRanking={ranking}
+        currentUserId="user-1"
+        scope="overall"
+        onScopeChange={vi.fn()}
+        connection="live"
+        syncing={false}
+        lastSyncedAt={null}
+        onRefresh={vi.fn()}
+        awards={[]}
+        engagement={null}
+        tieBreakers={[]}
+        fundraisingCents={26_543}
+      />,
+    );
+
+    expect(screen.getByText('50% da premiação')).toBeTruthy();
+    expect(screen.getByText('30% da premiação')).toBeTruthy();
+    expect(screen.getByText('20% da premiação')).toBeTruthy();
+    expect(screen.getByText(/R\$\s*132,71/)).toBeTruthy();
+    expect(screen.getByText(/R\$\s*79,62/)).toBeTruthy();
+    expect(screen.getByText(/R\$\s*53,08/)).toBeTruthy();
   });
 
   it('preserva a ordem do backend, movimento, filtros, escopos e critérios reais', () => {

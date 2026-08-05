@@ -13,6 +13,7 @@ import {
   tiesResponseSchema,
   teamProfileResponseSchema,
   type CompetitionDto,
+  type FundraisingPrize,
   type MatchDto,
   type PublicMatchPredictionsResponse,
   type RoundDto,
@@ -484,6 +485,7 @@ export interface AdminMutationPreview {
 export interface Fundraising {
   poolSeasonId: string;
   amountCents: number;
+  prizes: FundraisingPrize[];
   description: string;
   updatedAt: string | null;
   updatedById: string | null;

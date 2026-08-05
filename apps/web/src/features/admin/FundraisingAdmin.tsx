@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { calculateFundraisingPrizes } from '@bolao/shared';
 import { api, type AdminFundraisingOverview, type AdminMutationPreview } from '../../api';
 import { errorMessage } from '../../services/api-client';
 import { centsToBrlInput, formatBrlCents, parseBrlInputToCents } from '../../fundraising';
@@ -22,6 +23,9 @@ export function FundraisingAdmin({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const draftAmountCents =
+    parseBrlInputToCents(amount) ?? overview?.fundraising.amountCents ?? 0;
+  const prizes = calculateFundraisingPrizes(draftAmountCents);
 
   async function load() {
     if (!seasonId || !poolSeasonId) {
@@ -104,7 +108,7 @@ export function FundraisingAdmin({
       setAmount(centsToBrlInput(result.fundraising.amountCents));
       setPreview(null);
       setConfirmation('');
-      setMessage('Valor arrecadado salvo com auditoria.');
+      setMessage('Valor arrecadado salvo com auditoria e premiação recalculada.');
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -124,7 +128,17 @@ export function FundraisingAdmin({
         {busy ? <ActivityIndicator color={theme.color.accent} /> : null}
       </View>
       <Text style={styles.current}>{formatBrlCents(overview?.fundraising.amountCents ?? 0)}</Text>
-      <Text style={styles.copy}>Ação entre amigos para custear a viagem</Text>
+      <Text style={styles.copy}>Premiação em dinheiro para os três primeiros colocados.</Text>
+      <View style={styles.prizes} accessibilityLabel="Premiação prevista do pódio">
+        <Text style={styles.prizesTitle}>Premiação do pódio</Text>
+        {prizes.map((prize) => (
+          <View key={prize.place} style={styles.prizeRow}>
+            <Text style={styles.prizeLabel}>{prize.place}º lugar · {prize.percentage}%</Text>
+            <Text style={styles.prizeValue}>{formatBrlCents(prize.amountCents)}</Text>
+          </View>
+        ))}
+        <Text style={styles.prizeNote}>Valores truncados em centavos, sem arredondamento.</Text>
+      </View>
       {overview ? (
         <Text style={styles.estimate}>
           Contribuição prevista: {overview.activeParticipants} participantes ativos ×{' '}
@@ -217,6 +231,19 @@ const styles = StyleSheet.create({
   title: { color: theme.color.text, fontSize: 18, fontWeight: '900', marginTop: 3 },
   current: { color: theme.color.gold, fontSize: 30, fontWeight: '900' },
   copy: { color: theme.color.textMuted, lineHeight: 20 },
+  prizes: {
+    backgroundColor: theme.color.canvas,
+    borderColor: theme.color.border,
+    borderRadius: theme.radius.sm,
+    borderWidth: 1,
+    gap: theme.space.xs,
+    padding: theme.space.md,
+  },
+  prizesTitle: { color: theme.color.gold, fontSize: 12, fontWeight: '900', textTransform: 'uppercase' },
+  prizeRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
+  prizeLabel: { color: theme.color.textMuted, fontSize: 13, fontWeight: '800' },
+  prizeValue: { color: theme.color.text, fontSize: 15, fontWeight: '900' },
+  prizeNote: { color: theme.color.textSubtle, fontSize: 11, lineHeight: 16, marginTop: theme.space.xs },
   estimate: { color: theme.color.textSubtle, fontSize: 12, lineHeight: 18 },
   label: { color: theme.color.text, fontSize: 12, fontWeight: '800', marginTop: 4 },
   input: {

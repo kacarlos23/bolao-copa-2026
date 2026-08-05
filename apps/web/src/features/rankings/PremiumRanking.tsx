@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import type { RankingRowDto } from '@bolao/shared';
+import { calculateFundraisingPrizes, type RankingRowDto } from '@bolao/shared';
 import { type EngagementDashboard, type RankingAward } from '../../api';
 import {
   Card,
@@ -461,6 +461,15 @@ export function PremiumRanking({
   const above = currentIndex > 0 ? ranking[currentIndex - 1] : null;
   const leader = ranking[0];
   const roundLeader = roundRanking[0];
+  const prizesByPlace = useMemo(
+    () =>
+      new Map(
+        fundraisingCents == null
+          ? []
+          : calculateFundraisingPrizes(fundraisingCents).map((prize) => [prize.place, prize]),
+      ),
+    [fundraisingCents],
+  );
   const liveLabel = syncing
     ? 'Atualizando'
     : connection === 'live'
@@ -626,7 +635,7 @@ export function PremiumRanking({
               <View style={styles.fundraisingCopy}>
                 <Text style={styles.fundraisingLabel}>Valor arrecadado</Text>
                 <Text style={styles.fundraisingDetail}>
-                  Ação entre amigos para custear a viagem
+                  Premiação do pódio: 50% para o 1º, 30% para o 2º e 20% para o 3º lugar
                 </Text>
               </View>
               <Text style={styles.fundraisingValue}>{formatBrlCents(fundraisingCents)}</Text>
@@ -640,45 +649,57 @@ export function PremiumRanking({
             style={[styles.podiumSurface, compact && styles.podiumSurfaceCompact]}
           >
             <View style={styles.podium}>
-              {[ranking[1], ranking[0], ranking[2]].filter(Boolean).map((row) => (
-                <MotionPressable
-                  key={row.userId}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Abrir perfil de ${row.nickname}, ${row.rank}º lugar`}
-                  onPress={() => setProfile(row)}
-                  style={[
-                    styles.podiumItem,
-                    row.rank === 1 && styles.podiumFirst,
-                    row.userId === currentUserId && styles.currentPodium,
-                  ]}
-                >
-                  <Text style={[styles.medal, compact && styles.medalCompact]}>
-                    {row.rank === 1 ? '🥇' : row.rank === 2 ? '🥈' : '🥉'}
-                  </Text>
-                  <RankingUserAvatar
-                    row={row}
-                    size={compact ? (row.rank === 1 ? 58 : 48) : row.rank === 1 ? 72 : 60}
-                  />
-                  <Text
+              {[ranking[1], ranking[0], ranking[2]].filter(Boolean).map((row) => {
+                const prize =
+                  row.rank >= 1 && row.rank <= 3
+                    ? prizesByPlace.get(row.rank as 1 | 2 | 3)
+                    : undefined;
+                return (
+                  <MotionPressable
+                    key={row.userId}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Abrir perfil de ${row.nickname}, ${row.rank}º lugar`}
+                    onPress={() => setProfile(row)}
                     style={[
-                      styles.podiumName,
-                      compact && styles.podiumNameCompact,
-                      row.userId === currentUserId && styles.currentPodiumName,
+                      styles.podiumItem,
+                      row.rank === 1 && styles.podiumFirst,
+                      row.userId === currentUserId && styles.currentPodium,
                     ]}
-                    numberOfLines={1}
                   >
-                    {row.nickname}
-                  </Text>
-                  <Text style={[styles.podiumPoints, compact && styles.podiumPointsCompact]}>
-                    {row.points} pts
-                  </Text>
-                  <Text style={styles.podiumMeta} numberOfLines={1}>
-                    {row.exactScores} exatos
-                  </Text>
-                  <RankingMovementBadge row={row} />
-                  {row.userId === currentUserId ? <Text style={styles.youBadge}>VOCÊ</Text> : null}
-                </MotionPressable>
-              ))}
+                    <Text style={[styles.medal, compact && styles.medalCompact]}>
+                      {row.rank === 1 ? '🥇' : row.rank === 2 ? '🥈' : '🥉'}
+                    </Text>
+                    <RankingUserAvatar
+                      row={row}
+                      size={compact ? (row.rank === 1 ? 58 : 48) : row.rank === 1 ? 72 : 60}
+                    />
+                    <Text
+                      style={[
+                        styles.podiumName,
+                        compact && styles.podiumNameCompact,
+                        row.userId === currentUserId && styles.currentPodiumName,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {row.nickname}
+                    </Text>
+                    <Text style={[styles.podiumPoints, compact && styles.podiumPointsCompact]}>
+                      {row.points} pts
+                    </Text>
+                    {prize ? (
+                      <View style={styles.podiumPrize}>
+                        <Text style={styles.podiumPrizeLabel}>{prize.percentage}% da premiação</Text>
+                        <Text style={styles.podiumPrizeValue}>{formatBrlCents(prize.amountCents)}</Text>
+                      </View>
+                    ) : null}
+                    <Text style={styles.podiumMeta} numberOfLines={1}>
+                      {row.exactScores} exatos
+                    </Text>
+                    <RankingMovementBadge row={row} />
+                    {row.userId === currentUserId ? <Text style={styles.youBadge}>VOCÊ</Text> : null}
+                  </MotionPressable>
+                );
+              })}
             </View>
           </Card>
         ) : (
@@ -1079,6 +1100,9 @@ const styles = StyleSheet.create({
   podiumNameCompact: { fontSize: 11 },
   podiumPoints: { color: theme.color.accent, fontSize: 22, fontWeight: '900' },
   podiumPointsCompact: { fontSize: 16 },
+  podiumPrize: { alignItems: 'center', gap: 1 },
+  podiumPrizeLabel: { color: theme.color.textMuted, fontSize: 10, fontWeight: '800' },
+  podiumPrizeValue: { color: theme.color.gold, fontSize: 15, fontWeight: '900' },
   podiumMeta: { color: theme.color.textMuted, fontSize: 10 },
   youBadge: {
     backgroundColor: theme.color.accent,

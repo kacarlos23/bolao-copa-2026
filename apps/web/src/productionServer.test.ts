@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -14,10 +15,10 @@ afterEach(async () => {
   await Promise.all(cleanup.splice(0).map((run) => run()));
 });
 
-async function startServer() {
+async function startServer(options: Parameters<typeof createDistributionServer>[0] = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'bolao-web-dist-'));
   await fs.writeFile(path.join(root, 'index.html'), '<!doctype html><title>Bolao</title>');
-  const server = createDistributionServer({ root, releaseSha: 'abc1234' });
+  const server = createDistributionServer({ root, releaseSha: 'abc1234', ...options });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const port = (server.address() as AddressInfo).port;
   cleanup.push(
@@ -51,5 +52,27 @@ describe('production web server', () => {
     expect(response.status).toBe(404);
     expect(response.headers.get('content-type')).toBe('application/json; charset=utf-8');
     expect(response.headers.get('content-type')).not.toContain('text/event-stream');
+  });
+
+  it('forwards API traffic to the configured internal API origin', async () => {
+    const upstream = createServer((request, response) => {
+      response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+      response.end(JSON.stringify({ path: request.url, forwardedHost: request.headers['x-forwarded-host'] }));
+    });
+    await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+    const upstreamPort = (upstream.address() as AddressInfo).port;
+    cleanup.push(
+      () =>
+        new Promise<void>((resolve) => {
+          upstream.closeAllConnections?.();
+          upstream.close(() => resolve());
+        }),
+    );
+
+    const baseUrl = await startServer({ apiOrigin: `http://127.0.0.1:${upstreamPort}` });
+    const response = await fetch(`${baseUrl}/api/fundraising?season=2026`);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ path: '/api/fundraising?season=2026' });
   });
 });

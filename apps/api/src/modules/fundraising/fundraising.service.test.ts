@@ -26,6 +26,11 @@ describe('PoolSeason fundraising', () => {
     await expect(getPoolSeasonFundraising('pool-season-a')).resolves.toMatchObject({
       poolSeasonId: 'pool-season-a',
       amountCents: 15_050,
+      prizes: [
+        { place: 1, percentage: 50, amountCents: 7_525 },
+        { place: 2, percentage: 30, amountCents: 4_515 },
+        { place: 3, percentage: 20, amountCents: 3_010 },
+      ],
     });
     expect(mocks.findUnique).toHaveBeenCalledWith(
       expect.objectContaining({ where: { poolSeasonId: 'pool-season-a' } }),
@@ -36,6 +41,11 @@ describe('PoolSeason fundraising', () => {
     expect(fundraisingDto('pool-season-b', null)).toMatchObject({
       poolSeasonId: 'pool-season-b',
       amountCents: 0,
+      prizes: [
+        { place: 1, percentage: 50, amountCents: 0 },
+        { place: 2, percentage: 30, amountCents: 0 },
+        { place: 3, percentage: 20, amountCents: 0 },
+      ],
       updatedAt: null,
     });
   });

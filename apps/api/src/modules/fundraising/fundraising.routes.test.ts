@@ -145,6 +145,11 @@ describe('fundraising routes', () => {
     expect(response.body.fundraising).toMatchObject({
       poolSeasonId: 'pool-season-1',
       amountCents: 15_050,
+      prizes: [
+        { place: 1, percentage: 50, amountCents: 7_525 },
+        { place: 2, percentage: 30, amountCents: 4_515 },
+        { place: 3, percentage: 20, amountCents: 3_010 },
+      ],
     });
   });
 

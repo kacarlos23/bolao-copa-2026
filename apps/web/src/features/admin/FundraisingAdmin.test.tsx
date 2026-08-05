@@ -9,7 +9,12 @@ describe('FundraisingAdmin', () => {
       fundraising: {
         poolSeasonId: 'pool-season-1',
         amountCents: 0,
-        description: 'Ação entre amigos para custear a viagem',
+        prizes: [
+          { place: 1, percentage: 50, amountCents: 0 },
+          { place: 2, percentage: 30, amountCents: 0 },
+          { place: 3, percentage: 20, amountCents: 0 },
+        ],
+        description: 'Premiação do pódio: 50% para o 1º, 30% para o 2º e 20% para o 3º lugar.',
         updatedAt: null,
         updatedById: null,
         lastJustification: null,
@@ -29,7 +34,12 @@ describe('FundraisingAdmin', () => {
       fundraising: {
         poolSeasonId: 'pool-season-1',
         amountCents: 15_050,
-        description: 'Ação entre amigos para custear a viagem',
+        prizes: [
+          { place: 1, percentage: 50, amountCents: 7_525 },
+          { place: 2, percentage: 30, amountCents: 4_515 },
+          { place: 3, percentage: 20, amountCents: 3_010 },
+        ],
+        description: 'Premiação do pódio: 50% para o 1º, 30% para o 2º e 20% para o 3º lugar.',
         updatedAt: '2026-07-24T12:00:00.000Z',
         updatedById: 'admin-1',
         lastJustification: 'Valor confirmado pelo administrador',
@@ -47,7 +57,7 @@ describe('FundraisingAdmin', () => {
   it('loads, previews and saves the cents value', async () => {
     render(<FundraisingAdmin seasonId="season-1" poolSeasonId="pool-season-1" />);
 
-    await screen.findByText(/R\$\s*0,00/);
+    await screen.findByText(/Contribuição prevista:/);
     fireEvent.change(screen.getByLabelText('Valor arrecadado'), {
       target: { value: '150,50' },
     });
@@ -58,7 +68,7 @@ describe('FundraisingAdmin', () => {
     });
     fireEvent.click(screen.getByText('Salvar valor arrecadado'));
 
-    await screen.findByText('Valor arrecadado salvo com auditoria.');
+    await screen.findByText('Valor arrecadado salvo com auditoria e premiação recalculada.');
     expect(screen.getByText(/R\$\s*150,50/)).toBeTruthy();
     expect(api.updateFundraising).toHaveBeenCalledWith(
       expect.objectContaining({ amountCents: 15_050, poolSeasonId: 'pool-season-1' }),
@@ -75,5 +85,20 @@ describe('FundraisingAdmin', () => {
 
     expect((await screen.findByRole('alert')).textContent).toContain('Informe um valor válido');
     expect(api.previewFundraising).not.toHaveBeenCalled();
+  });
+
+  it('recalculates and truncates the podium prizes as the amount changes', async () => {
+    render(<FundraisingAdmin seasonId="season-1" poolSeasonId="pool-season-1" />);
+    await screen.findByText(/Contribuição prevista:/);
+
+    fireEvent.change(screen.getByLabelText('Valor arrecadado'), {
+      target: { value: '265,43' },
+    });
+
+    expect(screen.getByText('Premiação do pódio')).toBeTruthy();
+    expect(screen.getByText(/R\$\s*132,71/)).toBeTruthy();
+    expect(screen.getByText(/R\$\s*79,62/)).toBeTruthy();
+    expect(screen.getByText(/R\$\s*53,08/)).toBeTruthy();
+    expect(screen.getByText('Valores truncados em centavos, sem arredondamento.')).toBeTruthy();
   });
 });
